@@ -16,6 +16,7 @@
   "license": "Apache-2.0",
   "files": [
     "index.js",
+    "cache-key.js",
     "index.d.ts",
     "native-binding.js",
     "native-binding.d.ts",

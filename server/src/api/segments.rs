@@ -1,4 +1,4 @@
-use crate::auth::{AuthContext, get_session_claims};
+use crate::auth::AuthContext;
 use crate::state::AppState;
 use axum::{
     Json, Router,
@@ -258,7 +258,15 @@ async fn create_segment(
     Json(body): Json<CreateSegmentBody>,
 ) -> Result<Json<Segment>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
-    require_editor(&jar)?;
+    super::flags::check_env_write_access(&state.db, &jar, &env_id).await?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if super::flags::lock_environment(&mut tx, &env_id).await? {
+        return Err(StatusCode::CONFLICT);
+    }
 
     if !is_valid_segment_key(&body.key) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
@@ -279,12 +287,16 @@ async fn create_segment(
     .bind(&body.key)
     .bind(&body.description)
     .bind(&rules_val)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         error!(error = %e, "Failed to insert segment");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let rules_val: Value = row
         .try_get("rules")
@@ -312,7 +324,15 @@ async fn patch_segment(
     Json(body): Json<PatchSegmentBody>,
 ) -> Result<Json<Segment>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
-    require_editor(&jar)?;
+    super::flags::check_env_write_access(&state.db, &jar, &env_id).await?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if super::flags::lock_environment(&mut tx, &env_id).await? {
+        return Err(StatusCode::CONFLICT);
+    }
 
     let rules_val = body
         .rules
@@ -337,13 +357,17 @@ async fn patch_segment(
     .bind(&rules_val)
     .bind(&env_id)
     .bind(&key)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
         error!(error = %e, "Failed to update segment");
         StatusCode::INTERNAL_SERVER_ERROR
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
+
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let rules_val: Value = row
         .try_get("rules")
@@ -373,14 +397,21 @@ async fn delete_segment(
     Path((env_id, key)): Path<(String, String)>,
 ) -> Result<StatusCode, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
-    require_editor(&jar)?;
+    super::flags::check_env_write_access(&state.db, &jar, &env_id).await?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if super::flags::lock_environment(&mut tx, &env_id).await? {
+        return Err(StatusCode::CONFLICT);
+    }
 
-    // Re-broadcast before deleting so SDKs get versions without the segment rules.
-    // (After delete, load_env_segments will return an empty entry for this key.)
+    // Commit deletion before re-expanding referencing flags without these rules.
     let result = sqlx::query("DELETE FROM segments WHERE environment_id = $1::uuid AND key = $2")
         .bind(&env_id)
         .bind(&key)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to delete segment");
@@ -391,6 +422,10 @@ async fn delete_segment(
         return Err(StatusCode::NOT_FOUND);
     }
 
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     rebroadcast_referencing_flags(&state, &env_id, &key).await;
 
     info!(env_id = %env_id, key = %key, "Segment deleted");
@@ -400,19 +435,6 @@ async fn delete_segment(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Check that the caller has at least editor role. SDK key auth is treated as
-/// admin-equivalent and always passes.
-fn require_editor(jar: &AuthContext) -> Result<(), StatusCode> {
-    let Some(claims) = get_session_claims(jar) else {
-        return Ok(()); // SDK key auth
-    };
-    if matches!(claims.role.as_str(), "admin" | "editor") {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
-    }
-}
 
 /// Find all flags in `env_id` that reference `seg_key` in any targeting rule,
 /// re-expand them with the current segment state, and re-publish via Redis.

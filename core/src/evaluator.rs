@@ -224,7 +224,13 @@ fn pick_weighted_variant(
 
     let hash_key = format!("{}:{}:variant", flag_key, user_key);
     let hash_val = u64::from(murmurhash3_x86_32(hash_key.as_bytes(), 0));
-    let bucket = hash_val % total_weight;
+    let bucket = if total <= u64::from(u32::MAX) {
+        hash_val % total_weight
+    } else {
+        // u128 covers the complete u32 hash times any u64 total without overflow.
+        let scaled = u128::from(hash_val).saturating_mul(u128::from(total)) >> 32;
+        u64::try_from(scaled).unwrap_or(0)
+    };
 
     let mut cumulative = 0u64;
     for variant in variants {
@@ -374,6 +380,30 @@ mod tests {
             variants: vec![],
             prerequisites: vec![],
         }
+    }
+
+    #[test]
+    fn large_equal_weights_distribute_across_both_variants() {
+        let variants = vec![
+            WeightedVariant {
+                weight: u32::MAX,
+                value: FlagValue::Str("a".into()),
+            },
+            WeightedVariant {
+                weight: u32::MAX,
+                value: FlagValue::Str("b".into()),
+            },
+        ];
+        let count_a = (0..10_000)
+            .filter(|i| {
+                pick_weighted_variant("large", &format!("user{i}"), &variants)
+                    == FlagValue::Str("a".into())
+            })
+            .count();
+        assert!(
+            (4500..5500).contains(&count_a),
+            "equal large weights: {count_a} assignments to a"
+        );
     }
 
     #[test]

@@ -76,44 +76,37 @@ pub(super) async fn check_env_access(
     jar: &AuthContext,
     env_id: &str,
 ) -> Result<(), StatusCode> {
-    let Some(claims) = get_session_claims(jar) else {
-        return Ok(()); // SDK key auth
-    };
-    if claims.role == "admin" {
-        return Ok(());
+    if let Some(claims) = get_session_claims(jar) {
+        crate::auth::check_env_role(db, &claims, env_id, false).await?;
     }
+    Ok(())
+}
 
-    let project_id: Option<String> =
-        sqlx::query_scalar("SELECT project_id::text FROM environments WHERE id = $1::uuid")
-            .bind(env_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "DB error resolving environment project");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-    let project_id = project_id.ok_or(StatusCode::NOT_FOUND)?;
-
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM project_members pm JOIN users u ON u.id = pm.user_id \
-         WHERE pm.project_id = $1::uuid AND u.email = $2)",
-    )
-    .bind(&project_id)
-    .bind(&claims.email)
-    .fetch_one(db)
-    .await
-    .map_err(|e| {
-        error!(error = %e, "DB error checking project membership for flag access");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    if exists {
-        Ok(())
-    } else {
-        warn!(email = %claims.email, env_id = %env_id, "Forbidden: not a member of this environment's project");
-        Err(StatusCode::FORBIDDEN)
+pub(super) async fn check_env_write_access(
+    db: &sqlx::PgPool,
+    jar: &AuthContext,
+    env_id: &str,
+) -> Result<(), StatusCode> {
+    if let Some(claims) = get_session_claims(jar) {
+        crate::auth::check_env_role(db, &claims, env_id, true).await?;
     }
+    Ok(())
+}
+
+/// Serialize approval-policy changes with mutations of this environment.
+pub(crate) async fn lock_environment(
+    tx: &mut sqlx::PgTransaction<'_>,
+    env_id: &str,
+) -> Result<bool, StatusCode> {
+    sqlx::query_scalar("SELECT require_approval FROM environments WHERE id = $1::uuid FOR SHARE")
+        .bind(env_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Environment lock failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 // ---------------------------------------------------------------------------
@@ -298,23 +291,37 @@ async fn create_flag(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    sqlx::query(
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let protected = lock_environment(&mut tx, &env_id).await?;
+    let written = sqlx::query(
         "INSERT INTO flags (key, environment_id, data, tags, owner_email) \
          VALUES ($1, $2::uuid, $3, $4, $5) \
          ON CONFLICT (key, environment_id) \
-         DO UPDATE SET data = EXCLUDED.data, tags = EXCLUDED.tags, owner_email = EXCLUDED.owner_email",
+         DO UPDATE SET data = EXCLUDED.data, tags = EXCLUDED.tags, owner_email = EXCLUDED.owner_email WHERE NOT $6",
     )
     .bind(&payload.key)
     .bind(&env_id)
     .bind(&data)
     .bind(&req.tags)
     .bind(&req.owner_email)
-    .execute(&state.db)
+    .bind(protected)
+    .execute(&mut *tx)
     .await
     .map_err(|e| {
         error!(error = %e, "PostgreSQL write failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+
+    if written.rows_affected() == 0 {
+        return Err(StatusCode::CONFLICT);
+    }
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let actor_email = get_session_claims(&jar).map(|c| c.email);
     super::audit::log_audit_event(
@@ -391,19 +398,32 @@ async fn delete_flag(
 ) -> Result<StatusCode, StatusCode> {
     check_env_access(&state.db, &jar, &path.env_id).await?;
 
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if lock_environment(&mut tx, &path.env_id).await? {
+        return Err(StatusCode::CONFLICT);
+    }
+
     // RETURNING captures before_data for the audit log atomically with the delete.
     let row = sqlx::query(
         "DELETE FROM flags WHERE key = $1 AND environment_id = $2::uuid RETURNING data",
     )
     .bind(&path.key)
     .bind(&path.env_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
         error!(error = %e, "PostgreSQL delete failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
+
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let before_data: Option<serde_json::Value> = row.try_get("data").ok();
     let actor_email = get_session_claims(&jar).map(|c| c.email);
@@ -446,7 +466,7 @@ async fn delete_flag(
 /// Also pulls `tags`/`owner_email` (and drops `key`) out of the patch, since
 /// those are discrete columns, not part of `data` — see the module-level
 /// comment on [`FlagWithMetadata`].
-async fn merge_and_validate(
+pub(super) async fn merge_and_validate(
     db: impl sqlx::PgExecutor<'_>,
     env_id: &str,
     key: &str,
@@ -461,13 +481,22 @@ async fn merge_and_validate(
     ),
     StatusCode,
 > {
+    if !patch.is_object() {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let (mut new_tags, mut new_owner_email) = (None, None);
     if let serde_json::Value::Object(ref mut m) = patch {
         m.remove("key");
         if let Some(v) = m.remove("tags") {
-            new_tags = serde_json::from_value::<Vec<String>>(v).ok();
+            new_tags = Some(
+                serde_json::from_value::<Vec<String>>(v)
+                    .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?,
+            );
         }
         if let Some(v) = m.remove("owner_email") {
+            if !v.is_null() && !v.is_string() {
+                return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            }
             new_owner_email = Some(v.as_str().map(str::to_string));
         }
     }
@@ -512,21 +541,19 @@ async fn merge_and_validate(
     Ok((before_val, flag_val, flag, new_tags, new_owner_email))
 }
 
-/// Writes an already-validated patch: read-modify-write under `FOR UPDATE`,
-/// audit log, SSE broadcast, webhook fire. Shared by the direct PATCH path
-/// (`require_approval = false`) and by change-request approval.
-pub(super) async fn apply_patch(
-    state: &AppState,
+/// Flag mutation and its before/after values, held until the enclosing transaction commits.
+pub(crate) struct AppliedPatch {
+    pub result: FlagWithMetadata,
+    pub before: serde_json::Value,
+    pub data: serde_json::Value,
+}
+
+pub(crate) async fn apply_patch_in_tx(
+    db_tx: &mut sqlx::PgTransaction<'_>,
     env_id: &str,
     key: &str,
     patch: serde_json::Value,
-    actor_email: Option<&str>,
-) -> Result<FlagWithMetadata, StatusCode> {
-    let mut db_tx = state.db.begin().await.map_err(|e| {
-        error!(error = %e, "Failed to begin transaction");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
+) -> Result<AppliedPatch, StatusCode> {
     // Re-select FOR UPDATE inside the write transaction — `merge_and_validate`
     // above may have run against a plain (non-locking) read for a dry-run.
     let rec = sqlx::query(
@@ -535,7 +562,7 @@ pub(super) async fn apply_patch(
     )
     .bind(key)
     .bind(env_id)
-    .fetch_optional(&mut *db_tx)
+    .fetch_optional(&mut **db_tx)
     .await
     .map_err(|e| {
         error!(error = %e, "PostgreSQL read failed");
@@ -544,7 +571,7 @@ pub(super) async fn apply_patch(
     .ok_or(StatusCode::NOT_FOUND)?;
 
     let (before_val, flag_val, flag, new_tags, new_owner_email) =
-        merge_and_validate(&mut *db_tx, env_id, key, patch).await?;
+        merge_and_validate(&mut **db_tx, env_id, key, patch).await?;
 
     // Only touch tags/owner_email if the patch provided them — otherwise keep
     // whatever is already stored (read above under the same row lock).
@@ -562,55 +589,71 @@ pub(super) async fn apply_patch(
     .bind(&owner_email)
     .bind(key)
     .bind(env_id)
-    .execute(&mut *db_tx)
+    .execute(&mut **db_tx)
     .await
     .map_err(|e| {
         error!(error = %e, "PostgreSQL update failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    db_tx.commit().await.map_err(|e| {
-        error!(error = %e, "Transaction commit failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    Ok(AppliedPatch {
+        result: FlagWithMetadata {
+            flag,
+            tags,
+            owner_email,
+            archived_at,
+        },
+        before: before_val,
+        data: flag_val,
+    })
+}
 
+/// Emit side effects only after the flag and workflow status have committed.
+pub(crate) async fn emit_patch(
+    state: &AppState,
+    env_id: &str,
+    key: &str,
+    applied: AppliedPatch,
+    actor_email: Option<&str>,
+    scheduled_change_id: Option<&str>,
+) -> FlagWithMetadata {
+    let metadata = scheduled_change_id.map(|id| json!({"scheduled_change_id": id}));
     super::audit::log_audit_event(
         &state.db,
         env_id,
         key,
         actor_email,
         "UPDATE",
-        Some(&before_val),
-        Some(&flag_val),
-        None,
+        Some(&applied.before),
+        Some(&applied.data),
+        metadata.as_ref(),
     )
     .await;
 
     let segment_map = super::segments::load_env_segments(env_id, &state.db)
         .await
         .unwrap_or_default();
-    let expanded = super::segments::expand_flag_with_segments(flag.clone(), &segment_map);
+    let expanded =
+        super::segments::expand_flag_with_segments(applied.result.flag.clone(), &segment_map);
     state.store.upsert_flag(expanded.clone());
     let msg = json!({"type": "UPSERT", "env_id": env_id, "flag": expanded}).to_string();
     publish_update(state, &msg, "patch_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
-        "flag.updated",
+        if scheduled_change_id.is_some() {
+            "flag.scheduled_change_applied"
+        } else {
+            "flag.updated"
+        },
         env_id,
         key,
-        Some(&flag_val),
+        Some(&applied.data),
         actor_email,
-        None,
+        metadata.as_ref(),
     );
     crate::notify::notify(state.clone(), env_id.to_string(), wh_payload);
 
-    info!(env_id = %env_id, "Flag patched");
-    Ok(FlagWithMetadata {
-        flag,
-        tags,
-        owner_email,
-        archived_at,
-    })
+    applied.result
 }
 
 /// PATCH /api/environments/:env_id/flags/:key — partial update via JSON merge.
@@ -634,44 +677,42 @@ async fn patch_flag(
 
     check_env_access(&state.db, &jar, &path.env_id).await?;
 
-    let require_approval: bool =
-        sqlx::query_scalar("SELECT require_approval FROM environments WHERE id = $1::uuid")
-            .bind(&path.env_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "DB error checking require_approval");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-            .unwrap_or(false);
-
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let require_approval = lock_environment(&mut tx, &path.env_id).await?;
     let actor_email = get_session_claims(&jar).map(|c| c.email);
-
     if !require_approval {
-        let updated = apply_patch(
+        let applied = apply_patch_in_tx(&mut tx, &path.env_id, &path.key, patch).await?;
+        tx.commit()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let updated = emit_patch(
             &state,
             &path.env_id,
             &path.key,
-            patch,
+            applied,
             actor_email.as_deref(),
+            None,
         )
-        .await?;
+        .await;
         return Ok(Json(updated).into_response());
     }
-
-    // Approval required — validate it would apply cleanly, then queue it.
-    // SDK-key auth has no per-user identity to attribute the request to.
     let requested_by = actor_email.ok_or(StatusCode::UNAUTHORIZED)?;
-    merge_and_validate(&state.db, &path.env_id, &path.key, patch.clone()).await?;
-
+    merge_and_validate(&mut *tx, &path.env_id, &path.key, patch.clone()).await?;
     let cr = super::change_requests::create_change_request(
-        &state.db,
+        &mut *tx,
         &path.env_id,
         &path.key,
         &patch,
         &requested_by,
     )
     .await?;
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // A queued request is waiting on a human, so it's the event most worth
     // surfacing in chat — nothing applies until someone reviews it.
@@ -710,12 +751,16 @@ async fn promote_flag(
         .and_then(|v| v.as_str())
         .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?
         .to_string();
-    check_env_access(&state.db, &jar, &target_env_id).await?;
+    check_env_write_access(&state.db, &jar, &target_env_id).await?;
 
     let mut db_tx = state.db.begin().await.map_err(|e| {
         error!(error = %e, "Failed to begin transaction");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+
+    if lock_environment(&mut db_tx, &target_env_id).await? {
+        return Err(StatusCode::CONFLICT);
+    }
 
     // Read source flag.
     let rec = sqlx::query("SELECT data FROM flags WHERE key = $1 AND environment_id = $2::uuid")

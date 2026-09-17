@@ -1,11 +1,12 @@
 use crate::state::AppState;
+use crate::state::SdkKeyEntry;
 use axum::{
-    extract::{FromRef, FromRequestParts, State},
+    extract::{FromRequestParts, State},
     http::{Request, StatusCode, request::Parts},
     middleware::Next,
     response::Response,
 };
-use axum_extra::extract::cookie::{Key, PrivateCookieJar};
+use axum_extra::extract::cookie::PrivateCookieJar;
 use constant_time_eq::constant_time_eq;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -13,15 +14,11 @@ use sqlx::Row;
 use std::convert::Infallible;
 use tracing::warn;
 
-/// Minimal view of the session cookie — only role is needed for middleware access checks.
-#[derive(Deserialize)]
-struct RoleClaims {
-    role: String,
-}
-
 /// Full session claims — used by handlers that need the caller's email/role.
 #[derive(Deserialize, Clone)]
 pub(crate) struct SessionClaims {
+    pub user_id: i64,
+    pub expires_at: i64,
     pub email: String,
     #[allow(dead_code)]
     pub name: String,
@@ -79,7 +76,7 @@ pub(crate) fn hash_token(token: &str) -> String {
 async fn resolve_pat(db: &sqlx::PgPool, token: &str) -> Result<Option<PatIdentity>, ()> {
     let hash = hash_token(token);
     let row = sqlx::query(
-        "SELECT pat.id, pat.scope, u.email, u.name, u.role \
+        "SELECT pat.id, pat.scope, u.id AS user_id, u.email, u.name, u.role \
          FROM personal_access_tokens pat JOIN users u ON u.id = pat.user_id \
          WHERE pat.token_hash = $1 AND (pat.expires_at IS NULL OR pat.expires_at > NOW())",
     )
@@ -103,6 +100,8 @@ async fn resolve_pat(db: &sqlx::PgPool, token: &str) -> Result<Option<PatIdentit
 
     Ok(Some(PatIdentity {
         claims: SessionClaims {
+            user_id: row.get("user_id"),
+            expires_at: i64::MAX,
             email: row.get("email"),
             name: row.get("name"),
             role: row.get("role"),
@@ -111,36 +110,54 @@ async fn resolve_pat(db: &sqlx::PgPool, token: &str) -> Result<Option<PatIdentit
     }))
 }
 
-/// Extract session claims from the private cookie jar.
-/// Returns `None` if the request used SDK key or PAT auth (no session cookie present).
-fn get_cookie_claims(jar: &PrivateCookieJar) -> Option<SessionClaims> {
-    jar.get("lg_session")
+/// Validate expiry and resolve the account's current identity, including its role.
+pub(crate) async fn resolve_session(
+    db: &sqlx::PgPool,
+    jar: &PrivateCookieJar,
+) -> Result<Option<SessionClaims>, StatusCode> {
+    let Some(mut claims) = jar
+        .get("lg_session")
         .and_then(|c| serde_json::from_str::<SessionClaims>(c.value()).ok())
+    else {
+        return Ok(None);
+    };
+    if claims.expires_at <= time::OffsetDateTime::now_utc().unix_timestamp() {
+        return Ok(None);
+    }
+    let row = sqlx::query("SELECT email, name, role FROM users WHERE id = $1")
+        .bind(claims.user_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Session lookup failed");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    claims.email = row.get("email");
+    claims.name = row.get("name");
+    claims.role = row.get("role");
+    Ok(Some(claims))
 }
 
-/// Bundles the session cookie jar with any PAT identity resolved by
-/// `require_auth` for this request. Handlers that previously took a bare
-/// `PrivateCookieJar` and called `get_session_claims(&jar)` can swap the
-/// parameter type to `AuthContext` and keep everything else unchanged —
-/// `get_session_claims` now transparently covers both session-cookie and
-/// personal-access-token identities.
+/// Per-request user identities already validated by require_auth.
 #[derive(Clone)]
 pub(crate) struct AuthContext {
-    jar: PrivateCookieJar,
+    session: Option<SessionClaims>,
     pat: Option<PatIdentity>,
 }
 
 impl<S> FromRequestParts<S> for AuthContext
 where
     S: Send + Sync,
-    Key: FromRef<S>,
 {
     type Rejection = Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let jar = PrivateCookieJar::from_request_parts(parts, state).await?;
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let session = parts.extensions.get::<SessionClaims>().cloned();
         let pat = parts.extensions.get::<PatIdentity>().cloned();
-        Ok(AuthContext { jar, pat })
+        Ok(AuthContext { session, pat })
     }
 }
 
@@ -149,7 +166,9 @@ where
 /// into request extensions by `require_auth`. Returns `None` for SDK-key auth
 /// (no per-user identity — treated as admin-equivalent by callers, unchanged).
 pub(crate) fn get_session_claims(ctx: &AuthContext) -> Option<SessionClaims> {
-    get_cookie_claims(&ctx.jar).or_else(|| ctx.pat.clone().map(|p| p.claims))
+    ctx.session
+        .clone()
+        .or_else(|| ctx.pat.clone().map(|p| p.claims))
 }
 
 /// Returns the scope of the personal access token that authenticated this
@@ -161,7 +180,7 @@ pub(crate) fn get_session_claims(ctx: &AuthContext) -> Option<SessionClaims> {
 /// same user — without this cap, a leaked read-only token could self-escalate
 /// by simply creating a more privileged replacement.
 pub(crate) fn pat_scope(ctx: &AuthContext) -> Option<&str> {
-    if get_cookie_claims(&ctx.jar).is_some() {
+    if ctx.session.is_some() {
         return None;
     }
     ctx.pat.as_ref().map(|p| p.scope.as_str())
@@ -178,44 +197,62 @@ pub(crate) fn pat_scope(ctx: &AuthContext) -> Option<&str> {
 ///    cannot set custom headers. Exposes the key in access/proxy logs; only
 ///    use for SSE where headers cannot be set.
 ///
-/// Returns 503 if no SDK keys are configured (should never happen in normal
-/// operation — we always generate an initial key on first boot).
+/// Returns 503 if authoritative credential lookup is unavailable.
 /// Returns 401 if credentials are absent or invalid.
 pub async fn require_auth(
     State(state): State<AppState>,
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let key_values: Vec<String> = {
-        let keys = state.sdk_keys.read().await;
-        if keys.is_empty() {
-            // No keys at all — deny every request rather than allowing an
-            // open-door state. This should never occur in production.
-            warn!("No SDK keys configured — all API requests denied");
-            return Err(StatusCode::SERVICE_UNAVAILABLE);
-        }
-        keys.iter().map(|e| e.value.clone()).collect()
-    };
-
-    // ── 1. HttpOnly session cookie (dashboard) ────────────────────────────────
     let jar = PrivateCookieJar::from_headers(req.headers(), state.session_key.clone());
-    if jar.get("lg_session").is_some() {
+    if let Some(claims) = resolve_session(&state.db, &jar).await? {
+        req.extensions_mut().insert(claims);
         return Ok(next.run(req).await);
     }
 
-    // ── 2 & 3. Bearer token or ?sdk_key= query param ────────────────────────
     let query = req.uri().query().unwrap_or("");
-    if let Some(key) = extract_sdk_key(req.headers(), query)
-        && key_values
-            .iter()
-            .any(|expected| constant_time_eq(key.as_bytes(), expected.as_bytes()))
-    {
-        return Ok(next.run(req).await);
+    if let Some(key) = extract_sdk_key(req.headers(), query) {
+        // Database validation makes creation and revocation effective on every replica.
+        let row = sqlx::query(
+            "SELECT id, name, value, environment_id::text FROM sdk_keys WHERE value = $1",
+        )
+        .bind(key)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "SDK key lookup failed");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+        let entry = row
+            .map(|row| SdkKeyEntry {
+                id: row.get("id"),
+                name: row.get("name"),
+                value: row.get("value"),
+                environment_id: Some(row.get("environment_id")),
+            })
+            .or_else(|| {
+                std::env::var("SDK_KEY")
+                    .ok()
+                    .filter(|expected| {
+                        !expected.is_empty()
+                            && constant_time_eq(key.as_bytes(), expected.as_bytes())
+                    })
+                    .map(|value| SdkKeyEntry {
+                        id: -1,
+                        name: "env:SDK_KEY".into(),
+                        value,
+                        environment_id: None,
+                    })
+            });
+        if let Some(entry) = entry {
+            req.extensions_mut().insert(entry);
+            return Ok(next.run(req).await);
+        }
     }
-
-    // ── 4. Personal access token (Bearer only — never via query param) ───────
     if let Some(token) = extract_bearer(req.headers())
-        && let Ok(Some(pat)) = resolve_pat(&state.db, token).await
+        && let Some(pat) = resolve_pat(&state.db, token)
+            .await
+            .map_err(|()| StatusCode::SERVICE_UNAVAILABLE)?
     {
         req.extensions_mut().insert(pat);
         return Ok(next.run(req).await);
@@ -230,130 +267,81 @@ pub async fn require_auth(
     Err(StatusCode::UNAUTHORIZED)
 }
 
-/// Requires admin-level access.
-///
-/// SDK key auth (Bearer / query param) is always treated as admin-equivalent —
-/// these are machine credentials intentionally managed by an operator.
-/// Session-based auth must have `role = "admin"` stored in the encrypted cookie
-/// (populated from the DB at login time — the client cannot forge this).
-///
-/// This middleware should be layered *inside* `require_auth` so that unauthenticated
-/// requests are already rejected before the role check runs.
+/// Role checks consume only identities validated by require_auth.
 pub async fn require_admin(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let key_values: Vec<String> = {
-        let keys = state.sdk_keys.read().await;
-        keys.iter().map(|e| e.value.clone()).collect()
-    };
-
-    // SDK key (Bearer or query param) → admin-equivalent.
-    let query = req.uri().query().unwrap_or("");
-    if let Some(key) = extract_sdk_key(req.headers(), query)
-        && key_values
-            .iter()
-            .any(|expected| constant_time_eq(key.as_bytes(), expected.as_bytes()))
-    {
+    if req.extensions().get::<SdkKeyEntry>().is_some() {
         return Ok(next.run(req).await);
     }
-
-    // Session cookie: must carry role=admin (set from DB on login).
-    let jar = PrivateCookieJar::from_headers(req.headers(), state.session_key.clone());
-    if let Some(cookie) = jar.get("lg_session")
-        && let Ok(claims) = serde_json::from_str::<RoleClaims>(cookie.value())
-    {
-        if claims.role == "admin" {
-            return Ok(next.run(req).await);
-        }
-        warn!(
-            method = %req.method(),
-            path = %req.uri().path(),
-            role = %claims.role,
-            "Forbidden: admin role required"
-        );
+    let claims = request_claims(&req)?;
+    if claims.role != "admin" {
         return Err(StatusCode::FORBIDDEN);
     }
-
-    // Personal access token: must be read_write scope AND the owning user's
-    // role must be admin. `require_auth` already validated and stashed this.
-    if let Some(pat) = req.extensions().get::<PatIdentity>() {
-        if pat.scope == "read_write" && pat.claims.role == "admin" {
-            return Ok(next.run(req).await);
-        }
-        warn!(
-            method = %req.method(),
-            path = %req.uri().path(),
-            role = %pat.claims.role,
-            scope = %pat.scope,
-            "Forbidden: admin-scoped read_write personal access token required"
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    // Reached only if require_auth somehow didn't run first.
-    Err(StatusCode::UNAUTHORIZED)
+    check_write_scope(&req)?;
+    Ok(next.run(req).await)
 }
 
-/// Requires editor-level access (admin or editor role).
-///
-/// SDK key auth is treated as admin-equivalent (machine credentials).
-/// Session-based auth passes if `role` is `"admin"` or `"editor"`.
-/// Viewers get 403. Use this middleware for flag write routes.
+fn request_claims(req: &Request<axum::body::Body>) -> Result<&SessionClaims, StatusCode> {
+    req.extensions()
+        .get::<SessionClaims>()
+        .or_else(|| req.extensions().get::<PatIdentity>().map(|p| &p.claims))
+        .ok_or(StatusCode::UNAUTHORIZED)
+}
+
+fn check_write_scope(req: &Request<axum::body::Body>) -> Result<(), StatusCode> {
+    if req
+        .extensions()
+        .get::<PatIdentity>()
+        .is_some_and(|p| p.scope != "read_write")
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
+}
+
+pub(crate) async fn check_env_role(
+    db: &sqlx::PgPool,
+    claims: &SessionClaims,
+    env_id: &str,
+    write: bool,
+) -> Result<(), StatusCode> {
+    if claims.role == "admin" {
+        return Ok(());
+    }
+    let role: Option<String> = sqlx::query_scalar(
+        "SELECT pm.role FROM project_members pm JOIN environments e ON e.project_id = pm.project_id \
+         WHERE e.id = $1::uuid AND pm.user_id = $2",
+    ).bind(env_id).bind(claims.user_id).fetch_optional(db).await
+        .map_err(|e| { warn!(error = %e, "Project role lookup failed"); StatusCode::INTERNAL_SERVER_ERROR })?;
+    match role.as_deref() {
+        Some("admin" | "editor") => Ok(()),
+        Some("viewer") if !write => Ok(()),
+        _ => Err(StatusCode::FORBIDDEN),
+    }
+}
+
+/// Scoped writes use the project membership role; workspace admins bypass it.
 pub async fn require_editor(
     State(state): State<AppState>,
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let key_values: Vec<String> = {
-        let keys = state.sdk_keys.read().await;
-        keys.iter().map(|e| e.value.clone()).collect()
-    };
-
-    // SDK key (Bearer or query param) → admin-equivalent.
-    let query = req.uri().query().unwrap_or("");
-    if let Some(key) = extract_sdk_key(req.headers(), query)
-        && key_values
-            .iter()
-            .any(|expected| constant_time_eq(key.as_bytes(), expected.as_bytes()))
-    {
+    if req.extensions().get::<SdkKeyEntry>().is_some() {
         return Ok(next.run(req).await);
     }
-
-    // Session cookie: admin or editor.
-    let jar = PrivateCookieJar::from_headers(req.headers(), state.session_key.clone());
-    if let Some(cookie) = jar.get("lg_session")
-        && let Ok(claims) = serde_json::from_str::<RoleClaims>(cookie.value())
+    check_write_scope(&req)?;
+    let claims = request_claims(&req)?;
+    let mut parts = req.uri().path().split('/');
+    if let Some(env_id) = parts
+        .find(|p| *p == "environments")
+        .and_then(|_| parts.next())
     {
-        if claims.role == "admin" || claims.role == "editor" {
-            return Ok(next.run(req).await);
-        }
-        warn!(
-            method = %req.method(),
-            path = %req.uri().path(),
-            role = %claims.role,
-            "Forbidden: editor or admin role required"
-        );
+        check_env_role(&state.db, claims, env_id, true).await?;
+    } else if !matches!(claims.role.as_str(), "admin" | "editor") {
         return Err(StatusCode::FORBIDDEN);
     }
-
-    // Personal access token: must be read_write scope AND the owning user's
-    // role must be admin or editor.
-    if let Some(pat) = req.extensions().get::<PatIdentity>() {
-        if pat.scope == "read_write" && (pat.claims.role == "admin" || pat.claims.role == "editor")
-        {
-            return Ok(next.run(req).await);
-        }
-        warn!(
-            method = %req.method(),
-            path = %req.uri().path(),
-            role = %pat.claims.role,
-            scope = %pat.scope,
-            "Forbidden: editor-scoped read_write personal access token required"
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    Err(StatusCode::UNAUTHORIZED)
+    Ok(next.run(req).await)
 }

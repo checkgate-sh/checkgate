@@ -327,13 +327,15 @@ async fn delete_project(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects FOR UPDATE")
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to count projects");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM (SELECT id FROM projects ORDER BY id FOR UPDATE) AS locked",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| {
+        error!(error = %e, "Failed to count projects");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     if count <= 1 {
         let _ = tx.rollback().await;

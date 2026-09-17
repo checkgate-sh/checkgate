@@ -169,6 +169,7 @@ async fn full_api_flow() {
     // approval-required mode, so a PATCH here queues a change request and
     // exercises the change_request.* notifications alongside the flag ones.
     chat_integrations(&ctx, &prod_env).await;
+    security_regressions(&ctx, &db_url, &redis_url, &sdk_key, &prod_env).await;
 
     eprintln!("integration: full_api_flow passed");
 }
@@ -1024,4 +1025,442 @@ async fn chat_integrations(ctx: &Ctx, env: &str) {
     );
 
     eprintln!("integration: chat_integrations passed");
+}
+
+// Read a response with a useful failure body instead of accepting any 2xx status.
+async fn regression_request(
+    client: &reqwest::Client,
+    base: &str,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+    expected: u16,
+) -> Value {
+    let mut request = client.request(method.parse().unwrap(), format!("{base}{path}"));
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.unwrap();
+    let status = response.status().as_u16();
+    let text = response.text().await.unwrap();
+    assert_eq!(status, expected, "{method} {path}: {text}");
+    if text.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str(&text).unwrap_or(Value::Null)
+    }
+}
+
+async fn security_regressions(ctx: &Ctx, db_url: &str, redis_url: &str, sdk_key: &str, env: &str) {
+    use futures_util::StreamExt;
+    let pool = sqlx::PgPool::connect(db_url).await.unwrap();
+    // These scenarios have their own source IP so the application-wide quota
+    // measures the scenario instead of accumulating unrelated API-flow requests.
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("X-Checkgate-Request", "true".parse().unwrap());
+    headers.insert("X-Forwarded-For", "198.51.100.222".parse().unwrap());
+    let admin = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(headers.clone())
+        .build()
+        .unwrap();
+    regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        "/api/auth/login",
+        Some(json!({"email":"admin@acme.test","password":"supersecret1"})),
+        200,
+    )
+    .await;
+    let editor = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(headers.clone())
+        .build()
+        .unwrap();
+    let user = regression_request(&admin, &ctx.base, "POST", "/api/users",
+        Some(json!({"name":"Scoped Editor","email":"scoped@acme.test","role":"editor","password":"supersecret1"})), 200).await;
+    let user_id = user["id"].as_i64().unwrap();
+    let project: String =
+        sqlx::query_scalar("SELECT project_id::text FROM environments WHERE id = $1::uuid")
+            .bind(env)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        "INSERT INTO project_members (project_id,user_id,role) VALUES ($1::uuid,$2,'viewer')",
+    )
+    .bind(&project)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    regression_request(
+        &editor,
+        &ctx.base,
+        "POST",
+        "/api/auth/login",
+        Some(json!({"email":"scoped@acme.test","password":"supersecret1"})),
+        200,
+    )
+    .await;
+    regression_request(
+        &editor,
+        &ctx.base,
+        "GET",
+        &format!("/api/environments/{env}/flags"),
+        None,
+        200,
+    )
+    .await;
+    regression_request(
+        &editor,
+        &ctx.base,
+        "PATCH",
+        &format!("/api/environments/{env}/flags/gated"),
+        Some(json!({"is_enabled":false})),
+        403,
+    )
+    .await;
+
+    let private = regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        "/api/projects",
+        Some(json!({"name":"Private Regression"})),
+        200,
+    )
+    .await;
+    let private_id = private["id"].as_str().unwrap();
+    let private_env = regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/projects/{private_id}/environments"),
+        Some(json!({"name":"Private","slug":"private"})),
+        200,
+    )
+    .await;
+    let hidden_env = private_env["id"].as_str().unwrap();
+    regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{hidden_env}/flags"),
+        Some(json!({"key":"secret-regression-flag","is_enabled":true,"rules":[]})),
+        200,
+    )
+    .await;
+    let response = editor.get(ctx.url("/stream")).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let mut stream = response.bytes_stream();
+    let mut data = String::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !data.contains("event: ready") && !data.contains("event:ready") {
+            data.push_str(std::str::from_utf8(&stream.next().await.unwrap().unwrap()).unwrap());
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        !data.contains("secret-regression-flag"),
+        "private project leaked through bootstrap"
+    );
+    let mut redis = redis::Client::open(redis_url)
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    for (env_id, key) in [
+        (hidden_env, "secret-live-regression"),
+        (env, "allowed-live-regression"),
+    ] {
+        let msg = json!({"type":"UPSERT","env_id":env_id,"flag":{"key":key,"is_enabled":true,"rules":[]}}).to_string();
+        redis::cmd("PUBLISH")
+            .arg("checkgate_updates")
+            .arg(msg)
+            .query_async::<i64>(&mut redis)
+            .await
+            .unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !data.contains("allowed-live-regression") {
+            data.push_str(std::str::from_utf8(&stream.next().await.unwrap().unwrap()).unwrap());
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        !data.contains("secret-live-regression"),
+        "private project leaked through live deltas"
+    );
+    drop(stream);
+
+    // Every route that can replace an existing protected flag must honor approval.
+    regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/flags"),
+        Some(json!({"key":"gated","is_enabled":false,"rules":[]})),
+        409,
+    )
+    .await;
+    regression_request(
+        &admin,
+        &ctx.base,
+        "DELETE",
+        &format!("/api/environments/{env}/flags/gated"),
+        None,
+        409,
+    )
+    .await;
+    regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{hidden_env}/flags/secret-regression-flag/promote"),
+        Some(json!({"target_env_id":env})),
+        409,
+    )
+    .await;
+    let future = "2099-01-01T00:00:00Z";
+    regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/flags/gated/scheduled-changes"),
+        Some(json!({"scheduled_at":future,"patch":{"is_enabled":false}})),
+        409,
+    )
+    .await;
+    regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/segments"),
+        Some(json!({"name":"Bypass","key":"bypass","rules":[]})),
+        409,
+    )
+    .await;
+    for patch in [json!({"rollout_percentage":101}), json!(null)] {
+        regression_request(
+            &admin,
+            &ctx.base,
+            "POST",
+            &format!(
+                "/api/environments/{hidden_env}/flags/secret-regression-flag/scheduled-changes"
+            ),
+            Some(json!({"scheduled_at":future,"patch":patch})),
+            422,
+        )
+        .await;
+    }
+
+    let scheduled = regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{hidden_env}/flags/secret-regression-flag/scheduled-changes"),
+        Some(json!({"scheduled_at":future,"patch":{"is_enabled":false}})),
+        200,
+    )
+    .await;
+    assert_eq!(scheduled["attempts"], 0);
+    assert!(scheduled["last_error"].is_null());
+
+    // The effective project role is independent of the workspace role.
+    sqlx::query("UPDATE project_members SET role='editor' WHERE user_id=$1")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET role='viewer' WHERE id=$1")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let queued = regression_request(
+        &admin,
+        &ctx.base,
+        "PATCH",
+        &format!("/api/environments/{env}/flags/gated"),
+        Some(json!({"is_enabled":false})),
+        202,
+    )
+    .await;
+    let id = queued["id"].as_i64().unwrap();
+    let approve = format!("/api/environments/{env}/change-requests/{id}/approve");
+    regression_request(&admin, &ctx.base, "POST", &approve, None, 403).await;
+    let flag: Value = sqlx::query_scalar(
+        "DELETE FROM flags WHERE environment_id=$1::uuid AND key='gated' RETURNING data",
+    )
+    .bind(env)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    regression_request(&editor, &ctx.base, "POST", &approve, None, 404).await;
+    let status: String = sqlx::query_scalar("SELECT status FROM change_requests WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "pending", "failed approval must remain retryable");
+    sqlx::query("INSERT INTO flags (environment_id,key,data) VALUES ($1::uuid,'gated',$2)")
+        .bind(env)
+        .bind(flag)
+        .execute(&pool)
+        .await
+        .unwrap();
+    regression_request(&editor, &ctx.base, "POST", &approve, None, 200).await;
+
+    // A browser cannot extend a session by replaying its encrypted cookie after expiry.
+    let admin_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE email='admin@acme.test'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let key = cookie::Key::derive_from(
+        b"test-secret-0123456789-0123456789-0123456789-0123456789-0123456789",
+    );
+    let mut jar = cookie::CookieJar::new();
+    jar.private_mut(&key).add(cookie::Cookie::new("lg_session", json!({"user_id":admin_id,"expires_at":0,"email":"admin@acme.test","name":"Admin","role":"admin"}).to_string()));
+    let expired = format!("lg_session={}", jar.get("lg_session").unwrap().value());
+    let response = ctx
+        .anon
+        .get(ctx.url("/api/users"))
+        .header("Cookie", &expired)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "server rejects expired encrypted cookies"
+    );
+    let victim = regression_request(&admin,&ctx.base,"POST","/api/users",
+        Some(json!({"name":"Deleted Admin","email":"deleted@acme.test","role":"admin","password":"supersecret1"})),200).await;
+    let deleted = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(headers.clone())
+        .build()
+        .unwrap();
+    regression_request(
+        &deleted,
+        &ctx.base,
+        "POST",
+        "/api/auth/login",
+        Some(json!({"email":"deleted@acme.test","password":"supersecret1"})),
+        200,
+    )
+    .await;
+    regression_request(
+        &admin,
+        &ctx.base,
+        "DELETE",
+        &format!("/api/users/{}", victim["id"]),
+        None,
+        204,
+    )
+    .await;
+    regression_request(&deleted, &ctx.base, "GET", "/api/users", None, 401).await;
+    regression_request(&deleted, &ctx.base, "GET", "/api/auth/me", None, 401).await;
+
+    // Start a second replica BEFORE creating a key, then check creation and revocation there.
+    let port = free_port();
+    let second_base = format!("http://127.0.0.1:{port}");
+    let child = Command::new(env!("CARGO_BIN_EXE_server"))
+        .env("DATABASE_URL", db_url)
+        .env("REDIS_URL", redis_url)
+        .env("PORT", port.to_string())
+        .env(
+            "SESSION_SECRET",
+            "test-secret-0123456789-0123456789-0123456789-0123456789-0123456789",
+        )
+        .env("COOKIE_SECURE", "false")
+        .env("RUST_LOG", "warn")
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let _second = ServerGuard(child);
+    wait_healthy(&second_base).await;
+    let created = regression_request(
+        &admin,
+        &ctx.base,
+        "POST",
+        &format!("/api/projects/{project}/keys"),
+        Some(json!({"name":"Replica Regression","environment_id":env})),
+        200,
+    )
+    .await;
+    let response = ctx
+        .anon
+        .get(format!("{second_base}/flags/snapshot"))
+        .bearer_auth(created["key"].as_str().unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "new key works on existing replica");
+    assert_eq!(
+        response.headers()["x-checkgate-environment-id"]
+            .to_str()
+            .unwrap(),
+        env
+    );
+    regression_request(
+        &admin,
+        &ctx.base,
+        "DELETE",
+        &format!("/api/projects/{project}/keys/{}", created["id"]),
+        None,
+        204,
+    )
+    .await;
+    let response = ctx
+        .anon
+        .get(format!("{second_base}/flags/snapshot"))
+        .bearer_auth(created["key"].as_str().unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "revoked key stops working on other replicas"
+    );
+    let original: i64 = sqlx::query_scalar("SELECT id FROM sdk_keys WHERE value=$1")
+        .bind(sdk_key)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    regression_request(
+        &admin,
+        &ctx.base,
+        "DELETE",
+        &format!("/api/projects/{project}/keys/{original}"),
+        None,
+        422,
+    )
+    .await;
+    regression_request(
+        &admin,
+        &ctx.base,
+        "DELETE",
+        &format!("/api/projects/{private_id}"),
+        None,
+        204,
+    )
+    .await;
+    regression_request(
+        &admin,
+        &ctx.base,
+        "DELETE",
+        &format!("/api/projects/{project}"),
+        None,
+        422,
+    )
+    .await;
+    pool.close().await;
+    eprintln!("integration: security regressions passed");
 }

@@ -31,10 +31,12 @@ admin must review (self-approval is blocked).
 
 - **Approve** applies the original patch atomically against whatever the flag's current state is
   at approval time — so an approval always lands cleanly on top of the latest data, not a stale
-  snapshot.
+  snapshot. If the update fails, the request remains pending and can be retried.
 - **Reject** / **withdraw** never touch the flag.
 - It's scoped per environment, so Production can require review while Development stays
   frictionless.
+
+Replacing an existing flag through POST, deleting a flag, promoting into a protected environment, scheduling a change, and editing segments return `409 Conflict` while approval is enabled. Submit a flag PATCH for review instead. Creating a new flag is still allowed.
 
 This gives you a pull-request-style gate on your highest-risk changes. See the
 [Change Requests API](/api-reference#change-requests).

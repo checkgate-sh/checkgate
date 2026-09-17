@@ -1,184 +1,235 @@
 use crate::state::AppState;
-use checkgate_core::evaluator::Flag;
-use serde_json::Value;
 use sqlx::Row;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
-/// Background task that polls `scheduled_changes` every 60 seconds and applies
-/// any patches whose `scheduled_at` is in the past.
-///
-/// Uses `FOR UPDATE SKIP LOCKED` so multiple server instances coordinate safely
-/// without a distributed lock: only one instance will successfully acquire and
-/// execute each row.
+/// Claim each due job and apply its flag patch in the same transaction.
 pub async fn run(state: AppState) {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
     loop {
         interval.tick().await;
         execute_due(&state).await;
     }
 }
 
-async fn execute_due(state: &AppState) {
-    // Fetch up to 50 due rows at once and lock them with SKIP LOCKED so
-    // concurrent scheduler instances each get a disjoint batch.
-    let due = match sqlx::query(
-        "SELECT id::text, environment_id::text, flag_key, patch \
-         FROM scheduled_changes \
-         WHERE executed_at IS NULL AND scheduled_at <= NOW() \
-         ORDER BY scheduled_at ASC \
-         LIMIT 50 \
-         FOR UPDATE SKIP LOCKED",
-    )
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            error!(error = %e, "Scheduler: failed to query due changes");
-            return;
-        }
-    };
-
-    if due.is_empty() {
-        return;
-    }
-
-    info!(count = due.len(), "Scheduler: applying due changes");
-
-    for row in &due {
+pub(crate) async fn execute_due(state: &AppState) {
+    for _ in 0..50 {
+        let mut tx = match state.db.begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                error!(error = %e, "Scheduler: begin failed");
+                return;
+            }
+        };
+        let row = match sqlx::query(
+            "SELECT id::text, environment_id::text, flag_key, patch FROM scheduled_changes \
+             WHERE executed_at IS NULL AND scheduled_at <= NOW() \
+               AND (last_attempt_at IS NULL OR last_attempt_at <= NOW() - INTERVAL '60 seconds') \
+             ORDER BY scheduled_at, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        {
+            Ok(Some(row)) => row,
+            Ok(None) => return,
+            Err(e) => {
+                error!(error = %e, "Scheduler: claim failed");
+                return;
+            }
+        };
         let id: String = row.get("id");
         let env_id: String = row.get("environment_id");
-        let flag_key: String = row.get("flag_key");
-        let patch: Value = match row.try_get("patch") {
-            Ok(v) => v,
-            Err(e) => {
-                error!(id = %id, error = %e, "Scheduler: failed to deserialize patch");
-                mark_executed(&state.db, &id).await;
-                continue;
-            }
-        };
-
-        apply_change(state, &id, &env_id, &flag_key, patch).await;
-    }
-}
-
-async fn apply_change(state: &AppState, id: &str, env_id: &str, flag_key: &str, patch: Value) {
-    // Read-modify-write inside a transaction.
-    let result: Result<Option<Value>, sqlx::Error> = async {
-        let mut tx = state.db.begin().await?;
-
-        let rec = sqlx::query(
-            "SELECT data FROM flags WHERE key = $1 AND environment_id = $2::uuid FOR UPDATE",
-        )
-        .bind(flag_key)
-        .bind(env_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let Some(rec) = rec else {
-            // Flag was deleted; mark as executed so we don't retry.
-            tx.rollback().await.ok();
-            return Ok(None);
-        };
-
-        let mut flag_val: Value = rec.try_get("data")?;
-        if let (Value::Object(map), Value::Object(p)) = (&mut flag_val, &patch) {
-            for (k, v) in p {
-                if k != "key" {
-                    map.insert(k.clone(), v.clone());
-                }
-            }
+        let key: String = row.get("flag_key");
+        let patch: serde_json::Value = row.get("patch");
+        // A savepoint lets us undo a failed flag write while retaining the job claim
+        // until its failure/backoff metadata commits. Other workers cannot retry it early.
+        if let Err(e) = sqlx::query("SAVEPOINT flag_patch").execute(&mut *tx).await {
+            error!(error = %e, id, "Scheduler: savepoint failed");
+            return;
         }
-
-        // Validate the merged flag before writing.
-        serde_json::from_value::<Flag>(flag_val.clone())
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-
-        sqlx::query("UPDATE flags SET data = $1 WHERE key = $2 AND environment_id = $3::uuid")
-            .bind(&flag_val)
-            .bind(flag_key)
-            .bind(env_id)
+        let result = async {
+            if crate::api::flags::lock_environment(&mut tx, &env_id).await? {
+                return Err(axum::http::StatusCode::CONFLICT);
+            }
+            let applied =
+                crate::api::flags::apply_patch_in_tx(&mut tx, &env_id, &key, patch).await?;
+            sqlx::query(
+                "UPDATE scheduled_changes SET executed_at = NOW(), last_error = NULL, \
+                         last_attempt_at = NOW(), attempts = attempts + 1 WHERE id = $1::uuid",
+            )
+            .bind(&id)
             .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(Some(flag_val))
-    }
-    .await;
-
-    match result {
-        Err(e) => {
-            error!(id = %id, flag_key, error = %e, "Scheduler: failed to apply change");
+            .await
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(applied)
         }
-        Ok(None) => {
-            info!(id = %id, flag_key, "Scheduler: flag deleted before change could run");
-        }
-        Ok(Some(flag_val)) => {
-            let flag: Flag = match serde_json::from_value(flag_val.clone()) {
-                Ok(f) => f,
-                Err(e) => {
-                    error!(id = %id, error = %e, "Scheduler: merged flag is invalid");
-                    mark_executed(&state.db, id).await;
+        .await;
+        match result {
+            Ok(applied) => {
+                if let Err(e) = tx.commit().await {
+                    error!(error = %e, id, "Scheduler: commit failed; job remains pending");
                     return;
                 }
-            };
-
-            // Broadcast the update exactly as flag mutation handlers do.
-            let segment_map = crate::api::segments::load_env_segments(env_id, &state.db)
+                crate::api::flags::emit_patch(state, &env_id, &key, applied, None, Some(&id)).await;
+                info!(id, key, "Scheduler: change applied");
+            }
+            Err(status) => {
+                // Leave the job pending. Backoff prevents a failed job monopolizing the batch.
+                if let Err(e) = sqlx::query("ROLLBACK TO SAVEPOINT flag_patch")
+                    .execute(&mut *tx)
+                    .await
+                {
+                    error!(error = %e, id, "Scheduler: could not roll back failed patch");
+                    return;
+                }
+                if let Err(e) = sqlx::query(
+                    "UPDATE scheduled_changes SET last_error = $2, last_attempt_at = NOW(), \
+                     attempts = attempts + 1 WHERE id = $1::uuid AND executed_at IS NULL",
+                )
+                .bind(&id)
+                .bind(status.to_string())
+                .execute(&mut *tx)
                 .await
-                .unwrap_or_default();
-            let expanded = crate::api::segments::expand_flag_with_segments(flag, &segment_map);
-            state.store.upsert_flag(expanded.clone());
-
-            let msg = serde_json::json!({
-                "type": "UPSERT",
-                "env_id": env_id,
-                "flag": expanded,
-            })
-            .to_string();
-            crate::api::flags::publish_update(state, &msg, "scheduler").await;
-
-            // Fire webhooks.
-            let wh_payload = crate::api::webhooks::flag_event_payload(
-                "flag.scheduled_change_applied",
-                env_id,
-                flag_key,
-                Some(&flag_val),
-                None,
-                Some(&serde_json::json!({"scheduled_change_id": id})),
-            );
-            crate::notify::notify(state.clone(), env_id.to_string(), wh_payload);
-
-            // Audit log.
-            crate::api::audit::log_audit_event(
-                &state.db,
-                env_id,
-                flag_key,
-                None,
-                "UPDATE",
-                None,
-                Some(&flag_val),
-                Some(&serde_json::json!({"scheduled_change_id": id})),
-            )
-            .await;
-
-            info!(id = %id, flag_key, env_id, "Scheduler: change applied");
+                {
+                    error!(error = %e, id, "Scheduler: could not record failure");
+                    return;
+                }
+                if let Err(e) = tx.commit().await {
+                    error!(error = %e, id, "Scheduler: could not commit failure status");
+                    return;
+                }
+                error!(id, key, %status, "Scheduler: change failed; retained for retry");
+            }
         }
     }
-
-    mark_executed(&state.db, id).await;
 }
 
-async fn mark_executed(db: &sqlx::PgPool, id: &str) {
-    if let Err(e) =
-        sqlx::query("UPDATE scheduled_changes SET executed_at = NOW() WHERE id = $1::uuid")
-            .bind(id)
-            .execute(db)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use axum_extra::extract::cookie::Key;
+    use checkgate_core::store::FlagStore;
+    use dashmap::DashMap;
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, broadcast};
+
+    #[tokio::test]
+    async fn failed_jobs_retry_and_concurrent_workers_execute_once() {
+        let (Ok(db_url), Ok(redis_url)) = (
+            std::env::var("CHECKGATE_TEST_DATABASE_URL"),
+            std::env::var("CHECKGATE_TEST_REDIS_URL"),
+        ) else {
+            return;
+        };
+        let db = sqlx::PgPool::connect(&db_url).await.unwrap();
+        sqlx::migrate!().run(&db).await.unwrap();
+        let env: String = sqlx::query_scalar(
+            "INSERT INTO environments (name,slug,project_id) VALUES ('Scheduler Regression', \
+             'scheduler-regression', (SELECT id FROM projects LIMIT 1)) RETURNING id::text",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        let data = json!({"key":"scheduler_retry_regression","is_enabled":true,"rules":[]});
+        sqlx::query("INSERT INTO flags (environment_id,key,data) VALUES ($1::uuid,'scheduler_retry_regression',$2)")
+            .bind(&env).bind(data).execute(&db).await.unwrap();
+        let id: String = sqlx::query_scalar(
+            "INSERT INTO scheduled_changes (environment_id,flag_key,scheduled_at,patch) \
+             VALUES ($1::uuid,'scheduler_retry_regression',NOW() - INTERVAL '1 second', \
+             '{\"is_enabled\":false}') RETURNING id::text",
+        )
+        .bind(&env)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE FUNCTION scheduler_regression_failure() RETURNS trigger LANGUAGE plpgsql AS $$ \
+             BEGIN IF NEW.key = 'scheduler_retry_regression' THEN RAISE EXCEPTION 'transient test failure'; \
+             END IF; RETURN NEW; END $$",
+        ).execute(&db).await.unwrap();
+        sqlx::query("CREATE TRIGGER scheduler_regression_failure BEFORE UPDATE ON flags FOR EACH ROW EXECUTE FUNCTION scheduler_regression_failure()")
+            .execute(&db).await.unwrap();
+        let redis_client = redis::Client::open(redis_url).unwrap();
+        let state = AppState {
+            db: db.clone(),
+            redis_conn: redis_client
+                .get_multiplexed_async_connection()
+                .await
+                .unwrap(),
+            redis_client,
+            store: Arc::new(FlagStore::new()),
+            flag_tx: broadcast::channel(256).0,
+            sdk_keys: Arc::new(RwLock::new(vec![])),
+            rate_limiter: crate::rate_limit::new_rate_limiter(),
+            session_key: Key::generate(),
+            connected_clients: Arc::new(DashMap::new()),
+            webhook_client: reqwest::Client::new(),
+        };
+        tokio::time::timeout(Duration::from_secs(5), execute_due(&state))
             .await
-    {
-        warn!(id = %id, error = %e, "Scheduler: failed to mark change as executed");
+            .unwrap();
+        let row = sqlx::query(
+            "SELECT executed_at, attempts, last_error FROM scheduled_changes WHERE id=$1::uuid",
+        )
+        .bind(&id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert!(
+            row.get::<Option<time::OffsetDateTime>, _>("executed_at")
+                .is_none()
+        );
+        assert_eq!(row.get::<i64, _>("attempts"), 1);
+        assert!(row.get::<Option<String>, _>("last_error").is_some());
+        let enabled: bool = sqlx::query_scalar("SELECT (data->>'is_enabled')::bool FROM flags WHERE environment_id=$1::uuid AND key='scheduler_retry_regression'")
+            .bind(&env).fetch_one(&db).await.unwrap();
+        assert!(enabled, "failed patch rolled back");
+        sqlx::query("DROP TRIGGER scheduler_regression_failure ON flags")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("DROP FUNCTION scheduler_regression_failure()")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE scheduled_changes SET last_attempt_at=NOW() - INTERVAL '2 minutes' WHERE id=$1::uuid")
+            .bind(&id).execute(&db).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(execute_due(&state), execute_due(&state));
+        })
+        .await
+        .unwrap();
+        let row = sqlx::query(
+            "SELECT executed_at, attempts, last_error FROM scheduled_changes WHERE id=$1::uuid",
+        )
+        .bind(&id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert!(
+            row.get::<Option<time::OffsetDateTime>, _>("executed_at")
+                .is_some()
+        );
+        assert_eq!(
+            row.get::<i64, _>("attempts"),
+            2,
+            "one failure and exactly one successful execution"
+        );
+        assert!(row.get::<Option<String>, _>("last_error").is_none());
+        let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM flag_audit_log WHERE environment_id=$1::uuid AND flag_key='scheduler_retry_regression'")
+            .bind(&env).fetch_one(&db).await.unwrap();
+        assert_eq!(
+            audits, 1,
+            "concurrent workers do not emit duplicate changes"
+        );
+        sqlx::query("DELETE FROM environments WHERE id=$1::uuid")
+            .bind(&env)
+            .execute(&db)
+            .await
+            .unwrap();
+        db.close().await;
     }
 }

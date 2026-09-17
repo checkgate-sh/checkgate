@@ -44,7 +44,7 @@ pub struct AppState {
     /// Broadcast channel: the Redis subscriber pushes payloads here;
     /// each SSE handler subscribes instead of opening its own Redis connection.
     pub flag_tx: broadcast::Sender<String>,
-    /// In-memory cache of valid SDK keys loaded from the `sdk_keys` table.
+    /// Local key-management cache. Authentication always checks PostgreSQL.
     pub sdk_keys: Arc<RwLock<Vec<SdkKeyEntry>>>,
     /// Per-IP rate limiter applied to all API routes.
     pub rate_limiter: IpRateLimiter,

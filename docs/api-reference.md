@@ -71,7 +71,7 @@ Content-Type: application/json
 }
 ```
 
-Sets an `HttpOnly` `SameSite=Strict` session cookie valid for 7 days.
+Sets an `HttpOnly` `SameSite=Strict` session cookie valid for 7 days. The server enforces the expiry and checks the account and its current role on every authenticated request. Deleting an account invalidates its existing sessions.
 
 **Response** `401 Unauthorized`
 
@@ -434,7 +434,7 @@ POST /api/environments/{env_id}/flags
 Content-Type: application/json
 ```
 
-Creates a flag. If the key already exists in this environment, replaces it entirely.
+Creates a flag. If the key already exists in this environment, replaces it entirely unless the environment requires approval. In that case replacement returns `409 Conflict`; use PATCH to submit a change request.
 
 **Request Body**
 
@@ -485,7 +485,7 @@ Applies a JSON merge patch. Only the provided fields are updated; omitted fields
 DELETE /api/environments/{env_id}/flags/{key}
 ```
 
-Deletes the flag and broadcasts a `DELETE` event to connected SDK clients.
+Deletes the flag and broadcasts a `DELETE` event to connected SDK clients. Returns `409 Conflict` when the environment requires approval, preventing deletion and recreation from bypassing review.
 
 **Response** `204 No Content`
 
@@ -498,7 +498,7 @@ POST /api/environments/{env_id}/flags/{key}/promote
 Content-Type: application/json
 ```
 
-Copies the flag's configuration from `{env_id}` to another environment atomically.
+Copies the flag's configuration from `{env_id}` to another environment atomically. The caller must have write access to the target project. Returns `409 Conflict` when the target environment requires approval; submit a PATCH there for review instead.
 
 **Request Body**
 
@@ -512,7 +512,7 @@ Copies the flag's configuration from `{env_id}` to another environment atomicall
 
 ## Segments
 
-Segments are named, reusable groups of targeting rules scoped to an environment. A flag [targeting rule](#targetingrule-object) can reference a segment by `segment_key` instead of repeating the rules inline; the server expands the reference before flags reach SDK clients. Editing or deleting a segment automatically re-broadcasts every flag that references it. Segment keys follow the same constraints as flag keys (alphanumerics, underscores, hyphens; max 100 chars). Writes require **editor** role or above.
+Segments are named, reusable groups of targeting rules scoped to an environment. A flag [targeting rule](#targetingrule-object) can reference a segment by `segment_key` instead of repeating the rules inline; the server expands the reference before flags reach SDK clients. Editing or deleting a segment automatically re-broadcasts every flag that references it. Segment writes return `409 Conflict` in environments that require approval, because they can change the behavior of existing flags. Segment keys follow the same constraints as flag keys (alphanumerics, underscores, hyphens; max 100 chars). Writes require **editor** role or above.
 
 ### List Segments
 
@@ -1395,7 +1395,7 @@ A scheduled change stores a flag `PATCH` to be applied automatically at a future
 GET /api/environments/{env_id}/scheduled-changes
 ```
 
-Lists all scheduled changes in the environment, ordered by `scheduled_at`.
+Lists all scheduled changes in the environment, ordered by `scheduled_at`. Each response includes `attempts` and `last_error`. Failed changes remain pending and are retried after at least 60 seconds; a successful retry clears `last_error`. If approval is enabled after scheduling, the worker retains the change without applying it until the policy permits execution.
 
 **Response** `200 OK`
 
@@ -1408,6 +1408,8 @@ Lists all scheduled changes in the environment, ordered by `scheduled_at`.
     "scheduled_at": "2026-07-20T09:00:00Z",
     "patch": { "is_enabled": true },
     "executed_at": null,
+    "attempts": 0,
+    "last_error": null,
     "created_at": "2026-07-04T00:00:00Z"
   }
 ]
@@ -1445,8 +1447,10 @@ Editor role or above. The target flag must already exist.
 }
 ```
 
-- `scheduled_at` — required, RFC-3339 / ISO-8601 timestamp
-- `patch` — required, a JSON merge patch applied to the flag at `scheduled_at`
+- `scheduled_at` — required, RFC-3339 / ISO-8601 timestamp; more than 30 seconds in the past is rejected
+- `patch` — required, a JSON object validated against the current flag before scheduling
+
+Returns `422 Unprocessable Entity` for an invalid patch or timestamp, and `409 Conflict` if the environment requires approval.
 
 **Response** `200 OK` — returns the created scheduled change.
 
@@ -1726,12 +1730,14 @@ a plain JSON array — the same shape each flag has in an SSE `update` event, bu
 ]
 ```
 
+The response header `X-Checkgate-Environment-Id` identifies the environment for impression and conversion reporting. The response body remains a plain array, and the header is exposed through CORS.
+
 Intended as a fallback for SDK clients when the SSE connection at `/stream` cannot be
 established at all — e.g. a corporate proxy or firewall blocking long-lived connections. Official
 SDKs poll this endpoint automatically after a configurable number of consecutive failed SSE
 reconnects (default: 3), and stop polling as soon as SSE reconnects successfully.
 
-Unlike `GET /api/environments/{env_id}/flags` (session-cookie auth only, segment references left
+Unlike `GET /api/environments/{env_id}/flags` (user or SDK-key auth, segment references left
 unexpanded — intended for the dashboard UI), this route is keyed by SDK key alone, exactly like
 `/stream`, and returns segment-expanded flags ready to evaluate against directly.
 
