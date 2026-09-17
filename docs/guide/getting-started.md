@@ -14,15 +14,48 @@ This guide walks you through running Checkgate locally and evaluating your first
 
 ## 1. Start the Server
 
-Clone the repository and start the all-in-one container:
+Use the published all-in-one Docker image. No repository clone or local build is needed.
+
+Create a directory for your deployment:
 
 ```bash
-git clone https://github.com/checkgate-sh/checkgate.git
+mkdir checkgate
 cd checkgate
+```
+
+Save the following as `compose.yml`:
+
+```yaml
+services:
+  checkgate:
+    image: ghcr.io/checkgate-sh/checkgate:latest
+    container_name: checkgate
+    ports:
+      - "3000:3000"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    volumes:
+      - checkgate_pgdata:/var/lib/postgresql/data
+      - checkgate_redis:/var/lib/redis
+    restart: unless-stopped
+
+volumes:
+  checkgate_pgdata:
+  checkgate_redis:
+```
+
+Pull the release image and start the container:
+
+```bash
+docker compose pull
 docker compose up -d
 ```
 
-This starts a single container with PostgreSQL, Redis, the Checkgate server, and the React dashboard all bundled together. The dashboard is available at [http://localhost:3000](http://localhost:3000).
+This starts a single container with PostgreSQL, Redis, the Checkgate server, and the React dashboard all bundled together. The dashboard is available at [http://localhost:3000](http://localhost:3000). PostgreSQL data is stored in a named Docker volume and survives container replacement.
+
+For a fixed release, replace `:latest` in `compose.yml` with a published version tag such as `:<version>` (without the leading `v`).
 
 ## 2. Complete the Setup Wizard
 
@@ -126,12 +159,19 @@ For production, set a strong `SESSION_SECRET` environment variable so session co
 openssl rand -hex 32
 ```
 
-Run with:
+Create a `.env` file alongside `compose.yml`:
+
+```dotenv
+SESSION_SECRET=your-64-char-secret
+POSTGRES_PASSWORD=strong-db-password
+COOKIE_SECURE=true
+```
+
+Set `COOKIE_SECURE=true` when serving Checkgate over HTTPS; keep it `false` for local HTTP. Choose your database password before the first startup; changing the variable does not reset an existing database password.
+
+Then apply the configuration:
 
 ```bash
-SESSION_SECRET=your-64-char-secret \
-POSTGRES_PASSWORD=strong-db-password \
-COOKIE_SECURE=true \
 docker compose up -d
 ```
 
