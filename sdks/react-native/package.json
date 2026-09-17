@@ -1,16 +1,16 @@
 {
   "name": "@checkgate/react-native",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Checkgate feature-flag SDK for React Native \u2014 local evaluation via Rust JSI.",
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/checkgate-dev/checkgate.git",
+    "url": "git+https://github.com/checkgate-sh/checkgate.git",
     "directory": "sdks/react-native"
   },
-  "homepage": "https://github.com/checkgate-dev/checkgate#readme",
+  "homepage": "https://github.com/checkgate-sh/checkgate#readme",
   "bugs": {
-    "url": "https://github.com/checkgate-dev/checkgate/issues"
+    "url": "https://github.com/checkgate-sh/checkgate/issues"
   },
   "license": "Apache-2.0",
   "scripts": {

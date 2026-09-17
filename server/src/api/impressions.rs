@@ -222,7 +222,7 @@ async fn ingest_impressions(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        accepted += 1;
+        accepted = accepted.saturating_add(1);
     }
 
     tx.commit().await.map_err(|e| {

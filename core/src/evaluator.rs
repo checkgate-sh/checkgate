@@ -2,6 +2,7 @@ use crate::hashing::murmurhash3_x86_32;
 use crate::store::FlagStore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::num::NonZeroU64;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -206,21 +207,28 @@ fn pick_weighted_variant(
     user_key: &str,
     variants: &[WeightedVariant],
 ) -> FlagValue {
-    let total_weight: u64 = variants.iter().map(|v| v.weight as u64).sum();
-    if total_weight == 0 {
+    let total: u64 = variants
+        .iter()
+        .map(|v| u64::from(v.weight))
+        .fold(0u64, u64::saturating_add);
+
+    // Carrying the total as a `NonZeroU64` makes the "all weights zero" case a
+    // type-level guarantee: `u64 % NonZeroU64` cannot divide by zero, so the
+    // remainder below has no panic path at all.
+    let Some(total_weight) = NonZeroU64::new(total) else {
         return variants
             .first()
             .map(|v| v.value.clone())
             .unwrap_or(FlagValue::Null);
-    }
+    };
 
     let hash_key = format!("{}:{}:variant", flag_key, user_key);
-    let hash_val = murmurhash3_x86_32(hash_key.as_bytes(), 0) as u64;
+    let hash_val = u64::from(murmurhash3_x86_32(hash_key.as_bytes(), 0));
     let bucket = hash_val % total_weight;
 
     let mut cumulative = 0u64;
     for variant in variants {
-        cumulative += variant.weight as u64;
+        cumulative = cumulative.saturating_add(u64::from(variant.weight));
         if bucket < cumulative {
             return variant.value.clone();
         }
@@ -324,8 +332,12 @@ fn prerequisites_satisfied(
         let Some(prereq_flag) = store.get_flag(&prereq.flag_key) else {
             return false;
         };
-        let result =
-            evaluate_variant_at_depth(prereq_flag.as_ref(), user_context, store, depth + 1);
+        let result = evaluate_variant_at_depth(
+            prereq_flag.as_ref(),
+            user_context,
+            store,
+            depth.saturating_add(1),
+        );
         match &prereq.required_value {
             Some(required) => result.enabled && &result.value == required,
             None => result.enabled,

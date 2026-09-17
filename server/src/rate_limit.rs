@@ -10,10 +10,16 @@ use std::{net::IpAddr, num::NonZeroU32, sync::Arc};
 pub type IpRateLimiter = Arc<DefaultKeyedRateLimiter<IpAddr>>;
 
 /// 60 requests per minute per source IP on all API routes.
+///
+/// `RATE_PER_MINUTE` is a `const`, so the `NonZeroU32` conversion is checked at
+/// compile time — there is no runtime unwrap to fail.
+const RATE_PER_MINUTE: NonZeroU32 = match NonZeroU32::new(60) {
+    Some(n) => n,
+    None => unreachable!(),
+};
+
 pub fn new_rate_limiter() -> IpRateLimiter {
-    Arc::new(RateLimiter::keyed(Quota::per_minute(
-        NonZeroU32::new(60).unwrap(),
-    )))
+    Arc::new(RateLimiter::keyed(Quota::per_minute(RATE_PER_MINUTE)))
 }
 
 pub async fn rate_limit(

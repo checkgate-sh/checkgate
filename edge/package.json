@@ -1,6 +1,6 @@
 {
   "name": "@checkgate/edge",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Runtime-agnostic edge evaluator for Checkgate — fetch a flag snapshot, cache it with TTL + stale-while-revalidate, and evaluate at the edge (Cloudflare Workers, Deno Deploy, Fastly, Vercel Edge, Fly.io).",
   "type": "module",
   "main": "src/index.js",
@@ -27,12 +27,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/checkgate-dev/checkgate.git",
+    "url": "git+https://github.com/checkgate-sh/checkgate.git",
     "directory": "edge"
   },
-  "homepage": "https://github.com/checkgate-dev/checkgate#readme",
+  "homepage": "https://github.com/checkgate-sh/checkgate#readme",
   "bugs": {
-    "url": "https://github.com/checkgate-dev/checkgate/issues"
+    "url": "https://github.com/checkgate-sh/checkgate/issues"
   },
   "license": "Apache-2.0"
 }

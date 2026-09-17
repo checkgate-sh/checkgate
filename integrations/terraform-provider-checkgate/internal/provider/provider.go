@@ -11,7 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	checkgate "github.com/checkgate-dev/checkgate/integrations/checkgate-go"
+	checkgate "github.com/checkgate-sh/checkgate/integrations/checkgate-go"
 )
 
 // Ensure the provider satisfies the framework interface.

@@ -1,3 +1,15 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects
+    )
+)]
+
 mod api;
 mod auth;
 mod integrations;
@@ -239,14 +251,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let env_id: String = match rec.try_get("env_id") {
             Ok(v) => v,
             Err(_) => {
-                skipped += 1;
+                skipped = skipped.saturating_add(1);
                 continue;
             }
         };
         match rec.try_get::<serde_json::Value, _>("data") {
             Err(e) => {
                 error!(error = %e, "Failed to read 'data' column from flags row");
-                skipped += 1;
+                skipped = skipped.saturating_add(1);
             }
             Ok(data) => match serde_json::from_value::<Flag>(data) {
                 Ok(flag) => {
@@ -258,11 +270,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .collect();
                     let expanded = api::segments::expand_flag_with_segments(flag, &env_segments);
                     store.upsert_flag(expanded);
-                    loaded += 1;
+                    loaded = loaded.saturating_add(1);
                 }
                 Err(e) => {
                     warn!(error = %e, "Skipping malformed flag row — schema may be out of sync");
-                    skipped += 1;
+                    skipped = skipped.saturating_add(1);
                 }
             },
         }
@@ -505,6 +517,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "process startup: a kernel that will not install a signal handler is a fatal, non-recoverable condition and there is no request in flight to fail"
+)]
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()

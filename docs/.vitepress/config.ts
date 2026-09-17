@@ -46,7 +46,7 @@ export default defineConfig({
       { text: "Roadmap", link: "/roadmap" },
       {
         text: "GitHub",
-        link: "https://github.com/checkgate-dev/checkgate",
+        link: "https://github.com/checkgate-sh/checkgate",
       },
     ],
 
@@ -113,7 +113,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: "github", link: "https://github.com/checkgate-dev/checkgate" },
+      { icon: "github", link: "https://github.com/checkgate-sh/checkgate" },
     ],
 
     footer: {

@@ -59,4 +59,4 @@ attribute to the right variant.
 * **Synchronous Native Bridge:** Unlike standard HTTP wrappers, Checkgate's JSI evaluates flag arrays in memory avoiding async JS bridge loading.
 * **Bandwidth Conscious:** Streamlined SSE prevents apps from polling the network heavily on metered mobile plans.
 
-Browse the [official Checkgate documentation](https://checkgate-dev.github.io/checkgate) for architecture schemas and more.
+Browse the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate) for architecture schemas and more.

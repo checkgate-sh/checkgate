@@ -117,4 +117,4 @@ Keep Postgres near your `primary_region` (or use read replicas), and point every
 
 - [Core Concepts](/guide/concepts) — evaluation, rollouts, and the `/flags/snapshot` and SSE mechanics.
 - [Web SDK](/sdks/web) — the shared WASM engine behind edge evaluation.
-- Source: [`edge/`](https://github.com/checkgate-dev/checkgate/tree/main/edge)
+- Source: [`edge/`](https://github.com/checkgate-sh/checkgate/tree/main/edge)

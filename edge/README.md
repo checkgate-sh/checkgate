@@ -73,4 +73,4 @@ const color  = edge.getValue('checkout-color', userKey, {}, 'blue')
 
 ---
 
-Part of [Checkgate](https://github.com/checkgate-dev/checkgate) — the self-hosted feature-flag platform.
+Part of [Checkgate](https://github.com/checkgate-sh/checkgate) — the self-hosted feature-flag platform.

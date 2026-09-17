@@ -14,7 +14,7 @@ Thanks for your interest in contributing. This document covers how to get set up
 ## Getting started
 
 ```bash
-git clone https://github.com/checkgate-dev/checkgate.git
+git clone https://github.com/checkgate-sh/checkgate.git
 cd checkgate
 docker compose up -d       # start Postgres + Redis
 cargo build --workspace    # verify everything compiles

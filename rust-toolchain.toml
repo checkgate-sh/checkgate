@@ -1,0 +1,5 @@
+# Pin the toolchain so local dev, CI, and release builds agree.
+# Bump deliberately — a toolchain change can alter lint behaviour and MSRV.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]

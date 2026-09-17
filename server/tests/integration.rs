@@ -1,3 +1,11 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    reason = "test code: a panic here is an assertion failure, not a DoS"
+)]
 //! End-to-end server integration tests.
 //!
 //! These spawn the **real** compiled server binary against a real Postgres and
@@ -17,6 +25,33 @@ use serde_json::{Value, json};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Reads the two env vars the suite needs, or signals that it should be skipped.
+///
+/// Locally, an unset pair means "no database here" and the test skips. In CI it
+/// means the workflow stopped providing them — which would otherwise turn this
+/// whole suite into a silent no-op that still reports `ok`. So when `CI` is set,
+/// a missing variable is a hard failure instead of a skip.
+fn test_env() -> Option<(String, String)> {
+    match (
+        std::env::var("CHECKGATE_TEST_DATABASE_URL"),
+        std::env::var("CHECKGATE_TEST_REDIS_URL"),
+    ) {
+        (Ok(db), Ok(redis)) => Some((db, redis)),
+        _ => {
+            assert!(
+                std::env::var("CI").is_err(),
+                "CHECKGATE_TEST_DATABASE_URL / CHECKGATE_TEST_REDIS_URL are unset under CI — \
+                 the integration suite would skip silently and report success. Check the \
+                 `env:` block of the server-integration job."
+            );
+            eprintln!(
+                "SKIP: set CHECKGATE_TEST_DATABASE_URL and CHECKGATE_TEST_REDIS_URL to run server integration tests"
+            );
+            None
+        }
+    }
+}
 
 /// Kills the spawned server when the test ends (including on panic).
 struct ServerGuard(Child);
@@ -81,13 +116,7 @@ impl Ctx {
 
 #[tokio::test]
 async fn full_api_flow() {
-    let (Ok(db_url), Ok(redis_url)) = (
-        std::env::var("CHECKGATE_TEST_DATABASE_URL"),
-        std::env::var("CHECKGATE_TEST_REDIS_URL"),
-    ) else {
-        eprintln!(
-            "SKIP: set CHECKGATE_TEST_DATABASE_URL and CHECKGATE_TEST_REDIS_URL to run server integration tests"
-        );
+    let Some((db_url, redis_url)) = test_env() else {
         return;
     };
 

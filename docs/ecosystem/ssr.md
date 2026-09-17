@@ -140,4 +140,4 @@ NEXT_PUBLIC_CHECKGATE_SDK_KEY=sk_...                   # client live SDK
 
 - [Edge](/ecosystem/edge) — fetches and caches the server-side snapshot.
 - [Web SDK](/sdks/web) — the live client that takes over after first paint.
-- Source: [`ssr/`](https://github.com/checkgate-dev/checkgate/tree/main/ssr)
+- Source: [`ssr/`](https://github.com/checkgate-sh/checkgate/tree/main/ssr)

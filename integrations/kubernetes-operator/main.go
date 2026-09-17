@@ -15,8 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	flagsv1alpha1 "github.com/checkgate-dev/checkgate-operator/api/v1alpha1"
-	"github.com/checkgate-dev/checkgate-operator/internal/controller"
+	flagsv1alpha1 "github.com/checkgate-sh/checkgate-operator/api/v1alpha1"
+	"github.com/checkgate-sh/checkgate-operator/internal/controller"
 )
 
 var scheme = runtime.NewScheme()

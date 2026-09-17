@@ -76,4 +76,4 @@ attribute to the right variant.
 * **Synchronous FFI Evaluation:** You do not need to `await` flag resolution ever. The evaluation runs in Rust natively in sub-microseconds avoiding Dart async blocking limits.
 * **Instant Propagation (0 to <50ms):** Leverages server-side SSE channels natively within the Rust binary so flag adjustments happen seamlessly within your app flow.
 
-Review advanced patterns inside the [official Checkgate documentation](https://checkgate-dev.github.io/checkgate).
+Review advanced patterns inside the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

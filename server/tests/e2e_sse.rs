@@ -1,3 +1,11 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    reason = "test code: a panic here is an assertion failure, not a DoS"
+)]
 //! End-to-end test of the live evaluation path: a real server, a real SSE
 //! connection, and the real shared `checkgate-core` evaluation engine — the
 //! exact code every SDK (Node/Web/RN/Flutter) wraps.
@@ -17,6 +25,33 @@ use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+/// Reads the two env vars the suite needs, or signals that it should be skipped.
+///
+/// Locally, an unset pair means "no database here" and the test skips. In CI it
+/// means the workflow stopped providing them — which would otherwise turn this
+/// whole suite into a silent no-op that still reports `ok`. So when `CI` is set,
+/// a missing variable is a hard failure instead of a skip.
+fn test_env() -> Option<(String, String)> {
+    match (
+        std::env::var("CHECKGATE_TEST_DATABASE_URL"),
+        std::env::var("CHECKGATE_TEST_REDIS_URL"),
+    ) {
+        (Ok(db), Ok(redis)) => Some((db, redis)),
+        _ => {
+            assert!(
+                std::env::var("CI").is_err(),
+                "CHECKGATE_TEST_DATABASE_URL / CHECKGATE_TEST_REDIS_URL are unset under CI — \
+                 the integration suite would skip silently and report success. Check the \
+                 `env:` block of the server-integration job."
+            );
+            eprintln!(
+                "SKIP: set CHECKGATE_TEST_DATABASE_URL and CHECKGATE_TEST_REDIS_URL to run server integration tests"
+            );
+            None
+        }
+    }
+}
 
 struct ServerGuard(Child);
 impl Drop for ServerGuard {
@@ -164,13 +199,7 @@ fn eval(store: &FlagStore, key: &str) -> bool {
 
 #[tokio::test]
 async fn sse_live_push_and_local_eval() {
-    let (Ok(db_url), Ok(redis_url)) = (
-        std::env::var("CHECKGATE_TEST_DATABASE_URL"),
-        std::env::var("CHECKGATE_TEST_REDIS_URL"),
-    ) else {
-        eprintln!(
-            "SKIP: set CHECKGATE_TEST_DATABASE_URL and CHECKGATE_TEST_REDIS_URL to run the SSE e2e test"
-        );
+    let Some((db_url, redis_url)) = test_env() else {
         return;
     };
 

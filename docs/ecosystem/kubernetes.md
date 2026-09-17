@@ -121,4 +121,4 @@ spec:
 
 - [Core Concepts](/guide/concepts) — flag types, rollouts, targeting rules, and variants.
 - [Self-Hosting](/self-hosting) — running the Checkgate server the operator reconciles against.
-- Source: [`integrations/kubernetes-operator/`](https://github.com/checkgate-dev/checkgate/tree/main/integrations/kubernetes-operator)
+- Source: [`integrations/kubernetes-operator/`](https://github.com/checkgate-sh/checkgate/tree/main/integrations/kubernetes-operator)

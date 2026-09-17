@@ -1,9 +1,9 @@
-module github.com/checkgate-dev/checkgate-operator
+module github.com/checkgate-sh/checkgate-operator
 
 go 1.25.0
 
 require (
-	github.com/checkgate-dev/checkgate/integrations/checkgate-go v0.0.0
+	github.com/checkgate-sh/checkgate/integrations/checkgate-go v0.0.0
 	k8s.io/api v0.31.3
 	k8s.io/apiextensions-apiserver v0.31.3
 	k8s.io/apimachinery v0.31.3
@@ -67,4 +67,4 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/checkgate-dev/checkgate/integrations/checkgate-go => ../checkgate-go
+replace github.com/checkgate-sh/checkgate/integrations/checkgate-go => ../checkgate-go

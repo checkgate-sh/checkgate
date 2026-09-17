@@ -240,12 +240,11 @@ async fn deliver_to_env(state: &AppState, env_id: &str, payload: Value) {
         }
     };
 
-    if rows.is_empty() {
-        return;
-    }
-
     // Every row carries the same environment name (single-env query).
-    let env_name: String = rows[0].get("env_name");
+    let Some(first_row) = rows.first() else {
+        return;
+    };
+    let env_name: String = first_row.get("env_name");
 
     let integrations: Vec<IntegrationRow> = rows
         .iter()
@@ -327,7 +326,7 @@ async fn deliver_with_retry(
                 return;
             }
             Err(e) => {
-                let is_last = attempt == backoff_secs.len() - 1;
+                let is_last = attempt == backoff_secs.len().saturating_sub(1);
                 if is_last {
                     let err_str = e.to_string();
                     warn!(integration_id, error = %e, "Integration delivery failed after all retries");

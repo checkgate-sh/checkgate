@@ -152,6 +152,10 @@ async fn get_is_setup_complete(state: &AppState) -> bool {
 
 /// Returns `Some(retry_after_seconds)` if the account is currently locked,
 /// `None` if the login attempt is allowed to proceed.
+#[allow(
+    clippy::arithmetic_side_effects,
+    reason = "`oldest` is a timestamp read back from a NOW()-bounded window, so adding 15 minutes cannot approach the year-9999 overflow point"
+)]
 async fn check_lockout(state: &AppState, email: &str) -> Result<Option<i64>, StatusCode> {
     // Count failures in the last WINDOW_MINUTES for this email.
     let recent_failures: i64 = sqlx::query_scalar(
@@ -232,6 +236,10 @@ async fn clear_attempts(state: &AppState, email: &str) {
 // ---------------------------------------------------------------------------
 
 /// Validate email + password, enforce lockout, issue session cookie.
+#[allow(
+    clippy::arithmetic_side_effects,
+    reason = "MAX_ATTEMPTS and `failures` are both i64; a negative difference is clamped by .max(0) rather than underflowing"
+)]
 pub async fn login(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -348,7 +356,17 @@ pub async fn login(
     }
 
     // ── Success ───────────────────────────────────────────────────────────────
-    let row = row.unwrap();
+    // `auth_ok` can only be true in the `Some(r)` arm above, so this always
+    // binds. Written as a `let ... else` rather than an `unwrap` so that a future
+    // change to the matching above degrades to a 500 instead of panicking the
+    // request handler.
+    let Some(row) = row else {
+        error!(email = %email, "auth_ok with no user row — unreachable");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Internal error." })),
+        ));
+    };
     let name: String = row.get("name");
     let role: String = row.get("role");
 

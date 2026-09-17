@@ -138,6 +138,10 @@ pub async fn list_tokens(
     Ok(Json(tokens))
 }
 
+#[allow(
+    clippy::arithmetic_side_effects,
+    reason = "`days` is validated into 1..=365 by the match arm guard before it reaches the addition"
+)]
 pub async fn create_token(
     State(state): State<AppState>,
     ctx: AuthContext,

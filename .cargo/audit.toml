@@ -1,0 +1,15 @@
+# cargo-audit configuration.
+#
+# cargo-audit scans Cargo.lock, not the resolved build graph, so it reports
+# advisories for crates that are present as lockfile entries but never compiled.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2023-0071 — Marvin timing sidechannel in `rsa`. No fixed version
+  # exists upstream. `rsa` is pulled in only by `sqlx-mysql`; this workspace
+  # enables sqlx's `postgres` feature only, so `rsa` is never built or linked.
+  # `cargo tree -i rsa` resolves to nothing, and `cargo deny check advisories`
+  # (which walks the build graph) does not flag it at all.
+  # Revisit immediately if MySQL support is ever enabled.
+  "RUSTSEC-2023-0071",
+]

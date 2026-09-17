@@ -43,8 +43,8 @@ One image is published per release:
 
 | Image | Description |
 |-------|-------------|
-| `ghcr.io/checkgate-dev/checkgate:latest` | All-in-one: PostgreSQL + Redis + server + dashboard |
-| `ghcr.io/checkgate-dev/checkgate:<version>` | Pinned version (e.g. `1.2.0`) |
+| `ghcr.io/checkgate-sh/checkgate:latest` | All-in-one: PostgreSQL + Redis + server + dashboard |
+| `ghcr.io/checkgate-sh/checkgate:<version>` | Pinned version (e.g. `1.2.0`) |
 
 The image is multi-architecture: `linux/amd64` and `linux/arm64`.
 
@@ -85,7 +85,7 @@ docker run -d -p 3000:3000 \
   -e DATABASE_URL="postgres://user:password@your-postgres:5432/checkgate" \
   -e REDIS_URL="redis://your-redis:6379" \
   -e SESSION_SECRET="your-secret" \
-  ghcr.io/checkgate-dev/checkgate:latest
+  ghcr.io/checkgate-sh/checkgate:latest
 ```
 
 ## AWS
@@ -109,7 +109,7 @@ docker run -d -p 3000:3000 \
 5. Run:
    ```bash
    docker run -d --env-file .env -p 3000:3000 \
-     ghcr.io/checkgate-dev/checkgate:latest
+     ghcr.io/checkgate-sh/checkgate:latest
    ```
 
 ### ECS (Fargate)
@@ -126,7 +126,7 @@ A basic task definition:
   "containerDefinitions": [
     {
       "name": "checkgate",
-      "image": "ghcr.io/checkgate-dev/checkgate:latest",
+      "image": "ghcr.io/checkgate-sh/checkgate:latest",
       "portMappings": [{"containerPort": 3000}],
       "environment": [
         {"name": "DATABASE_URL", "value": "postgres://..."},
@@ -164,7 +164,7 @@ Returns `200 OK` with body `OK`. Use this for load balancer and container health
 Checkgate uses [sqlx migrations](https://docs.rs/sqlx/latest/sqlx/macro.migrate.html) that run automatically on startup. To upgrade:
 
 ```bash
-docker pull ghcr.io/checkgate-dev/checkgate:latest
+docker pull ghcr.io/checkgate-sh/checkgate:latest
 docker compose up -d --force-recreate
 ```
 

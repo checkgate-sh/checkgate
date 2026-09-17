@@ -69,4 +69,4 @@ attribute to the right variant.
 * **Live SSE:** Toggling a flag on the dashboard natively updates the frontend without refreshing the browser tab.
 * **Open Source Alternative:** Stop paying premium per-seat pricing for basic feature gates.
 
-Learn more natively in the [official Checkgate documentation](https://checkgate-dev.github.io/checkgate).
+Learn more natively in the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     checkgate = {
-      source = "checkgate-dev/checkgate"
+      source = "checkgate-sh/checkgate"
     }
   }
 }
