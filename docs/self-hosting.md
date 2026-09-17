@@ -9,9 +9,35 @@ Checkgate is designed to be self-hosted. The all-in-one Docker image bundles Pos
 
 ## Docker Compose (Recommended)
 
-The simplest way to run Checkgate is with the provided `docker-compose.yml`:
+Run the published release image with Docker Compose. No repository clone or local build is needed.
+
+Create a deployment directory and save the following as `compose.yml`:
+
+```yaml
+services:
+  checkgate:
+    image: ghcr.io/checkgate-sh/checkgate:latest
+    container_name: checkgate
+    ports:
+      - "3000:3000"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    volumes:
+      - checkgate_pgdata:/var/lib/postgresql/data
+      - checkgate_redis:/var/lib/redis
+    restart: unless-stopped
+
+volumes:
+  checkgate_pgdata:
+  checkgate_redis:
+```
+
+Pull the image and start Checkgate:
 
 ```bash
+docker compose pull
 docker compose up -d
 ```
 
@@ -23,7 +49,7 @@ This starts a single container that includes:
 
 ### Configuration
 
-Create a `.env` file in the project root:
+Create a `.env` file in the deployment directory, alongside `compose.yml`:
 
 ```bash
 SESSION_SECRET=your-random-64-char-secret   # Required in production
@@ -44,9 +70,9 @@ One image is published per release:
 | Image | Description |
 |-------|-------------|
 | `ghcr.io/checkgate-sh/checkgate:latest` | All-in-one: PostgreSQL + Redis + server + dashboard |
-| `ghcr.io/checkgate-sh/checkgate:<version>` | Pinned version (e.g. `1.2.0`) |
+| `ghcr.io/checkgate-sh/checkgate:<version>` | Pinned release version (use the version tag without its leading `v`) |
 
-The image is multi-architecture: `linux/amd64` and `linux/arm64`.
+The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects the matching architecture automatically. For production, replace `:latest` in `compose.yml` with a published version tag to control upgrades.
 
 ## Environment Variables
 
@@ -161,11 +187,11 @@ Returns `200 OK` with body `OK`. Use this for load balancer and container health
 
 ## Upgrading
 
-Checkgate uses [sqlx migrations](https://docs.rs/sqlx/latest/sqlx/macro.migrate.html) that run automatically on startup. To upgrade:
+Checkgate uses [sqlx migrations](https://docs.rs/sqlx/latest/sqlx/macro.migrate.html) that run automatically on startup. If you pinned a version, update the image tag in `compose.yml` to the desired release first. From your deployment directory, run:
 
 ```bash
-docker pull ghcr.io/checkgate-sh/checkgate:latest
-docker compose up -d --force-recreate
+docker compose pull checkgate
+docker compose up -d checkgate
 ```
 
 The server applies any new migrations before accepting traffic. Existing data is preserved.
