@@ -110,8 +110,8 @@ export default function ChangeRequests() {
     <div className="w-full space-y-5">
       <div className="premium-card shadow-premium-lg border-none">
         <div className="flex items-start gap-5 px-6 py-5 border-b border-gray-50 bg-white">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
-            <GitPullRequest className="w-5 h-5 text-emerald-600" />
+          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+            <GitPullRequest className="w-5 h-5 text-brand-600" />
           </div>
           <div className="flex-1">
             <h2 className="text-gray-900 font-display font-bold text-sm tracking-tight">Change requests</h2>
@@ -123,7 +123,7 @@ export default function ChangeRequests() {
           <select
             value={status}
             onChange={e => setStatus(e.target.value as ChangeRequestStatus | '')}
-            className="bg-white border border-gray-100 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 shadow-premium"
+            className="bg-white border border-gray-100 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 shadow-premium"
           >
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
@@ -188,7 +188,7 @@ export default function ChangeRequests() {
                               onClick={() => void handleApprove(cr.id)}
                               disabled={actingId === cr.id}
                               title="Approve"
-                              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50"
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                             </button>

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../assets/checkgate_logo.png" width="120" alt="Checkgate Logo">
+  <img src="../../assets/logo.svg" width="64" alt="Checkgate">
 </p>
 
 # checkgate_flutter

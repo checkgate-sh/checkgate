@@ -13,7 +13,7 @@
   }
 
   ::selection {
-    @apply bg-emerald-100 text-emerald-900;
+    @apply bg-brand-100 text-brand-900;
   }
 
   ::-webkit-scrollbar {

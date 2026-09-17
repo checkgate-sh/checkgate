@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="../assets/checkgate_logo.png" alt="Checkgate" width="72" />
+  <img src="../assets/logo.svg" alt="Checkgate" width="64" />
   <h1>@checkgate/edge</h1>
   <p>Evaluate Checkgate feature flags <strong>at the edge</strong> — Cloudflare Workers, Deno Deploy, Fastly, Vercel Edge, Fly.io.</p>
 </div>

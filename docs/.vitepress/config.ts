@@ -36,7 +36,7 @@ export default defineConfig({
   ],
 
   themeConfig: {
-    logo: "/checkgate_logo.png",
+    logo: "/logo.svg",
     nav: [
       { text: "Guide", link: "/guide/getting-started" },
       { text: "SDKs", link: "/sdks/" },

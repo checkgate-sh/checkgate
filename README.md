@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="assets/checkgate_logo.png" width="160" alt="Checkgate Logo">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
+    <img src="assets/banner-dark.svg" alt="Checkgate — feature flags without the round-trip" width="100%">
+  </picture>
 </p>
 
 # Checkgate — Feature Flags Without the Round-Trip.

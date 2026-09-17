@@ -28,10 +28,12 @@ use std::time::Duration;
 
 /// Reads the two env vars the suite needs, or signals that it should be skipped.
 ///
-/// Locally, an unset pair means "no database here" and the test skips. In CI it
-/// means the workflow stopped providing them — which would otherwise turn this
-/// whole suite into a silent no-op that still reports `ok`. So when `CI` is set,
-/// a missing variable is a hard failure instead of a skip.
+/// Skipping is the right default: `cargo test --workspace` must stay green on a
+/// machine with no database, and the generic workspace CI job runs without one
+/// too. But the job that exists *specifically* to run this suite must never skip
+/// quietly and still report `ok` — so that job sets
+/// `CHECKGATE_REQUIRE_INTEGRATION=1`, and a missing database is then a hard
+/// failure pointing at the workflow rather than a silent pass.
 fn test_env() -> Option<(String, String)> {
     match (
         std::env::var("CHECKGATE_TEST_DATABASE_URL"),
@@ -40,10 +42,10 @@ fn test_env() -> Option<(String, String)> {
         (Ok(db), Ok(redis)) => Some((db, redis)),
         _ => {
             assert!(
-                std::env::var("CI").is_err(),
-                "CHECKGATE_TEST_DATABASE_URL / CHECKGATE_TEST_REDIS_URL are unset under CI — \
-                 the integration suite would skip silently and report success. Check the \
-                 `env:` block of the server-integration job."
+                std::env::var("CHECKGATE_REQUIRE_INTEGRATION").is_err(),
+                "CHECKGATE_REQUIRE_INTEGRATION is set but CHECKGATE_TEST_DATABASE_URL / \
+                 CHECKGATE_TEST_REDIS_URL are not — this suite would skip silently and still \
+                 report success. Check the `env:` block of the server-integration job."
             );
             eprintln!(
                 "SKIP: set CHECKGATE_TEST_DATABASE_URL and CHECKGATE_TEST_REDIS_URL to run server integration tests"

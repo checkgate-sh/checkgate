@@ -44,7 +44,7 @@ function NewProjectModal({ onClose, onCreated }: {
             onChange={e => setName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') void handleCreate(); if (e.key === 'Escape') onClose() }}
             placeholder="My App"
-            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all"
+            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all"
           />
           {name.trim() && (
             <p className="mt-1.5 text-xs text-gray-400">Slug: {slugify(name)}</p>
@@ -60,7 +60,7 @@ function NewProjectModal({ onClose, onCreated }: {
           <button
             onClick={() => void handleCreate()}
             disabled={loading || !name.trim()}
-            className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-emerald-200"
+            className="flex-1 py-2.5 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-brand-200"
           >
             {loading ? 'Creating…' : 'Create project'}
           </button>
@@ -119,7 +119,7 @@ export default function Projects() {
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:-translate-y-0.5"
+          className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5"
         >
           <Plus className="w-4 h-4" /> New project
         </button>
@@ -129,7 +129,7 @@ export default function Projects() {
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <span className="inline-block w-5 h-5 border-2 border-gray-200 border-t-emerald-500 rounded-full animate-spin" />
+          <span className="inline-block w-5 h-5 border-2 border-gray-200 border-t-brand-500 rounded-full animate-spin" />
         </div>
       ) : (
         <div className="premium-card shadow-premium-lg border-none overflow-hidden">
@@ -148,8 +148,8 @@ export default function Projects() {
                 <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
-                        <FolderKanban className="w-4 h-4 text-emerald-600" />
+                      <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+                        <FolderKanban className="w-4 h-4 text-brand-600" />
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{p.name}</p>

@@ -7,7 +7,7 @@ hero:
   text: "Feature Flags Without the Round-Trip."
   tagline: "Flags evaluated in-process. Updates pushed in under 50 ms. No vendor, no round-trips, no latency tax."
   image:
-    src: /checkgate_logo.png
+    src: /logo.svg
     alt: Checkgate Logo
   actions:
     - theme: brand

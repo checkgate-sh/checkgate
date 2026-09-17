@@ -18,9 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **New brand.** The primary color moves from emerald to **indigo `#4F46E5`**, and green, red and
+  amber are now reserved for flag state (enabled / disabled / pending) rather than shared with
+  brand chrome — so a green control in the dashboard always means "on". New minimalist logo, and a
+  banner replacing the 1.7 MB PNG that was duplicated into four directories.
 - GitHub organisation moved from `checkgate-dev` to **`checkgate-sh`**. Go module paths, npm
   `package.json` URLs, the podspec, pubspec, docs, and `ghcr.io` image paths all follow.
   Consumers of the Go client, operator, or Terraform provider must update their import paths.
+- Variant colors on the Exposure page no longer include emerald or indigo, so a variant cannot be
+  mistaken for an enabled state or for brand chrome.
 - Variant bucketing carries its total weight as `NonZeroU64`, making the zero-weight case
   unrepresentable rather than guarded.
 - `checkgate_is_enabled_ctx` now accepts a NULL context and fails closed instead of dereferencing it.
@@ -32,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The server integration and SSE suites reported success while skipping when their database
   environment variables were unset. They still skip locally but now fail hard under CI.
 - Stale doc comment in the hashing core, and two unresolved rustdoc links.
+- The dashboard's `brand` color ramp was two different hues stitched together — steps 50–400 were
+  Tailwind green, 500–950 emerald — so tints never matched the primary. It is now one hue, and is
+  actually referenced: every component previously hardcoded `emerald-*` and the token was unused.
 
 ### Security
 

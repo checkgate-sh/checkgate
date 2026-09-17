@@ -138,6 +138,9 @@ jobs:
         env:
           CHECKGATE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/checkgate_test
           CHECKGATE_TEST_REDIS_URL: redis://localhost:6379
+          # Assert the suite actually runs here: if the two URLs above ever go
+          # missing, the tests fail loudly instead of skipping and reporting ok.
+          CHECKGATE_REQUIRE_INTEGRATION: "1"
         run: |
           cargo test -p server --test integration -- --nocapture
           cargo test -p server --test e2e_sse -- --nocapture

@@ -28,7 +28,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
   return (
     <button
       onClick={onToggle}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 ${
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
         enabled ? 'bg-emerald-600' : 'bg-gray-200'
       }`}
       aria-label={enabled ? 'Disable flag' : 'Enable flag'}
@@ -65,7 +65,7 @@ function CopyKeyButton({ flagKey }: { flagKey: string }) {
       aria-label="Copy key"
       title="Copy flag key"
     >
-      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+      {copied ? <Check className="w-3 h-3 text-brand-500" /> : <Copy className="w-3 h-3" />}
     </button>
   )
 }
@@ -102,14 +102,14 @@ function PromoteModal({ flag, onClose }: { flag: Flag; onClose: () => void }) {
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 w-full max-w-sm mx-4">
         {done ? (
           <div className="text-center py-4">
-            <p className="text-emerald-600 font-bold text-lg mb-1">Promoted!</p>
+            <p className="text-brand-600 font-bold text-lg mb-1">Promoted!</p>
             <p className="text-gray-500 text-sm mb-4">
-              <code className="font-mono text-emerald-600">{flag.key}</code> was copied to{' '}
+              <code className="font-mono text-brand-600">{flag.key}</code> was copied to{' '}
               {environments.find(e => e.id === targetId)?.name}.
             </p>
             <button
               onClick={onClose}
-              className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl text-sm hover:bg-emerald-700 transition-colors"
+              className="px-6 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-colors"
             >
               Done
             </button>
@@ -118,7 +118,7 @@ function PromoteModal({ flag, onClose }: { flag: Flag; onClose: () => void }) {
           <>
             <h3 className="font-bold text-gray-900 mb-1">Promote flag</h3>
             <p className="text-gray-500 text-sm mb-4">
-              Copy <code className="font-mono text-emerald-600">{flag.key}</code> configuration to another environment.
+              Copy <code className="font-mono text-brand-600">{flag.key}</code> configuration to another environment.
             </p>
 
             {error && (
@@ -130,7 +130,7 @@ function PromoteModal({ flag, onClose }: { flag: Flag; onClose: () => void }) {
               <select
                 value={targetId}
                 onChange={e => setTargetId(e.target.value)}
-                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
               >
                 <option value="">Select environment…</option>
                 {targets.map(e => (
@@ -143,7 +143,7 @@ function PromoteModal({ flag, onClose }: { flag: Flag; onClose: () => void }) {
               <button
                 onClick={() => void handlePromote()}
                 disabled={!targetId || loading}
-                className="flex-1 py-2 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all"
+                className="flex-1 py-2 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all"
               >
                 {loading ? 'Promoting…' : 'Promote'}
               </button>
@@ -311,7 +311,7 @@ export default function FlagList() {
           creating ? (
             activeEnv ? `Creating in ${activeEnv.name}` : undefined
           ) : (
-            <span className="font-mono text-emerald-600">{editingKey}</span>
+            <span className="font-mono text-brand-600">{editingKey}</span>
           )
         }
       >
@@ -336,7 +336,7 @@ export default function FlagList() {
             placeholder="Search flags… (press /)"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            className="w-full bg-white border border-gray-100 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/40 shadow-premium transition-all"
+            className="w-full bg-white border border-gray-100 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500/40 shadow-premium transition-all"
           />
         </div>
 
@@ -383,7 +383,7 @@ export default function FlagList() {
         )}
         <button
           onClick={openNew}
-          className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:-translate-y-0.5"
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5"
         >
           <Plus className="w-4 h-4" /> New flag
         </button>
@@ -404,7 +404,7 @@ export default function FlagList() {
                 <p className="text-gray-400 text-sm">No flags in {activeEnv?.name ?? 'this environment'} yet.</p>
                 <button
                   onClick={openNew}
-                  className="flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
+                  className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" /> Create your first flag
                 </button>
@@ -428,10 +428,10 @@ export default function FlagList() {
                 {filtered.map(flag => (
                   <tr
                     key={flag.key}
-                    className={`group hover:bg-emerald-50/20 transition-all ${flag.archived_at ? 'opacity-50' : ''}`}
+                    className={`group hover:bg-brand-50/20 transition-all ${flag.archived_at ? 'opacity-50' : ''}`}
                   >
                     <td className="px-8 py-5">
-                      <span className="font-mono text-emerald-600 font-semibold text-sm">{flag.key}</span>
+                      <span className="font-mono text-brand-600 font-semibold text-sm">{flag.key}</span>
                       <TypeBadge flagType={flag.flag_type} />
                       {flag.archived_at && (
                         <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-gray-100 text-gray-500 ring-1 ring-gray-200">

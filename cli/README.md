@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="../assets/checkgate_logo.png" alt="Checkgate" width="72" />
+  <img src="../assets/logo.svg" alt="Checkgate" width="64" />
   <h1>@checkgate/cli</h1>
   <p>Generate <strong>type-safe flag accessors</strong> for TypeScript, Dart, and Rust from your Checkgate flag definitions.</p>
 </div>

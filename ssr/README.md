@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="../assets/checkgate_logo.png" alt="Checkgate" width="72" />
+  <img src="../assets/logo.svg" alt="Checkgate" width="64" />
   <h1>@checkgate/ssr</h1>
   <p>Server-render initial flag state and hydrate the client with <strong>zero flag flicker</strong> — Next.js, Remix, SvelteKit, or any SSR framework.</p>
 </div>
