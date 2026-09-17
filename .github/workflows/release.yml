@@ -94,11 +94,10 @@ jobs:
             artifact: checkgate.linux-arm64-gnu.node
             cross: true
 
-          # Linux x64 (musl — Alpine) — cross-compile via napi-rs cross toolchain
+          # Linux x64 (musl — Alpine) — build with musl-gcc
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact: checkgate.linux-x64-musl.node
-            cross: true
 
           # macOS x64 — cross-compile natively from arm64 runner
           - os: macos-latest
@@ -118,10 +117,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      # Install targets on the toolchain selected by rust-toolchain.toml.
+      # Installing them on `stable` can leave the pinned toolchain without core/std.
+      - name: Install Rust toolchain and target
+        shell: bash
+        run: |
+          rustup show
+          rustup target add "${{ matrix.target }}"
+
+      - name: Install musl compiler
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -141,10 +149,13 @@ jobs:
         shell: bash
         run: |
           JS_FLAGS="--js native-binding.js --dts native-binding.d.ts"
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-            # Satisfy host-side NAPI-RS linker check (will use real linker inside Docker)
-            sudo ln -s /usr/bin/true /usr/bin/aarch64-linux-musl-gcc
-            npx napi build --platform --release --target ${{ matrix.target }} --use-napi-cross $JS_FLAGS
+          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
+            # NAPI's cross toolchain supports GNU targets only. A Node addon is
+            # a shared library, so disable musl's default static CRT linkage.
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+            export TARGET_CC=musl-gcc
+            export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=-crt-static"
+            npx napi build --platform --release --target ${{ matrix.target }} $JS_FLAGS
           elif [ "${{ matrix.cross }}" = "true" ]; then
             npx napi build --platform --release --target ${{ matrix.target }} --use-napi-cross $JS_FLAGS
           else
@@ -179,10 +190,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
+      - name: Install Rust toolchain and target
+        run: |
+          rustup show
+          rustup target add wasm32-unknown-unknown
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
