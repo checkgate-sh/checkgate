@@ -25,6 +25,8 @@ pub struct ScheduledChange {
     pub scheduled_at: String,
     pub patch: Value,
     pub executed_at: Option<String>,
+    pub attempts: i64,
+    pub last_error: Option<String>,
     pub created_at: String,
 }
 
@@ -77,7 +79,7 @@ async fn list_scheduled(
 
     let rows = sqlx::query(
         "SELECT id::text, environment_id::text, flag_key, \
-         scheduled_at::text, patch, executed_at::text, created_at::text \
+         scheduled_at::text, patch, executed_at::text, created_at::text, attempts, last_error \
          FROM scheduled_changes WHERE environment_id = $1::uuid \
          ORDER BY scheduled_at ASC",
     )
@@ -101,7 +103,7 @@ async fn list_scheduled_for_flag(
 
     let rows = sqlx::query(
         "SELECT id::text, environment_id::text, flag_key, \
-         scheduled_at::text, patch, executed_at::text, created_at::text \
+         scheduled_at::text, patch, executed_at::text, created_at::text, attempts, last_error \
          FROM scheduled_changes \
          WHERE environment_id = $1::uuid AND flag_key = $2 \
          ORDER BY scheduled_at ASC",
@@ -126,40 +128,46 @@ async fn create_scheduled(
 ) -> Result<Json<ScheduledChange>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
 
-    // Verify the flag exists before scheduling.
-    let flag_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM flags WHERE key = $1 AND environment_id = $2::uuid)",
-    )
-    .bind(&key)
-    .bind(&env_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| {
-        error!(error = %e, "DB error checking flag existence");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    if !flag_exists {
-        return Err(StatusCode::NOT_FOUND);
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if super::flags::lock_environment(&mut tx, &env_id).await? {
+        return Err(StatusCode::CONFLICT);
     }
-
-    // Reject if scheduled_at is in the past (tolerance: 30 s).
+    super::flags::merge_and_validate(&mut *tx, &env_id, &key, body.patch.clone()).await?;
+    let scheduled_at = time::OffsetDateTime::parse(
+        &body.scheduled_at,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    if scheduled_at.unix_timestamp()
+        < time::OffsetDateTime::now_utc()
+            .unix_timestamp()
+            .saturating_sub(30)
+    {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let row = sqlx::query(
         "INSERT INTO scheduled_changes (environment_id, flag_key, scheduled_at, patch) \
-         VALUES ($1::uuid, $2, $3::timestamptz, $4) \
+         VALUES ($1::uuid, $2, $3, $4) \
          RETURNING id::text, environment_id::text, flag_key, \
-                   scheduled_at::text, patch, executed_at::text, created_at::text",
+                   scheduled_at::text, patch, executed_at::text, created_at::text, attempts, last_error",
     )
     .bind(&env_id)
     .bind(&key)
-    .bind(&body.scheduled_at)
+    .bind(scheduled_at)
     .bind(&body.patch)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         error!(error = %e, "Failed to create scheduled change");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let actor = get_session_claims(&jar).map(|c| c.email);
     info!(
@@ -218,6 +226,8 @@ fn row_to_change(r: &sqlx::postgres::PgRow) -> ScheduledChange {
         scheduled_at: r.get("scheduled_at"),
         patch: r.get("patch"),
         executed_at: r.get("executed_at"),
+        attempts: r.get("attempts"),
+        last_error: r.get("last_error"),
         created_at: r.get("created_at"),
     }
 }

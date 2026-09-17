@@ -6,7 +6,7 @@ Thanks for your interest in contributing. This document covers how to get set up
 
 - Rust 1.88+
 - Node.js 18+ (SDKs, CLI, docs)
-- Bun 1.3+ (dashboard)
+- Bun 1.4+ (dashboard)
 - Docker and Docker Compose (for integration tests)
 - `wasm-pack` (browser SDK)
 - `@napi-rs/cli` (Node.js SDK)
@@ -103,3 +103,29 @@ Use the GitHub issue templates:
 By contributing you agree that your changes will be licensed under the
 [Apache License 2.0](LICENSE), and that you have the right to grant that licence
 for the work you submit.
+
+## Refreshing dashboard screenshots
+
+Run the disposable Docker demo, which uses separate container storage from your deployment:
+
+```bash
+docker compose -f docker-compose.screenshots.yml up --build -d
+cd dashboard
+bun install --frozen-lockfile
+bunx playwright install chromium
+bun run screenshots
+```
+
+The capture script creates the Vantage Robotics example workspace with administrator
+Juan Dela Cruz, seeds flags and review requests, and replaces all eight images in
+`assets/screenshots/`. The README and dashboard guide share those assets.
+It expects the demo at `http://127.0.0.1:3100` and stops if an existing workspace does not
+match the fixture. On Linux, Chromium may also need system libraries; install them with
+`bunx playwright install-deps chromium` if Playwright reports missing dependencies.
+
+After capturing, return to the repository root and remove the demo container:
+
+```bash
+cd ..
+docker compose -f docker-compose.screenshots.yml down
+```

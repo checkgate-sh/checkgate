@@ -31,8 +31,9 @@ function makeFakeCore() {
 }
 
 class FakeEventSource {
-  constructor(url, opts) { this.url = url; this.opts = opts; this.closed = false }
-  addEventListener() {}
+  constructor(url, opts) { this.url = url; this.opts = opts; this.closed = false; this.listeners = {} }
+  addEventListener(name, fn) { this.listeners[name] = fn }
+  emit(name, data) { this.listeners[name]({ data: JSON.stringify(data) }) }
   close() { this.closed = true }
 }
 
@@ -201,3 +202,70 @@ test('disconnect() flushes buffered impressions AND events', () => {
   assert.ok(urls.some((u) => /\/impressions$/.test(u)), 'impressions flushed on disconnect')
   assert.ok(urls.some((u) => /\/events$/.test(u)), 'events flushed on disconnect')
 })
+
+// --- Regression coverage for offline namespaces and polling lifecycle -------
+
+test('cache namespaces match SHA-256 without exposing the credential', async () => {
+    const { createHash } = await import('node:crypto');
+    const { cacheNamespace } = require('../cache-key.js');
+    for (const value of ['', 'abc', 'credential'.repeat(100), 'unicode-\u00e9-\ud83d\ude00']) {
+        assert.equal(cacheNamespace(value), createHash('sha256').update(value).digest('hex'));
+    }
+});
+
+test('persisted flags are isolated between credentials on the same server', async () => {
+    const data = new Map();
+    const storage = { getItem: k => data.get(k), setItem: (k, v) => data.set(k, v) };
+    const prod = newClient({ sdkKey: 'production-secret', storage, reportImpressions: false });
+
+    prod._applySnapshot([{key:'checkout',is_enabled:true}]);
+    const stage = newClient({ sdkKey: 'staging-secret', storage, reportImpressions: false });
+
+    await stage._hydrateFromCache();
+    assert.equal(stage._flagCache.size, 0);
+    assert.equal(prod._cacheKey.includes('production-secret'), false);
+    prod.disconnect(); stage.disconnect();
+});
+
+test('polling bootstrap enables impressions and conversion tracking', async () => {
+    const client = newClient();
+
+    global.fetch = (async () => ({ok:true,headers:{get: () => 'poll-env'},json:async () => [{key:'checkout',is_enabled:true}]}));
+    await client._pollSnapshot();
+    assert.equal(client.isReady(), true);
+    assert.equal(client._envId, 'poll-env');
+    client.isEnabled('checkout','user');
+    client.track('purchase','user');
+    assert.equal(client._impressions.length, 1);
+    assert.equal(client._events.length, 1);
+    client.disconnect();
+});
+
+test('an outstanding poll cannot overwrite state after SSE takes over', async () => {
+    const client = newClient({reportImpressions:false});
+
+    let deliver;
+    global.fetch = (() => new Promise(resolve => {deliver=resolve}));
+    const pending = client._pollSnapshot();
+    client._connectDeltas();
+    client.sse.emit('connected',{environment_id:'sse-env'});
+    client._applySnapshot([{key:'checkout',is_enabled:false}]);
+    deliver({ok:true,json:async () => [{key:'checkout',is_enabled:true}]});
+    await pending;
+    assert.equal(client._flagCache.get('checkout').is_enabled, false);
+    client.disconnect();
+});
+
+test('overlapping polls share a request and disconnect invalidates its response', async () => {
+    const client = newClient({reportImpressions:false});
+
+    let requests = 0, deliver;
+    global.fetch = (() => {requests++; return new Promise(resolve => {deliver=resolve});});
+    const first = client._pollSnapshot(), second = client._pollSnapshot();
+    assert.equal(requests, 1);
+    client.disconnect();
+    deliver({ok:true,json:async () => [{key:'stale',is_enabled:true}]});
+    await Promise.all([first,second]);
+    assert.equal(client._flagCache.size, 0);
+    assert.equal(client.isReady(), false);
+});

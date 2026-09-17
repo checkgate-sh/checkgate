@@ -1,0 +1,16 @@
+# Disposable documentation demo; it does not use deployment data volumes.
+# Start: docker compose -f docker-compose.screenshots.yml up --build -d
+# Stop:  docker compose -f docker-compose.screenshots.yml down
+name: checkgate-screenshots
+
+services:
+  checkgate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: checkgate:screenshots
+    ports:
+      - "127.0.0.1:3100:3000"
+    environment:
+      SESSION_SECRET: checkgate-screenshot-demo-session-secret
+      COOKIE_SECURE: "false"

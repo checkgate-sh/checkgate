@@ -12,10 +12,10 @@ import { useProject } from '../context/ProjectContext'
 const COLORS = [
   { label: 'Red',    value: '#ef4444' },
   { label: 'Amber',  value: '#f59e0b' },
-  { label: 'Green',  value: '#10b981' },
+  { label: 'Cyan',   value: '#06b6d4' },
   { label: 'Blue',   value: '#3b82f6' },
   { label: 'Purple', value: '#8b5cf6' },
-  { label: 'Indigo', value: '#6366f1' },
+  { label: 'Indigo', value: '#4f46e5' },
   { label: 'Pink',   value: '#ec4899' },
   { label: 'Gray',   value: '#6b7280' },
 ]
@@ -30,7 +30,7 @@ function CreateEnvironmentForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
-  const [color, setColor] = useState(COLORS[3].value)
+  const [color, setColor] = useState('#4f46e5')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 

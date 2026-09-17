@@ -61,7 +61,7 @@ export default function Dashboard() {
       {/* Stats */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard label="Total flags" value={loading ? '—' : flags.length} icon={ToggleLeft} iconBg="bg-brand-50" iconColor="text-brand-600" />
-        <StatCard label="Enabled" value={loading ? '—' : enabled} icon={ToggleRight} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
+        <StatCard label="Enabled" value={loading ? '—' : enabled} icon={ToggleRight} iconBg="bg-brand-50" iconColor="text-brand-600" />
         <StatCard label="With rules" value={loading ? '—' : withRules} icon={ListFilter} iconBg="bg-amber-50" iconColor="text-amber-600" />
         <Link to="/schedule" className="block hover:no-underline">
           <StatCard
@@ -134,7 +134,7 @@ export default function Dashboard() {
                             ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200'
                             : 'bg-gray-100 text-gray-500 ring-1 ring-gray-200'
                         }`}>
-                          <span className={`w-2 h-2 rounded-full ${flag.is_enabled ? 'bg-emerald-500' : 'bg-gray-400'} shadow-sm`} />
+                          <span className={`w-2 h-2 rounded-full ${flag.is_enabled ? 'bg-brand-500' : 'bg-gray-400'} shadow-sm`} />
                           {flag.is_enabled ? 'Active' : 'Paused'}
                         </span>
                       </td>

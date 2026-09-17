@@ -130,6 +130,8 @@ every Checkgate SDK:
 - **SSR bootstrap** — pass a `bootstrap` snapshot (from [`@checkgate/ssr`](/ecosystem/ssr)) to seed
   the store synchronously on connect, for zero-flicker server-rendered apps.
 
+Persisted snapshots are namespaced by server URL and a SHA-256 digest of the SDK key, so clients for different environments can share a storage adapter. The previous cache format is ignored on upgrade.
+
 ## Change listeners
 
 Subscribe to live flag changes to re-render or invalidate caches when a flag actually changes

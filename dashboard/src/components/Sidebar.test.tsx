@@ -18,7 +18,7 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: () => mockAuthContext,
 }))
 
-const ENV = { id: 'env-1', name: 'Development', color: '#10b981' }
+const ENV = { id: 'env-1', name: 'Development', color: '#4f46e5' }
 const PROJECT = { id: 'proj-1', name: 'Bookspine' }
 
 vi.mock('../context/EnvironmentContext', () => ({

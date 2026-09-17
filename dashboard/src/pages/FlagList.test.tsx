@@ -30,7 +30,7 @@ vi.mock('../api', () => ({
 // The context value must keep a stable identity across renders — the form's
 // load effects key off `activeEnv`, so a fresh object each render would
 // re-trigger them forever.
-const ENV = { id: 'env-1', name: 'Development', color: '#10b981' }
+const ENV = { id: 'env-1', name: 'Development', color: '#4f46e5' }
 const ENV_CTX = {
   environments: [ENV],
   activeEnv: ENV,

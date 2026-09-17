@@ -8,7 +8,7 @@ function fakeBridge() {
   const flags = new Map()
   return {
     clearStore() { flags.clear() },
-    upsertFlagV2(json) { const f = JSON.parse(json); flags.set(f.key, f) },
+    upsertFlagV2(flag) { flags.set(flag.key, flag) },
     deleteFlag(key) { flags.delete(key) },
     isEnabled(key) { const f = flags.get(key); return !!(f && f.is_enabled) },
     getVariant(key) {
@@ -56,7 +56,7 @@ test('constructor binds the JSI bridge and applies defaults', () => {
 describe('evaluation delegates to the JSI bridge', () => {
   test('isEnabled / getVariant / getValue', () => {
     const c = ready(newClient({ reportImpressions: false }))
-    c.bridge.upsertFlagV2(JSON.stringify({ key: 'f', is_enabled: true, flag_type: 'string', default_value: 'blue' }))
+    c.bridge.upsertFlagV2({ key: 'f', is_enabled: true, flag_type: 'string', default_value: 'blue' })
     expect(c.isEnabled('f', 'u1')).toBe(true)
     expect(c.getVariant('f', 'u1')).toEqual({ enabled: true, value: 'blue' })
     expect(c.getValue('f', 'u1', {}, 'x')).toBe('blue')
@@ -118,3 +118,69 @@ test('disconnect flushes buffered impressions AND events', () => {
   expect(urls.some((u) => /\/impressions$/.test(u))).toBe(true)
   expect(urls.some((u) => /\/events$/.test(u))).toBe(true)
 })
+
+// --- Regression coverage for offline namespaces and polling lifecycle -------
+
+test('cache namespaces match SHA-256 without exposing the credential', async () => {
+    const { createHash } = await import('node:crypto');
+    const { cacheNamespace } = await import('../cache-key.js');
+    for (const value of ['', 'abc', 'credential'.repeat(100), 'unicode-\u00e9-\ud83d\ude00']) {
+        expect(cacheNamespace(value)).toEqual(createHash('sha256').update(value).digest('hex'));
+    }
+});
+
+test('persisted flags are isolated between credentials on the same server', async () => {
+    const data = new Map();
+    const storage = { getItem: k => data.get(k), setItem: (k, v) => data.set(k, v) };
+    const prod = newClient({ sdkKey: 'production-secret', storage, reportImpressions: false });
+
+    prod._applySnapshot([{key:'checkout',is_enabled:true}]);
+    const stage = newClient({ sdkKey: 'staging-secret', storage, reportImpressions: false });
+    stage.bridge = fakeBridge();
+    await stage._hydrateFromCache();
+    expect(stage._flagCache.size).toEqual(0);
+    expect(prod._cacheKey.includes('production-secret')).toEqual(false);
+    prod.disconnect(); stage.disconnect();
+});
+
+test('polling bootstrap enables impressions and conversion tracking', async () => {
+    const client = newClient();
+
+    vi.stubGlobal('fetch', async () => ({ok:true,headers:{get: () => 'poll-env'},json:async () => [{key:'checkout',is_enabled:true}]}));
+    await client._pollSnapshot();
+    expect(client.isReady()).toEqual(true);
+    expect(client._envId).toEqual('poll-env');
+    client.isEnabled('checkout','user');
+    client.track('purchase','user');
+    expect(client._impressions.length).toEqual(1);
+    expect(client._events.length).toEqual(1);
+    client.disconnect();
+});
+
+test('an outstanding poll cannot overwrite state after SSE takes over', async () => {
+    const client = newClient({reportImpressions:false});
+
+    let deliver;
+    vi.stubGlobal('fetch', () => new Promise(resolve => {deliver=resolve}));
+    const pending = client._pollSnapshot();
+    client._stopPollFallback();
+    client._applySnapshot([{key:'checkout',is_enabled:false}]);
+    deliver({ok:true,json:async () => [{key:'checkout',is_enabled:true}]});
+    await pending;
+    expect(client._flagCache.get('checkout').is_enabled).toEqual(false);
+    client.disconnect();
+});
+
+test('overlapping polls share a request and disconnect invalidates its response', async () => {
+    const client = newClient({reportImpressions:false});
+
+    let requests = 0, deliver;
+    vi.stubGlobal('fetch', () => {requests++; return new Promise(resolve => {deliver=resolve});});
+    const first = client._pollSnapshot(), second = client._pollSnapshot();
+    expect(requests).toEqual(1);
+    client.disconnect();
+    deliver({ok:true,json:async () => [{key:'stale',is_enabled:true}]});
+    await Promise.all([first,second]);
+    expect(client._flagCache.size).toEqual(0);
+    expect(client.isReady()).toEqual(false);
+});

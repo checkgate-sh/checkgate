@@ -29,6 +29,7 @@
   },
   "files": [
     "index.js",
+    "cache-key.js",
     "core.js",
     "dist/",
     "rust-core/",

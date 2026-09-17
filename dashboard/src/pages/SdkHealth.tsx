@@ -69,7 +69,7 @@ export default function SdkHealth() {
             {loading ? '…' : clients.length} connection{clients.length !== 1 ? 's' : ''}
           </span>
           {clients.length > 0 && (
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block ml-1" />
+            <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse inline-block ml-1" />
           )}
         </div>
 

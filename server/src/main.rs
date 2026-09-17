@@ -406,7 +406,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Method::OPTIONS,
         ])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
-        .allow_origin(tower_http::cors::Any);
+        .allow_origin(tower_http::cors::Any)
+        .expose_headers([header::HeaderName::from_static(
+            "x-checkgate-environment-id",
+        )]);
 
     let trace_layer = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

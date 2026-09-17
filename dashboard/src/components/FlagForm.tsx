@@ -38,7 +38,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
       type="button"
       onClick={onToggle}
       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
-        enabled ? 'bg-emerald-600 shadow-md shadow-emerald-200' : 'bg-gray-200'
+        enabled ? 'bg-brand-600 shadow-md shadow-brand-200' : 'bg-gray-200'
       }`}
       aria-label={enabled ? 'Disable flag' : 'Enable flag'}
     >

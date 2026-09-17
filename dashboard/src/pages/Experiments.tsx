@@ -16,7 +16,7 @@ function pct(x: number) {
 
 function StatusBadge({ status }: { status: ExperimentStatus }) {
   const map: Record<ExperimentStatus, string> = {
-    running: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    running: 'bg-brand-50 text-brand-700 ring-brand-200',
     paused: 'bg-amber-50 text-amber-700 ring-amber-200',
     completed: 'bg-gray-100 text-gray-500 ring-gray-200',
   }
@@ -36,7 +36,7 @@ function UpliftCell({ r }: { r: VariantResult }) {
   if (r.uplift == null) return <span className="text-gray-300">—</span>
   const positive = r.uplift >= 0
   return (
-    <span className={`font-bold tabular-nums ${positive ? 'text-emerald-600' : 'text-rose-600'}`}>
+    <span className={`font-bold tabular-nums ${positive ? 'text-brand-600' : 'text-rose-600'}`}>
       {positive ? '+' : ''}{(r.uplift * 100).toFixed(1)}%
     </span>
   )
@@ -48,7 +48,7 @@ function SignificanceCell({ r }: { r: VariantResult }) {
     <div className="flex items-center gap-2">
       <span className="text-xs text-gray-500 tabular-nums">p={r.p_value < 0.001 ? '<0.001' : r.p_value.toFixed(3)}</span>
       {r.significant ? (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-brand-700">
           <CheckCircle2 className="w-3 h-3" /> Sig.
         </span>
       ) : (
@@ -91,9 +91,9 @@ function ResultsPanel({ results }: { results: ExperimentResults }) {
           <p className="font-mono font-semibold text-gray-700 text-sm leading-tight mt-1">{results.control_variant ?? '—'}</p>
         </div>
         {winner && (
-          <div className="flex items-center gap-2 ml-auto px-3 py-1.5 bg-emerald-50 rounded-xl ring-1 ring-emerald-100">
-            <Trophy className="w-4 h-4 text-emerald-600" />
-            <span className="text-sm font-semibold text-emerald-700">
+          <div className="flex items-center gap-2 ml-auto px-3 py-1.5 bg-brand-50 rounded-xl ring-1 ring-brand-100">
+            <Trophy className="w-4 h-4 text-brand-600" />
+            <span className="text-sm font-semibold text-brand-700">
               Winner: <span className="font-mono">{winner.variant}</span>
             </span>
           </div>

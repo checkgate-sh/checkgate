@@ -35,6 +35,8 @@ const LOCKOUT_MINUTES: i64 = 15;
 /// Stored encrypted inside the `lg_session` cookie.
 #[derive(Serialize, Deserialize)]
 struct SessionData {
+    user_id: i64,
+    expires_at: i64,
     email: String,
     name: String,
     role: String,
@@ -278,7 +280,7 @@ pub async fn login(
     }
 
     // ── User lookup ───────────────────────────────────────────────────────────
-    let row = sqlx::query("SELECT name, role, password_hash FROM users WHERE email = $1")
+    let row = sqlx::query("SELECT id, name, role, password_hash FROM users WHERE email = $1")
         .bind(&email)
         .fetch_optional(&state.db)
         .await
@@ -377,6 +379,10 @@ pub async fn login(
     let is_setup_complete = get_is_setup_complete(&state).await;
 
     let session = SessionData {
+        user_id: row.get("id"),
+        expires_at: time::OffsetDateTime::now_utc()
+            .unix_timestamp()
+            .saturating_add(7 * 24 * 60 * 60),
         email: email.clone(),
         name: name.clone(),
         role: role.clone(),
@@ -413,9 +419,9 @@ pub async fn me(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
 ) -> Result<Json<UserInfo>, StatusCode> {
-    let cookie = jar.get("lg_session").ok_or(StatusCode::UNAUTHORIZED)?;
-    let session: SessionData =
-        serde_json::from_str(cookie.value()).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let session = crate::auth::resolve_session(&state.db, &jar)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let workspace_name = get_workspace_name(&state).await;
     let is_setup_complete = get_is_setup_complete(&state).await;
@@ -467,15 +473,15 @@ pub async fn setup_complete(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    sqlx::query(
+    let row = sqlx::query(
         "INSERT INTO users (name, email, role, password_hash) VALUES ($1, $2, 'admin', $3) \
          ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, role = 'admin', \
-         password_hash = EXCLUDED.password_hash",
+         password_hash = EXCLUDED.password_hash RETURNING id",
     )
     .bind(&name)
     .bind(&email)
     .bind(&password_hash)
-    .execute(&mut *db_tx)
+    .fetch_one(&mut *db_tx)
     .await
     .map_err(|e| {
         error!(error = %e, "Failed to create admin user during setup");
@@ -526,6 +532,10 @@ pub async fn setup_complete(
     info!(email = %email, workspace = %workspace_name, project = %project_name, "Setup complete — admin user created");
 
     let session = SessionData {
+        user_id: row.get("id"),
+        expires_at: time::OffsetDateTime::now_utc()
+            .unix_timestamp()
+            .saturating_add(7 * 24 * 60 * 60),
         email: email.clone(),
         name: name.clone(),
         role: "admin".into(),

@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — build dashboard
 # ---------------------------------------------------------------------------
-FROM oven/bun:1-slim AS dashboard-builder
+FROM oven/bun:1.4.2-slim AS dashboard-builder
 
 WORKDIR /app/dashboard
 COPY dashboard/package.json dashboard/bun.lock* ./
@@ -21,7 +21,7 @@ RUN bun run build
 # ---------------------------------------------------------------------------
 # Stage 2 — build Rust server
 # ---------------------------------------------------------------------------
-FROM rust:1.88-slim AS server-builder
+FROM rust:1.98-slim-bookworm AS server-builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 

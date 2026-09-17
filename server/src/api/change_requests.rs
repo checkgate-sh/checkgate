@@ -74,7 +74,7 @@ pub struct RejectRequest {
 /// Inserts a new pending change request. Called by `super::flags::patch_flag`
 /// once it has already validated the patch would apply cleanly.
 pub(crate) async fn create_change_request(
-    db: &sqlx::PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     env_id: &str,
     flag_key: &str,
     patch: &serde_json::Value,
@@ -188,6 +188,10 @@ pub async fn approve_change_request(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    let flag_key: String = row.get("flag_key");
+    let patch: serde_json::Value = row.get("patch");
+    let applied = super::flags::apply_patch_in_tx(&mut tx, &env_id, &flag_key, patch).await?;
+
     sqlx::query(
         "UPDATE change_requests SET status = 'approved', reviewed_by = $1, reviewed_at = NOW() \
          WHERE id = $2",
@@ -206,13 +210,10 @@ pub async fn approve_change_request(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let flag_key: String = row.get("flag_key");
-    let patch: serde_json::Value = row.get("patch");
-
     let applied =
-        super::flags::apply_patch(&state, &env_id, &flag_key, patch, Some(&reviewer)).await?;
+        super::flags::emit_patch(&state, &env_id, &flag_key, applied, Some(&reviewer), None).await;
 
-    // Note `apply_patch` above already emitted `flag.updated`; this second
+    // Note `emit_patch` above already emitted `flag.updated`; this second
     // event records *who reviewed it*, which the flag event doesn't carry.
     crate::notify::notify(
         state.clone(),

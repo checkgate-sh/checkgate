@@ -1,4 +1,4 @@
-use crate::auth::{AuthContext, get_session_claims};
+use crate::auth::AuthContext;
 use crate::state::AppState;
 use axum::{
     Json, Router,
@@ -207,7 +207,7 @@ async fn create_experiment(
     Json(body): Json<CreateExperimentBody>,
 ) -> Result<Json<Experiment>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
-    require_editor(&jar)?;
+    super::flags::check_env_write_access(&state.db, &jar, &env_id).await?;
 
     if !is_valid_key(&body.key)
         || !is_valid_key(&body.flag_key)
@@ -255,7 +255,7 @@ async fn patch_experiment(
     Json(body): Json<PatchExperimentBody>,
 ) -> Result<Json<Experiment>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
-    require_editor(&jar)?;
+    super::flags::check_env_write_access(&state.db, &jar, &env_id).await?;
 
     if let Some(ref g) = body.goal_event_key
         && !is_valid_key(g)
@@ -303,7 +303,7 @@ async fn delete_experiment(
     Path((env_id, key)): Path<(String, String)>,
 ) -> Result<StatusCode, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
-    require_editor(&jar)?;
+    super::flags::check_env_write_access(&state.db, &jar, &env_id).await?;
 
     let result =
         sqlx::query("DELETE FROM experiments WHERE environment_id = $1::uuid AND key = $2")
@@ -526,20 +526,4 @@ fn erf(x: f64) -> f64 {
             * t
             * (-x * x).exp();
     sign * y
-}
-
-// ---------------------------------------------------------------------------
-// Role helper
-// ---------------------------------------------------------------------------
-
-/// Require at least editor role. SDK key auth is admin-equivalent and passes.
-fn require_editor(jar: &AuthContext) -> Result<(), StatusCode> {
-    let Some(claims) = get_session_claims(jar) else {
-        return Ok(());
-    };
-    if matches!(claims.role.as_str(), "admin" | "editor") {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
-    }
 }

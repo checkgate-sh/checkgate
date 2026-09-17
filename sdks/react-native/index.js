@@ -1,3 +1,4 @@
+import { cacheNamespace } from './cache-key.js';
 /**
  * Checkgate React Native SDK
  *
@@ -59,7 +60,7 @@ export class CheckgateNativeClient {
         this.storage = storage;
         this._flagCache = new Map();
         this._hydrated = false;
-        this._cacheKey = `checkgate:flags:${serverUrl}`;
+        this._cacheKey = `checkgate:flags:v2:${serverUrl}:${cacheNamespace(sdkKey || 'session')}`;
 
         // Managed-reconnect state (exponential backoff with jitter)
         this._reconnectAttempts = 0;
@@ -73,6 +74,9 @@ export class CheckgateNativeClient {
         this.pollIntervalMs = pollIntervalMs;
         this._polling = false;
         this._pollTimer = null;
+        this._syncGeneration = 0;
+        this._pollPromise = null;
+        this._pollAbort = null;
 
         // Impression reporting state
         this.reportImpressions = reportImpressions;
@@ -321,7 +325,10 @@ export class CheckgateNativeClient {
     }
 
     _stopPollFallback() {
-        if (!this._polling) return;
+        this._syncGeneration++;
+        if (this._pollAbort) this._pollAbort.abort();
+        this._pollAbort = null;
+        this._pollPromise = null;
         this._polling = false;
         if (this._pollTimer) {
             clearInterval(this._pollTimer);
@@ -336,10 +343,27 @@ export class CheckgateNativeClient {
      * sync (SSE may never have connected at all). Best-effort: network/parse
      * failures are logged and retried on the next interval tick.
      */
-    async _pollSnapshot() {
+    _pollSnapshot() {
+        if (this._userClosed) return Promise.resolve();
+        if (this._pollPromise) return this._pollPromise;
+        const generation = this._syncGeneration;
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        this._pollAbort = controller;
+        const pending = this._fetchSnapshot(generation, controller).finally(() => {
+            if (this._pollPromise === pending) {
+                this._pollPromise = null;
+                this._pollAbort = null;
+            }
+        });
+        this._pollPromise = pending;
+        return pending;
+    }
+
+    async _fetchSnapshot(generation, controller) {
         if (!this.bridge) return;
         try {
             const res = await fetch(`${this.serverUrl}/flags/snapshot`, {
+                ...(controller ? { signal: controller.signal } : {}),
                 headers: this.sdkKey ? { 'Authorization': `Bearer ${this.sdkKey}` } : {},
             });
             if (!res.ok) {
@@ -347,8 +371,13 @@ export class CheckgateNativeClient {
                 return;
             }
             const flags = await res.json();
-            this._applySnapshot(Array.isArray(flags) ? flags : []);
+            if (generation !== this._syncGeneration || this._userClosed) return;
+            if (!Array.isArray(flags)) throw new Error('Snapshot was not an array of flags.');
+            const envId = res.headers?.get('X-Checkgate-Environment-Id');
+            if (envId) this._envId = envId;
+            this._applySnapshot(flags);
             this._hydrated = true;
+            this._startImpressionTimer();
 
             if (!this._ready) {
                 this._ready = true;
@@ -358,7 +387,9 @@ export class CheckgateNativeClient {
                 }
             }
         } catch (err) {
-            console.warn('[Checkgate] Poll fallback request failed:', err && err.message);
+            if (generation === this._syncGeneration && !this._userClosed) {
+                console.warn('[Checkgate] Poll fallback request failed:', err && err.message);
+            }
         }
     }
 

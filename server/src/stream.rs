@@ -1,59 +1,21 @@
+use crate::auth::{AuthContext, get_session_claims};
+use crate::state::SdkKeyEntry;
 use crate::state::{AppState, ConnectedClient};
+use axum::http::{HeaderName, HeaderValue};
 use axum::{
     Json,
     extract::{ConnectInfo, State},
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
 };
-use constant_time_eq::constant_time_eq;
 use dashmap::DashMap;
 use futures_util::stream::Stream;
 use rand::RngExt as _;
 use sqlx::Row;
+use std::collections::HashSet;
 use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
 use tracing::{info, warn};
-
-/// Resolved info about the authenticated SDK key.
-struct SdkKeyInfo {
-    environment_id: Option<String>,
-    key_name: Option<String>,
-}
-
-fn resolve_sdk_key_info(
-    req_query: &str,
-    req_auth: Option<&str>,
-    key_entries: &[crate::state::SdkKeyEntry],
-) -> SdkKeyInfo {
-    // Bearer header first.
-    if let Some(bearer) = req_auth.and_then(|v| v.strip_prefix("Bearer "))
-        && let Some(entry) = key_entries
-            .iter()
-            .find(|e| constant_time_eq(bearer.as_bytes(), e.value.as_bytes()))
-    {
-        return SdkKeyInfo {
-            environment_id: entry.environment_id.clone(),
-            key_name: Some(entry.name.clone()),
-        };
-    }
-    // Query param fallback (browser EventSource).
-    if let Some(key) = req_query
-        .split('&')
-        .find_map(|p| p.strip_prefix("sdk_key="))
-        && let Some(entry) = key_entries
-            .iter()
-            .find(|e| constant_time_eq(key.as_bytes(), e.value.as_bytes()))
-    {
-        return SdkKeyInfo {
-            environment_id: entry.environment_id.clone(),
-            key_name: Some(entry.name.clone()),
-        };
-    }
-    SdkKeyInfo {
-        environment_id: None,
-        key_name: None,
-    }
-}
 
 /// Removes the client from the health dashboard tracking map when dropped.
 struct ConnectionGuard {
@@ -81,24 +43,56 @@ fn random_connection_id() -> String {
 pub async fn sse_handler(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,
+    ctx: AuthContext,
     req: axum::http::Request<axum::body::Body>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
     let client_ip = addr.ip();
 
-    let query = req.uri().query().unwrap_or("").to_string();
-    let auth_header = req
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-
-    let sdk_info = {
-        let keys = state.sdk_keys.read().await;
-        resolve_sdk_key_info(&query, auth_header.as_deref(), &keys)
+    let sdk_key = req.extensions().get::<SdkKeyEntry>();
+    let environment_id = sdk_key.and_then(|key| key.environment_id.clone());
+    let sdk_key_name = sdk_key.map(|key| key.name.clone());
+    let claims = get_session_claims(&ctx);
+    let env_ids: Vec<String> = if let Some(env_id) = &environment_id {
+        vec![env_id.clone()]
+    } else if let Some(claims) = &claims {
+        sqlx::query_scalar(
+            "SELECT e.id::text FROM environments e WHERE $2 = 'admin' OR EXISTS( \
+             SELECT 1 FROM project_members pm WHERE pm.project_id = e.project_id AND pm.user_id = $1)",
+        ).bind(claims.user_id).bind(&claims.role).fetch_all(&state.db).await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        // Only validated legacy SDK_KEY credentials have unscoped machine access.
+        sqlx::query_scalar("SELECT id::text FROM environments")
+            .fetch_all(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
-
-    let environment_id = sdk_info.environment_id;
-    let sdk_key_name = sdk_info.key_name;
+    let allowed_envs: HashSet<String> = env_ids.iter().cloned().collect();
+    // Read bootstrap before opening the stream. A query failure must not signal an empty, ready store.
+    let rx = state.flag_tx.subscribe();
+    let mut bootstrap = Vec::new();
+    for env_id in &env_ids {
+        let segments = crate::api::segments::load_env_segments(env_id, &state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let rows =
+            sqlx::query("SELECT data FROM flags WHERE environment_id = $1::uuid ORDER BY key")
+                .bind(env_id)
+                .fetch_all(&state.db)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        for row in rows {
+            let data: serde_json::Value = row
+                .try_get("data")
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let flag =
+                serde_json::from_value(data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let flag = crate::api::segments::expand_flag_with_segments(flag, &segments);
+            bootstrap.push(
+                serde_json::json!({"type":"UPSERT", "env_id":env_id, "flag":flag}).to_string(),
+            );
+        }
+    }
 
     // Register this connection for the SDK health dashboard.
     let connection_id = random_connection_id();
@@ -126,8 +120,7 @@ pub async fn sse_handler(
         "SSE client connected"
     );
 
-    let mut rx = state.flag_tx.subscribe();
-    let db = state.db.clone();
+    let mut rx = rx;
     let connected_clients = Arc::clone(&state.connected_clients);
 
     let stream = async_stream::stream! {
@@ -143,62 +136,10 @@ pub async fn sse_handler(
         .to_string();
         yield Ok(Event::default().event("connected").data(connected_payload));
 
-        // Bootstrap: load flags for this environment from DB.
-        // If no environment_id (session auth), send all flags from the in-memory store.
-        let flag_count = if let Some(ref env_id) = environment_id {
-            // Preload segments for this environment so we can expand inline.
-            let segment_map = crate::api::segments::load_env_segments(env_id, &db)
-                .await
-                .unwrap_or_default();
-
-            match sqlx::query(
-                "SELECT data FROM flags WHERE environment_id = $1::uuid ORDER BY key ASC",
-            )
-            .bind(env_id)
-            .fetch_all(&db)
-            .await
-            {
-                Ok(rows) => {
-                    let count = rows.len();
-                    for row in rows {
-                        if let Ok(v) = row.try_get::<serde_json::Value, _>("data") {
-                            let expanded = if let Ok(flag) =
-                                serde_json::from_value::<checkgate_core::evaluator::Flag>(v.clone())
-                            {
-                                let exp = crate::api::segments::expand_flag_with_segments(
-                                    flag,
-                                    &segment_map,
-                                );
-                                serde_json::to_value(&exp).unwrap_or(v)
-                            } else {
-                                v
-                            };
-                            let payload = serde_json::json!({
-                                "type": "UPSERT",
-                                "env_id": env_id,
-                                "flag": expanded
-                            })
-                            .to_string();
-                            yield Ok(Event::default().event("update").data(payload));
-                        }
-                    }
-                    count
-                }
-                Err(e) => {
-                    warn!(error = %e, "SSE bootstrap DB query failed");
-                    0
-                }
-            }
-        } else {
-            // Session-auth fallback: send all flags from in-memory store.
-            let flags = state.store.list_flags();
-            let count = flags.len();
-            for flag in flags {
-                let payload = serde_json::json!({"type": "UPSERT", "flag": flag}).to_string();
-                yield Ok(Event::default().event("update").data(payload));
-            }
-            count
-        };
+        let flag_count = bootstrap.len();
+        for payload in bootstrap {
+            yield Ok(Event::default().event("update").data(payload));
+        }
 
         info!(
             client_ip = %client_ip,
@@ -215,15 +156,9 @@ pub async fn sse_handler(
         loop {
             match rx.recv().await {
                 Ok(payload) => {
-                    let should_forward = match &environment_id {
-                        None => true, // session auth — receive all
-                        Some(env_id) => {
-                            serde_json::from_str::<serde_json::Value>(&payload)
-                                .ok()
-                                .and_then(|v| v.get("env_id").and_then(|e| e.as_str()).map(|s| s == env_id))
-                                .unwrap_or(false)
-                        }
-                    };
+                    let should_forward = serde_json::from_str::<serde_json::Value>(&payload)
+                        .ok().and_then(|v| v.get("env_id").and_then(|e| e.as_str())
+                            .map(|env| allowed_envs.contains(env))).unwrap_or(false);
                     if should_forward {
                         yield Ok(Event::default().event("update").data(payload));
                     }
@@ -246,11 +181,11 @@ pub async fn sse_handler(
         info!(client_ip = %client_ip, "SSE client disconnected");
     };
 
-    Sse::new(stream).keep_alive(
+    Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keep-alive-text"),
-    )
+    ))
 }
 
 /// GET /flags/snapshot — SDK-key-authed, segment-expanding full flag snapshot.
@@ -268,27 +203,22 @@ pub async fn sse_handler(
 pub async fn flags_snapshot_handler(
     State(state): State<AppState>,
     req: axum::http::Request<axum::body::Body>,
-) -> Result<Json<Vec<checkgate_core::evaluator::Flag>>, StatusCode> {
-    let query = req.uri().query().unwrap_or("").to_string();
-    let auth_header = req
-        .headers()
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-
-    let sdk_info = {
-        let keys = state.sdk_keys.read().await;
-        resolve_sdk_key_info(&query, auth_header.as_deref(), &keys)
-    };
-
-    let Some(env_id) = sdk_info.environment_id else {
-        warn!("flags_snapshot: rejected — caller has no environment-scoped SDK key");
-        return Err(StatusCode::BAD_REQUEST);
-    };
+) -> Result<
+    (
+        axum::http::HeaderMap,
+        Json<Vec<checkgate_core::evaluator::Flag>>,
+    ),
+    StatusCode,
+> {
+    let env_id = req
+        .extensions()
+        .get::<SdkKeyEntry>()
+        .and_then(|key| key.environment_id.clone())
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
     let segment_map = crate::api::segments::load_env_segments(&env_id, &state.db)
         .await
-        .unwrap_or_default();
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let rows =
         sqlx::query("SELECT data FROM flags WHERE environment_id = $1::uuid ORDER BY key ASC")
@@ -318,5 +248,10 @@ pub async fn flags_snapshot_handler(
         "Flags snapshot served (poll fallback)"
     );
 
-    Ok(Json(flags))
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static("x-checkgate-environment-id"),
+        HeaderValue::from_str(&env_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    Ok((headers, Json(flags)))
 }

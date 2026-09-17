@@ -5,10 +5,15 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.1.24] - Unreleased
+## [0.1.24] -  2026-09-17
 
 ### Added
 
+- A dashboard screenshot guide and a Playwright capture script backed by a disposable Docker demo,
+  using the Vantage Robotics workspace and administrator Juan Dela Cruz.
+- Scheduled changes expose `attempts` and `last_error` for diagnosing failed executions.
+- Flag snapshots include an `X-Checkgate-Environment-Id` header, exposed through CORS, so SDKs
+  can report analytics when using the polling fallback.
 - Workspace-wide Clippy safety policy (`unwrap`/`panic`/indexing/arithmetic/casts) enforced at
   `deny`, with test code exempted; `#![forbid(unsafe_code)]` on every crate except the two FFI SDKs.
 - `cargo-deny` and `cargo-audit` configuration, plus CI jobs for supply chain, Miri, and docs.
@@ -18,21 +23,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **New brand.** The primary color moves from emerald to **indigo `#4F46E5`**, and green, red and
-  amber are now reserved for flag state (enabled / disabled / pending) rather than shared with
-  brand chrome — so a green control in the dashboard always means "on". New minimalist logo, and a
-  banner replacing the 1.7 MB PNG that was duplicated into four directories.
+- Refreshed all eight README and documentation dashboard screenshots from the Docker demo,
+  showing indigo branding, the gate logo, and administrator Juan Dela Cruz.
+- Dashboard tooling, CI, and the Docker dashboard builder now use Bun 1.4.2. The Docker server
+  builder uses Rust 1.98 to match the pinned workspace toolchain.
+- Session cookies now include a user ID and a server-enforced seven-day expiry. Existing sessions
+  require a fresh login after upgrading.
+- Node.js, Web, and React Native persisted flag caches are scoped to both the server URL and a hash
+  of the SDK credential. Old cache entries are ignored after upgrading.
+- A new database migration adds scheduled-change retry tracking and runs automatically at startup.
+- **New brand.** Indigo `#4F46E5` is used throughout dashboard navigation, actions, enabled
+  controls, and success indicators. Gray marks inactive state; red and amber communicate errors
+  and pending reviews. The default Development environment color also changes to indigo.
+  New minimalist logo and a banner replacing the 1.7 MB PNG duplicated into four directories.
 - GitHub organisation moved from `checkgate-dev` to **`checkgate-sh`**. Go module paths, npm
   `package.json` URLs, the podspec, pubspec, docs, and `ghcr.io` image paths all follow.
   Consumers of the Go client, operator, or Terraform provider must update their import paths.
-- Variant colors on the Exposure page no longer include emerald or indigo, so a variant cannot be
-  mistaken for an enabled state or for brand chrome.
+- Variant colors on the Exposure page exclude indigo to keep variants distinct from brand
+  controls and enabled state.
 - Variant bucketing carries its total weight as `NonZeroU64`, making the zero-weight case
   unrepresentable rather than guarded.
 - `checkgate_is_enabled_ctx` now accepts a NULL context and fails closed instead of dereferencing it.
 
 ### Fixed
 
+- Removed the remaining green styles from dashboard toggles, status badges, and success indicators.
+  Change requests and environment comparison now display their page titles in the top bar.
+- SDK-key revocation and project deletion no longer fail because of invalid PostgreSQL aggregate
+  locking queries; safeguards for the last key and project remain in place.
+- Change-request approval applies the flag update and approval status in one transaction. Failed
+  updates leave the request pending so approval can be retried.
+- Scheduled changes retain their row lock through execution, preventing duplicate application across
+  replicas. Failed updates roll back and remain pending, with a 60-second retry backoff.
+- Scheduled patches are validated before they are stored, including patch types and execution times.
+- Node.js, Web, and React Native polling deduplicates concurrent requests and discards stale responses
+  after SSE takes over or the client disconnects. Polling-only bootstrap now enables analytics.
+- Variant weights whose total exceeds the 32-bit hash range now use the full weighted distribution;
+  assignments for smaller totals remain unchanged.
 - Flag list pagination accepted an unbounded `limit`/`offset`; large values could also wrap to a
   negative SQL `LIMIT`. Both are now clamped.
 - The server integration and SSE suites reported success while skipping when their database
@@ -44,6 +71,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- Session and personal-access-token SSE connections only receive bootstrap flags and live updates
+  from authorized projects.
+- Environment writes enforce project membership roles, preventing project viewers from writing
+  through a broader workspace editor role while allowing project editors to edit their projects.
+- Sessions validate the current user account and role on each request; expired cookies and sessions
+  belonging to deleted users are rejected. SDK credentials are checked against the database so
+  creation and revocation take effect across replicas.
+- Approval-protected environments reject flag replacement through POST, deletion, promotion,
+  scheduling, and segment mutations with HTTP 409. New flag creation remains allowed; existing flag
+  edits must use PATCH and the change-request review flow. Previously scheduled changes wait if
+  approval protection is enabled before execution.
 - `rustls` upgraded to 0.23.45 (RUSTSEC-2026-0285). The outstanding `rsa` advisory
   (RUSTSEC-2023-0071) is lockfile-only via `sqlx-mysql` and never built; suppressed with rationale.
 

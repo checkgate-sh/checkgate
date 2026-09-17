@@ -230,7 +230,7 @@ function IntegrationRow({
           onClick={() => void toggleEnabled()}
           disabled={busy}
           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-            integration.enabled ? 'bg-emerald-600' : 'bg-gray-200'
+            integration.enabled ? 'bg-brand-600' : 'bg-gray-200'
           }`}
           aria-label={integration.enabled ? 'Disable integration' : 'Enable integration'}
         >
@@ -250,7 +250,7 @@ function IntegrationRow({
             title="Send a test message"
             aria-label="Send test message"
           >
-            {tested ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Send className="w-3.5 h-3.5" />}
+            {tested ? <Check className="w-3.5 h-3.5 text-brand-500" /> : <Send className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={() => void remove()}
