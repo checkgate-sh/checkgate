@@ -34,3 +34,6 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 # Integration + e2e tests drive the spawned server over HTTP. `cookies` is for
 # the dashboard session flow; `stream` is for consuming the live SSE stream.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies", "stream"] }
+
+[lints]
+workspace = true

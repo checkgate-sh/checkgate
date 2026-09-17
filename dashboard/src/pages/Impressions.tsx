@@ -22,8 +22,8 @@ function StatCard({
 }) {
   return (
     <div className="premium-card bg-white p-5 flex items-start gap-4">
-      <div className="p-2.5 bg-emerald-50 rounded-xl">
-        <Icon className="w-5 h-5 text-emerald-600" />
+      <div className="p-2.5 bg-brand-50 rounded-xl">
+        <Icon className="w-5 h-5 text-brand-600" />
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">{label}</p>
@@ -93,22 +93,22 @@ function StatsTable({ stats }: { stats: ImpressionStats[] }) {
             const trueRatio = s.total > 0 ? (s.true_count / s.total) * 100 : 0
             const barWidth = (s.total / maxTotal) * 100
             return (
-              <tr key={s.flag_key} className="hover:bg-emerald-50/20 transition-all">
+              <tr key={s.flag_key} className="hover:bg-brand-50/20 transition-all">
                 <td className="px-6 py-4">
-                  <span className="font-mono text-emerald-600 font-semibold text-sm">{s.flag_key}</span>
+                  <span className="font-mono text-brand-600 font-semibold text-sm">{s.flag_key}</span>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-gray-900 tabular-nums w-12">{s.total.toLocaleString()}</span>
                     <div className="flex-1 max-w-[120px] h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${barWidth}%` }} />
+                      <div className="h-full bg-brand-500 rounded-full" style={{ width: `${barWidth}%` }} />
                     </div>
                   </div>
                 </td>
                 <td className="px-6 py-4 hidden sm:table-cell">
                   <div className="flex items-center gap-1.5">
                     <div className="flex-1 max-w-[80px] h-2 bg-gray-100 rounded-full overflow-hidden flex">
-                      <div className="h-full bg-emerald-400 rounded-l-full" style={{ width: `${trueRatio}%` }} />
+                      <div className="h-full bg-brand-400 rounded-l-full" style={{ width: `${trueRatio}%` }} />
                       <div className="h-full bg-gray-300 rounded-r-full" style={{ width: `${100 - trueRatio}%` }} />
                     </div>
                     <span className="text-xs text-gray-500 tabular-nums">
@@ -156,10 +156,10 @@ function RecentTable({
           </thead>
           <tbody className="divide-y divide-gray-50/50">
             {items.map(imp => (
-              <tr key={imp.id} className="hover:bg-emerald-50/20 transition-all">
+              <tr key={imp.id} className="hover:bg-brand-50/20 transition-all">
                 <td className="px-6 py-3.5 text-gray-400 text-xs tabular-nums whitespace-nowrap">{formatTime(imp.evaluated_at)}</td>
                 <td className="px-6 py-3.5">
-                  <span className="font-mono text-emerald-600 font-semibold text-xs">{imp.flag_key}</span>
+                  <span className="font-mono text-brand-600 font-semibold text-xs">{imp.flag_key}</span>
                 </td>
                 <td className="px-6 py-3.5"><ValueBadge value={imp.value} /></td>
                 <td className="px-6 py-3.5 hidden sm:table-cell text-gray-500 text-xs font-mono">
@@ -291,7 +291,7 @@ function EvaluationStream() {
     setExpanded(new Set())
   }
 
-  const inputClass = 'bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400/30 transition-all'
+  const inputClass = 'bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400/30 transition-all'
 
   return (
     <div className="premium-card bg-white shadow-premium-lg border-none">
@@ -302,15 +302,15 @@ function EvaluationStream() {
           onClick={() => setLive(l => !l)}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             live
-              ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+              ? 'bg-brand-50 text-brand-700 hover:bg-brand-100'
               : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
           }`}
         >
           {live ? (
             <>
               <span className="relative flex w-2 h-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-500" />
               </span>
               <Pause className="w-3 h-3" /> Live
             </>
@@ -433,7 +433,7 @@ function EvaluationStream() {
                         {relativeTime(imp.evaluated_at)}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="font-mono text-emerald-600 font-semibold text-xs">{imp.flag_key}</span>
+                        <span className="font-mono text-brand-600 font-semibold text-xs">{imp.flag_key}</span>
                       </td>
                       <td className="px-4 py-3">
                         <ValueBadge value={imp.value} />
@@ -599,7 +599,7 @@ export default function Impressions() {
                   placeholder="Filter by flag…"
                   value={flagFilter}
                   onChange={e => setFlagFilter(e.target.value)}
-                  className="bg-gray-50 border border-gray-100 rounded-xl pl-9 pr-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 w-52"
+                  className="bg-gray-50 border border-gray-100 rounded-xl pl-9 pr-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 w-52"
                 />
               </div>
             </div>

@@ -120,4 +120,4 @@ let fallback = defaults::CHECKOUT_COLOR;   // "blue"
 
 - [Core Concepts](/guide/concepts) — flag types, targeting rules, and rollouts.
 - [Web SDK](/sdks/web) and [Node SDK](/sdks/nodejs) — the clients the generated wrappers wrap.
-- Source: [`cli/`](https://github.com/checkgate-dev/checkgate/tree/main/cli)
+- Source: [`cli/`](https://github.com/checkgate-sh/checkgate/tree/main/cli)

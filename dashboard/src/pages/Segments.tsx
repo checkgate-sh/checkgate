@@ -49,7 +49,7 @@ function SegmentForm({ envId, initial, onSave, onClose }: SegmentFormProps) {
   }
 
   const inputClass =
-    'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/40 transition-all shadow-sm'
+    'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500/40 transition-all shadow-sm'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -134,7 +134,7 @@ function SegmentForm({ envId, initial, onSave, onClose }: SegmentFormProps) {
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all shadow-sm"
+              className="flex items-center gap-2 px-5 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all shadow-sm"
             >
               {saving ? (
                 'Saving…'
@@ -227,7 +227,7 @@ export default function Segments() {
         <div className="flex-1" />
         <button
           onClick={() => setEditing('new')}
-          className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:-translate-y-0.5"
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5"
         >
           <Plus className="w-4 h-4" /> New segment
         </button>
@@ -249,7 +249,7 @@ export default function Segments() {
             </p>
             <button
               onClick={() => setEditing('new')}
-              className="flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
+              className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium transition-colors"
             >
               <Plus className="w-3.5 h-3.5" /> Create your first segment
             </button>
@@ -276,10 +276,10 @@ export default function Segments() {
               </thead>
               <tbody className="divide-y divide-gray-50/50">
                 {segments.map(seg => (
-                  <tr key={seg.key} className="group hover:bg-emerald-50/20 transition-all">
+                  <tr key={seg.key} className="group hover:bg-brand-50/20 transition-all">
                     <td className="px-8 py-5 font-semibold text-gray-900">{seg.name}</td>
                     <td className="px-8 py-5">
-                      <span className="font-mono text-emerald-600 text-sm">{seg.key}</span>
+                      <span className="font-mono text-brand-600 text-sm">{seg.key}</span>
                     </td>
                     <td className="px-8 py-5 hidden md:table-cell">
                       <span className="text-gray-500 text-xs truncate max-w-xs block">

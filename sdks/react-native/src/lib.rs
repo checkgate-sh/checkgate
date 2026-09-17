@@ -1,3 +1,14 @@
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects
+    )
+)]
+
 //! React Native JSI — C FFI layer for Checkgate.
 //!
 //! These `extern "C"` functions are the Rust side of the JSI bridge.
@@ -46,6 +57,9 @@ pub unsafe extern "C" fn checkgate_upsert_flag_v2(flag_json: *const c_char) {
     if flag_json.is_null() {
         return;
     }
+    // SAFETY: `flag_json` is null-checked directly above, and the caller
+    // guarantees (see `# Safety`) that a non-null pointer is a live,
+    // NUL-terminated C string. `CStr` borrows it only for this statement.
     let json = unsafe { CStr::from_ptr(flag_json) }.to_string_lossy();
     if let Ok(flag) = serde_json::from_str::<Flag>(&json) {
         STORE.upsert_flag(flag);
@@ -72,11 +86,15 @@ pub unsafe extern "C" fn checkgate_upsert_flag(
     rollout_percentage: i32,
     rules_json: *const c_char,
 ) {
+    // SAFETY: the caller guarantees (see `# Safety`) that `key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let key = unsafe { CStr::from_ptr(key) }
         .to_string_lossy()
         .into_owned();
 
     let rules: serde_json::Value = if !rules_json.is_null() {
+        // SAFETY: this branch runs only when `rules_json` is non-null, and the
+        // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(rules_json) }.to_string_lossy();
         serde_json::from_str(&json).unwrap_or(serde_json::Value::Array(vec![]))
     } else {
@@ -107,6 +125,8 @@ pub unsafe extern "C" fn checkgate_upsert_flag(
 /// `key` must be a valid, non-dangling, null-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn checkgate_delete_flag(key: *const c_char) {
+    // SAFETY: the caller guarantees (see `# Safety`) that `key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let key = unsafe { CStr::from_ptr(key) }.to_string_lossy();
     STORE.delete_flag(&key);
 }
@@ -133,11 +153,15 @@ pub unsafe extern "C" fn checkgate_make_context(
     user_key: *const c_char,
     attributes_json: *const c_char,
 ) -> *mut CheckgateContext {
+    // SAFETY: the caller guarantees (see `# Safety`) that `user_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let user_key = unsafe { CStr::from_ptr(user_key) }
         .to_string_lossy()
         .into_owned();
 
     let attributes: HashMap<String, String> = if !attributes_json.is_null() {
+        // SAFETY: this branch runs only when `attributes_json` is non-null, and the
+        // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
         serde_json::from_str(&json).unwrap_or_default()
     } else {
@@ -156,17 +180,27 @@ pub unsafe extern "C" fn checkgate_make_context(
 ///
 /// # Safety
 /// - `flag_key` must be a valid, non-dangling, null-terminated C string.
-/// - `ctx` must be a non-null pointer from `checkgate_make_context` that has not been freed.
+/// - `ctx`, if non-null, must be a pointer from `checkgate_make_context` that has
+///   not been freed. Passing NULL is safe and evaluates to `0` (fail closed).
 #[no_mangle]
 pub unsafe extern "C" fn checkgate_is_enabled_ctx(
     flag_key: *const c_char,
     ctx: *const CheckgateContext,
 ) -> i32 {
+    // SAFETY: the caller guarantees (see `# Safety`) that `flag_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let flag_key = unsafe { CStr::from_ptr(flag_key) }.to_string_lossy();
     let flag = match STORE.get_flag(&flag_key) {
         Some(f) => f,
         None => return 0,
     };
+    if ctx.is_null() {
+        return 0;
+    }
+    // SAFETY: `ctx` is null-checked directly above, and the caller guarantees
+    // (see `# Safety`) that a non-null `ctx` came from `checkgate_make_context`
+    // without an intervening `checkgate_free_context` — so it points to a live,
+    // aligned, initialised `CheckgateContext`. The borrow ends with this call.
     let ctx = unsafe { &*ctx };
     if evaluate(flag.as_ref(), &ctx.inner, &STORE) {
         1
@@ -182,6 +216,10 @@ pub unsafe extern "C" fn checkgate_is_enabled_ctx(
 #[no_mangle]
 pub unsafe extern "C" fn checkgate_free_context(ctx: *mut CheckgateContext) {
     if !ctx.is_null() {
+        // SAFETY: `ctx` is null-checked directly above. A non-null `ctx` originates
+        // from `Box::into_raw` in `checkgate_make_context`, so rebuilding the `Box`
+        // with the same layout is the matching deallocation. The caller's `# Safety`
+        // contract forbids passing it twice.
         drop(unsafe { Box::from_raw(ctx) });
     }
 }
@@ -191,8 +229,10 @@ pub unsafe extern "C" fn checkgate_free_context(ctx: *mut CheckgateContext) {
 // ---------------------------------------------------------------------------
 
 fn alloc_cstring(s: String) -> *mut c_char {
+    // `s` only fails to convert if it contains an interior NUL. The `c"null"`
+    // fallback is a literal, so this path allocates without any chance of panic.
     CString::new(s)
-        .unwrap_or_else(|_| CString::new("null").unwrap())
+        .unwrap_or_else(|_| c"null".to_owned())
         .into_raw()
 }
 
@@ -217,15 +257,21 @@ pub unsafe extern "C" fn checkgate_get_variant(
     user_key: *const c_char,
     attributes_json: *const c_char,
 ) -> *mut c_char {
+    // SAFETY: the caller guarantees (see `# Safety`) that `flag_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let flag_key = unsafe { CStr::from_ptr(flag_key) }.to_string_lossy();
     let flag = match STORE.get_flag(&flag_key) {
         Some(f) => f,
         None => return alloc_cstring("null".to_string()),
     };
+    // SAFETY: the caller guarantees (see `# Safety`) that `user_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let user_key = unsafe { CStr::from_ptr(user_key) }
         .to_string_lossy()
         .into_owned();
     let attributes: HashMap<String, String> = if !attributes_json.is_null() {
+        // SAFETY: this branch runs only when `attributes_json` is non-null, and the
+        // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
         serde_json::from_str(&json).unwrap_or_default()
     } else {
@@ -255,15 +301,21 @@ pub unsafe extern "C" fn checkgate_get_value(
     user_key: *const c_char,
     attributes_json: *const c_char,
 ) -> *mut c_char {
+    // SAFETY: the caller guarantees (see `# Safety`) that `flag_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let flag_key = unsafe { CStr::from_ptr(flag_key) }.to_string_lossy();
     let flag = match STORE.get_flag(&flag_key) {
         Some(f) => f,
         None => return alloc_cstring("null".to_string()),
     };
+    // SAFETY: the caller guarantees (see `# Safety`) that `user_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let user_key = unsafe { CStr::from_ptr(user_key) }
         .to_string_lossy()
         .into_owned();
     let attributes: HashMap<String, String> = if !attributes_json.is_null() {
+        // SAFETY: this branch runs only when `attributes_json` is non-null, and the
+        // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
         serde_json::from_str(&json).unwrap_or_default()
     } else {
@@ -285,6 +337,9 @@ pub unsafe extern "C" fn checkgate_get_value(
 #[no_mangle]
 pub unsafe extern "C" fn checkgate_free_string(s: *mut c_char) {
     if !s.is_null() {
+        // SAFETY: `s` is null-checked directly above. A non-null `s` originates from
+        // `CString::into_raw` in `alloc_cstring`, so rebuilding the `CString` is the
+        // matching deallocation. The caller's `# Safety` contract forbids a double free.
         drop(unsafe { CString::from_raw(s) });
     }
 }
@@ -308,7 +363,11 @@ pub unsafe extern "C" fn checkgate_is_enabled(
     user_key: *const c_char,
     attributes_json: *const c_char,
 ) -> i32 {
+    // SAFETY: the caller guarantees (see `# Safety`) that `flag_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let flag_key = unsafe { CStr::from_ptr(flag_key) }.to_string_lossy();
+    // SAFETY: the caller guarantees (see `# Safety`) that `user_key` is a live,
+    // non-dangling, NUL-terminated C string for the duration of this call.
     let user_key = unsafe { CStr::from_ptr(user_key) }
         .to_string_lossy()
         .into_owned();
@@ -319,6 +378,8 @@ pub unsafe extern "C" fn checkgate_is_enabled(
     };
 
     let attributes: HashMap<String, String> = if !attributes_json.is_null() {
+        // SAFETY: this branch runs only when `attributes_json` is non-null, and the
+        // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
         serde_json::from_str(&json).unwrap_or_default()
     } else {
@@ -333,5 +394,114 @@ pub unsafe extern "C" fn checkgate_is_enabled(
         1
     } else {
         0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+//
+// These drive the FFI surface through real raw pointers rather than calling the
+// safe Rust underneath, which is the point: it gives `cargo +nightly miri test`
+// something to check. Miri validates the `Box::into_raw`/`from_raw` and
+// `CString::into_raw`/`from_raw` round trips, pointer provenance, and that no
+// allocation is leaked or freed twice.
+//
+// `STORE` is a process-wide singleton and tests run in parallel, so every test
+// uses flag keys unique to itself instead of calling `checkgate_clear_store`.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cs(s: &str) -> CString {
+        CString::new(s).expect("test literal has no interior NUL")
+    }
+
+    /// Upsert a simple always-on boolean flag under `key`.
+    fn upsert_on(key: &str) {
+        let json = cs(&format!(
+            r#"{{"key":"{key}","is_enabled":true,"rollout_percentage":100,"rules":[]}}"#
+        ));
+        // SAFETY: `json` is a live `CString` owned by this frame for the whole call.
+        unsafe { checkgate_upsert_flag_v2(json.as_ptr()) };
+    }
+
+    #[test]
+    fn upsert_then_evaluate_without_a_context() {
+        let key = "rn-eval-no-ctx";
+        upsert_on(key);
+        let (k, u) = (cs(key), cs("user-1"));
+        // SAFETY: both pointers come from live `CString`s; attributes is NULL,
+        // which the function documents as "no attributes".
+        let got = unsafe { checkgate_is_enabled(k.as_ptr(), u.as_ptr(), std::ptr::null()) };
+        assert_eq!(got, 1);
+    }
+
+    #[test]
+    fn context_handle_round_trips_through_raw_pointers() {
+        let key = "rn-eval-ctx";
+        upsert_on(key);
+        let (u, attrs) = (cs("user-2"), cs(r#"{"plan":"pro"}"#));
+        // SAFETY: both pointers are live for the call; the returned handle is
+        // owned by this frame and released by `checkgate_free_context` below.
+        let ctx = unsafe { checkgate_make_context(u.as_ptr(), attrs.as_ptr()) };
+        assert!(!ctx.is_null());
+
+        let k = cs(key);
+        // SAFETY: `k` is live and `ctx` is the unfreed handle made just above.
+        let got = unsafe { checkgate_is_enabled_ctx(k.as_ptr(), ctx) };
+        assert_eq!(got, 1);
+
+        // SAFETY: `ctx` came from `checkgate_make_context` and is freed exactly once.
+        unsafe { checkgate_free_context(ctx) };
+    }
+
+    #[test]
+    fn null_context_fails_closed_instead_of_dereferencing() {
+        let k = cs("rn-null-ctx");
+        // SAFETY: `k` is live; passing a NULL `ctx` is explicitly supported.
+        let got = unsafe { checkgate_is_enabled_ctx(k.as_ptr(), std::ptr::null()) };
+        assert_eq!(got, 0, "a NULL context must fail closed, not segfault");
+    }
+
+    #[test]
+    fn returned_strings_round_trip_and_are_freed() {
+        let key = "rn-variant";
+        upsert_on(key);
+        let (k, u) = (cs(key), cs("user-3"));
+        // SAFETY: both pointers are live; the result is an owned C string that
+        // this test hands back to `checkgate_free_string`.
+        let out = unsafe { checkgate_get_variant(k.as_ptr(), u.as_ptr(), std::ptr::null()) };
+        assert!(!out.is_null());
+
+        // SAFETY: `out` is the live, NUL-terminated string just returned.
+        let text = unsafe { CStr::from_ptr(out) }
+            .to_string_lossy()
+            .into_owned();
+        assert!(text.contains("enabled"), "unexpected payload: {text}");
+
+        // SAFETY: `out` came from `alloc_cstring` and is freed exactly once.
+        unsafe { checkgate_free_string(out) };
+    }
+
+    #[test]
+    fn free_string_and_free_context_tolerate_null() {
+        // SAFETY: both functions document NULL as a supported no-op.
+        unsafe {
+            checkgate_free_string(std::ptr::null_mut());
+            checkgate_free_context(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn delete_removes_the_flag_and_evaluation_fails_closed() {
+        let key = "rn-delete";
+        upsert_on(key);
+        let (k, u) = (cs(key), cs("user-4"));
+        // SAFETY: `k` is live for the duration of the call.
+        unsafe { checkgate_delete_flag(k.as_ptr()) };
+        // SAFETY: both pointers are live; the flag is now absent.
+        let got = unsafe { checkgate_is_enabled(k.as_ptr(), u.as_ptr(), std::ptr::null()) };
+        assert_eq!(got, 0);
     }
 }

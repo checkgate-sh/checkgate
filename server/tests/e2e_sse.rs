@@ -1,3 +1,11 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    reason = "test code: a panic here is an assertion failure, not a DoS"
+)]
 //! End-to-end test of the live evaluation path: a real server, a real SSE
 //! connection, and the real shared `checkgate-core` evaluation engine — the
 //! exact code every SDK (Node/Web/RN/Flutter) wraps.
@@ -17,6 +25,35 @@ use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+/// Reads the two env vars the suite needs, or signals that it should be skipped.
+///
+/// Skipping is the right default: `cargo test --workspace` must stay green on a
+/// machine with no database, and the generic workspace CI job runs without one
+/// too. But the job that exists *specifically* to run this suite must never skip
+/// quietly and still report `ok` — so that job sets
+/// `CHECKGATE_REQUIRE_INTEGRATION=1`, and a missing database is then a hard
+/// failure pointing at the workflow rather than a silent pass.
+fn test_env() -> Option<(String, String)> {
+    match (
+        std::env::var("CHECKGATE_TEST_DATABASE_URL"),
+        std::env::var("CHECKGATE_TEST_REDIS_URL"),
+    ) {
+        (Ok(db), Ok(redis)) => Some((db, redis)),
+        _ => {
+            assert!(
+                std::env::var("CHECKGATE_REQUIRE_INTEGRATION").is_err(),
+                "CHECKGATE_REQUIRE_INTEGRATION is set but CHECKGATE_TEST_DATABASE_URL / \
+                 CHECKGATE_TEST_REDIS_URL are not — this suite would skip silently and still \
+                 report success. Check the `env:` block of the server-integration job."
+            );
+            eprintln!(
+                "SKIP: set CHECKGATE_TEST_DATABASE_URL and CHECKGATE_TEST_REDIS_URL to run server integration tests"
+            );
+            None
+        }
+    }
+}
 
 struct ServerGuard(Child);
 impl Drop for ServerGuard {
@@ -164,13 +201,7 @@ fn eval(store: &FlagStore, key: &str) -> bool {
 
 #[tokio::test]
 async fn sse_live_push_and_local_eval() {
-    let (Ok(db_url), Ok(redis_url)) = (
-        std::env::var("CHECKGATE_TEST_DATABASE_URL"),
-        std::env::var("CHECKGATE_TEST_REDIS_URL"),
-    ) else {
-        eprintln!(
-            "SKIP: set CHECKGATE_TEST_DATABASE_URL and CHECKGATE_TEST_REDIS_URL to run the SSE e2e test"
-        );
+    let Some((db_url, redis_url)) = test_env() else {
         return;
     };
 

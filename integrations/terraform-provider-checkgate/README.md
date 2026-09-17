@@ -1,6 +1,6 @@
 # terraform-provider-checkgate
 
-Manage [Checkgate](https://github.com/checkgate-dev/checkgate) feature flags and
+Manage [Checkgate](https://github.com/checkgate-sh/checkgate) feature flags and
 segments as code with **Terraform or OpenTofu**. Review flag changes in a pull
 request, roll them out through your normal plan/apply pipeline, and keep every
 environment's flag configuration reproducible.
@@ -11,7 +11,7 @@ environment's flag configuration reproducible.
 terraform {
   required_providers {
     checkgate = {
-      source = "checkgate-dev/checkgate"
+      source = "checkgate-sh/checkgate"
     }
   }
 }

@@ -83,14 +83,14 @@ export default function Login() {
       <div className="hidden lg:flex lg:w-5/12 flex-col justify-between p-12 xl:p-20 bg-white border-r border-gray-200">
         <div className="flex items-center gap-3">
           <div className="bg-white p-1 rounded-xl shadow-sm border border-gray-50 overflow-hidden">
-            <img src="/checkgate_logo.png" alt="" className="h-7 w-7 object-contain" />
+            <img src="/logo.svg" alt="" className="h-7 w-7 object-contain" />
           </div>
           <span className="text-gray-900 font-display font-bold text-2xl tracking-tight">Checkgate</span>
         </div>
 
         <div className="max-w-lg">
           <blockquote className="text-4xl font-display font-bold text-gray-900 leading-[1.1] mb-6 tracking-tight">
-            Ship with confidence. <span className="text-emerald-600">Roll back in seconds.</span>
+            Ship with confidence. <span className="text-brand-600">Roll back in seconds.</span>
           </blockquote>
           <p className="text-gray-500 text-lg font-medium leading-relaxed">
             Self-hosted feature flags built for teams that move fast.
@@ -109,7 +109,7 @@ export default function Login() {
         {/* Mobile logo */}
         <div className="flex items-center gap-3 mb-8 lg:hidden">
           <div className="bg-white p-1 rounded-xl shadow-sm border border-gray-50 overflow-hidden">
-            <img src="/checkgate_logo.png" alt="" className="h-6 w-6 object-contain" />
+            <img src="/logo.svg" alt="" className="h-6 w-6 object-contain" />
           </div>
           <span className="text-gray-900 font-display font-bold text-xl tracking-tight">Checkgate</span>
         </div>
@@ -119,7 +119,7 @@ export default function Login() {
             Welcome back
           </h2>
           {workspaceName ? (
-            <p className="text-emerald-600 text-sm font-semibold mb-1 text-center sm:text-left">{workspaceName}</p>
+            <p className="text-brand-600 text-sm font-semibold mb-1 text-center sm:text-left">{workspaceName}</p>
           ) : null}
           <p className="text-gray-400 text-sm mb-10 text-center sm:text-left font-medium">Sign in to your control plane.</p>
 
@@ -161,7 +161,7 @@ export default function Login() {
                 value={email}
                 onChange={e => { setEmail(e.target.value); setError(''); setAttemptsRemaining(null) }}
                 placeholder="jane@acme.com"
-                className="w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
 
@@ -178,7 +178,7 @@ export default function Login() {
                   value={password}
                   onChange={e => { setPassword(e.target.value); setError(''); setAttemptsRemaining(null) }}
                   placeholder="Your password"
-                  className="w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 pr-10 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 pr-10 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <button
                   type="button"
@@ -195,7 +195,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading || isLocked || !email.trim() || !password}
-              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:-translate-y-0.5 text-sm mt-4"
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5 text-sm mt-4"
             >
               {loading ? (
                 <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -208,7 +208,7 @@ export default function Login() {
 
           <p className="mt-6 text-center text-sm text-gray-500">
             No account yet?{' '}
-            <Link to="/setup" className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors">
+            <Link to="/setup" className="text-brand-600 hover:text-brand-700 font-medium transition-colors">
               Run setup
             </Link>
           </p>

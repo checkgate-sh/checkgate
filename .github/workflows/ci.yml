@@ -24,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # rust-toolchain.toml pins the channel; this action honours it.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -36,10 +37,62 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --all-features
+
+      # Broken intra-doc links surface as warnings, so promote them to errors.
+      - name: Docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --all-features
+
+  # ---------------------------------------------------------------------------
+  # Supply chain — advisories, licenses, banned and duplicate crates.
+  # `cargo deny` walks the resolved build graph; `cargo audit` reads Cargo.lock
+  # and so also catches advisories on crates that are present but never built
+  # (suppressions and their justification live in .cargo/audit.toml).
+  # ---------------------------------------------------------------------------
+  supply-chain:
+    name: Supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: cargo-audit
+        run: cargo audit
+
+  # ---------------------------------------------------------------------------
+  # Miri — undefined-behaviour checking for the FFI crates, which are the only
+  # place this workspace writes `unsafe`. Everything else is #![forbid(unsafe_code)].
+  # ---------------------------------------------------------------------------
+  miri:
+    name: Miri (FFI crates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nightly with Miri
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Miri
+        run: |
+          cargo +nightly miri test -p react-native
+          cargo +nightly miri test -p flutter
 
   # ---------------------------------------------------------------------------
   # Server integration — spawn the real server binary against a real Postgres
@@ -85,6 +138,9 @@ jobs:
         env:
           CHECKGATE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/checkgate_test
           CHECKGATE_TEST_REDIS_URL: redis://localhost:6379
+          # Assert the suite actually runs here: if the two URLs above ever go
+          # missing, the tests fail loudly instead of skipping and reporting ok.
+          CHECKGATE_REQUIRE_INTEGRATION: "1"
         run: |
           cargo test -p server --test integration -- --nocapture
           cargo test -p server --test e2e_sse -- --nocapture

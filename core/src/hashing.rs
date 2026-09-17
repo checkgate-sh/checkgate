@@ -3,11 +3,17 @@ use std::io::Cursor;
 /// MurmurHash3 (x86_32) implementation for zero-allocation deterministic hashing.
 /// This guarantees consistent evaluation across platforms.
 ///
-/// `Cursor<&[u8]>` implements `Read` infallibly, so `murmur3_32` only returns
-/// `Err` if the internal read fails — which cannot happen for an in-memory
-/// buffer. The fallback to `0` is therefore unreachable in practice, but if it
-/// were ever triggered all affected users would land in bucket 0, silently
-/// skewing rollout distribution. The `debug_assert` catches this in testing.
+/// # Panics
+///
+/// Never in practice. `Cursor<&[u8]>` implements `Read` infallibly, so
+/// `murmur3_32` can only return `Err` if that in-memory read fails. The `expect`
+/// is deliberate: the alternative — falling back to a fixed hash — would put
+/// every affected user in bucket 0 and silently skew every rollout and variant
+/// split, which is far worse than failing loudly on a genuinely impossible path.
+#[allow(
+    clippy::expect_used,
+    reason = "infallible: Read on an in-memory Cursor cannot fail; see # Panics"
+)]
 pub fn murmurhash3_x86_32(key: &[u8], seed: u32) -> u32 {
     let mut cursor = Cursor::new(key);
     murmur3::murmur3_32(&mut cursor, seed)

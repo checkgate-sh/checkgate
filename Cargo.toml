@@ -10,5 +10,34 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.23"
+version = "0.1.24"
 license = "Apache-2.0"
+
+# ---------------------------------------------------------------------------
+# Lint policy. The safety-critical set is `deny` so CI's `-D warnings` is a real
+# gate rather than a formality. Test code is exempted at each crate root via
+# `#![cfg_attr(test, allow(...))]` — an `unwrap` in a test is a legitimate
+# assertion, an `unwrap` in a request handler is a remote DoS.
+#
+# Deliberately NOT enabled yet: `clippy::pedantic` (~100 style warnings) and
+# `missing_docs`. Both are worth doing, neither is a correctness gate.
+# ---------------------------------------------------------------------------
+[workspace.lints.rust]
+unused_must_use = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+# Panic paths
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+# Arithmetic
+arithmetic_side_effects = "deny"
+cast_possible_truncation = "deny"
+cast_sign_loss = "deny"
+cast_possible_wrap = "deny"
+# Hygiene
+mem_forget = "deny"
+todo = "deny"
+dbg_macro = "deny"

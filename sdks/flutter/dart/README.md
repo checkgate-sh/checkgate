@@ -1,6 +1,6 @@
 # checkgate_flutter
 
-Flutter SDK for [Checkgate](https://github.com/checkgate-dev/checkgate) — local feature-flag evaluation via Rust FFI.
+Flutter SDK for [Checkgate](https://github.com/checkgate-sh/checkgate) — local feature-flag evaluation via Rust FFI.
 
 Flags are evaluated **in-process** (sub-microsecond, no network round-trip). The SDK opens a persistent SSE stream to your Checkgate server and keeps the local flag store up to date in real time.
 

@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	checkgate "github.com/checkgate-dev/checkgate/integrations/checkgate-go"
-	flagsv1alpha1 "github.com/checkgate-dev/checkgate-operator/api/v1alpha1"
+	checkgate "github.com/checkgate-sh/checkgate/integrations/checkgate-go"
+	flagsv1alpha1 "github.com/checkgate-sh/checkgate-operator/api/v1alpha1"
 )
 
 const finalizer = "flags.checkgate.io/finalizer"

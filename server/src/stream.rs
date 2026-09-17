@@ -74,6 +74,10 @@ fn random_connection_id() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[allow(
+    clippy::cast_possible_wrap,
+    reason = "seconds since the Unix epoch; wrapping i64 would require a clock set beyond the year 292 billion"
+)]
 pub async fn sse_handler(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,

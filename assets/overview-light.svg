@@ -2,9 +2,9 @@
 <style>
   .wire { fill:none; stroke:#d0d7de; stroke-width:2; stroke-dasharray:5 6; }
   .node rect { fill:#f6f8fa; stroke:#d0d7de; stroke-width:1.5; }
-  .server > rect { stroke:#10b981; }
+  .server > rect { stroke:#4f46e5; }
   .pill { fill:#ffffff; stroke:#d0d7de; stroke-width:1; }
-  .pill-accent { fill:#e6f7f0; stroke:#6ee7b7; stroke-width:1; }
+  .pill-accent { fill:#eef2ff; stroke:#a5b4fc; stroke-width:1; }
   .title { fill:#1f2328; font:700 14px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; text-anchor:middle; }
   .sub { fill:#656d76; font:11px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; text-anchor:middle; }
   .pill-text { fill:#1f2328; font:600 11px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; text-anchor:middle; }
@@ -12,8 +12,8 @@
   /* Right-anchored: centred on the client column this label overflows the viewBox. */
   .edge-end { fill:#8c959f; font:600 11px ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace; text-anchor:end; }
   .write { fill:#3b82f6; }
-  .push { fill:#10b981; }
-  .flash { fill:#10b981; opacity:0; animation:arrive 3.2s linear infinite; }
+  .push { fill:#4f46e5; }
+  .flash { fill:#4f46e5; opacity:0; animation:arrive 3.2s linear infinite; }
   @keyframes arrive { 0%,70% { opacity:0; } 74% { opacity:.22; } 82%,100% { opacity:0; } }
   /* Honour a reduced-motion preference: keep the diagram, drop the movement. */
   @media (prefers-reduced-motion: reduce) {

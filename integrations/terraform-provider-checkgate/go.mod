@@ -1,11 +1,11 @@
-module github.com/checkgate-dev/terraform-provider-checkgate
+module github.com/checkgate-sh/terraform-provider-checkgate
 
 go 1.25.0
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.13.0
 	github.com/hashicorp/terraform-plugin-framework-jsontypes v0.2.0
-	github.com/checkgate-dev/checkgate/integrations/checkgate-go v0.0.0
+	github.com/checkgate-sh/checkgate/integrations/checkgate-go v0.0.0
 )
 
 require (
@@ -33,4 +33,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/checkgate-dev/checkgate/integrations/checkgate-go => ../checkgate-go
+replace github.com/checkgate-sh/checkgate/integrations/checkgate-go => ../checkgate-go

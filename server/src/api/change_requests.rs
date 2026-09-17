@@ -2,7 +2,7 @@
 //! `require_approval` set, `PATCH /environments/{env_id}/flags/{key}` no
 //! longer applies immediately — it's captured here as a pending change
 //! request that a *different* editor/admin must approve before it takes
-//! effect. See [`super::flags::patch_flag`] for the queueing side.
+//! effect. See `super::flags::patch_flag` for the queueing side.
 
 use crate::auth::{AuthContext, get_session_claims};
 use crate::state::AppState;
@@ -71,7 +71,7 @@ pub struct RejectRequest {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Inserts a new pending change request. Called by [`super::flags::patch_flag`]
+/// Inserts a new pending change request. Called by `super::flags::patch_flag`
 /// once it has already validated the patch would apply cleanly.
 pub(crate) async fn create_change_request(
     db: &sqlx::PgPool,

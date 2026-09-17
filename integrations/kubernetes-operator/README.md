@@ -1,7 +1,7 @@
 # checkgate-operator
 
 A Kubernetes operator that reconciles **`FeatureFlag`** custom resources into a
-[Checkgate](https://github.com/checkgate-dev/checkgate) server — manage feature
+[Checkgate](https://github.com/checkgate-sh/checkgate) server — manage feature
 flags declaratively alongside the rest of your cluster manifests, with GitOps and
 `kubectl` instead of a separate dashboard step.
 

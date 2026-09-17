@@ -60,7 +60,7 @@ export default function Dashboard() {
     <div className="w-full space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard label="Total flags" value={loading ? '—' : flags.length} icon={ToggleLeft} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
+        <StatCard label="Total flags" value={loading ? '—' : flags.length} icon={ToggleLeft} iconBg="bg-brand-50" iconColor="text-brand-600" />
         <StatCard label="Enabled" value={loading ? '—' : enabled} icon={ToggleRight} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
         <StatCard label="With rules" value={loading ? '—' : withRules} icon={ListFilter} iconBg="bg-amber-50" iconColor="text-amber-600" />
         <Link to="/schedule" className="block hover:no-underline">
@@ -80,7 +80,7 @@ export default function Dashboard() {
           <h2 className="text-gray-900 font-display font-bold text-base">Recent flags</h2>
           <Link
             to="/flags"
-            className="flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 text-sm font-bold transition-colors"
+            className="flex items-center gap-1.5 text-brand-600 hover:text-brand-700 text-sm font-bold transition-colors"
           >
             View all <ArrowRight className="w-4 h-4" />
           </Link>
@@ -95,7 +95,7 @@ export default function Dashboard() {
             <p className="text-gray-400 text-sm">No flags yet.</p>
             <Link
               to="/flags?new=1"
-              className="flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
+              className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium transition-colors"
             >
               <Plus className="w-3.5 h-3.5" /> Create your first flag
             </Link>
@@ -113,11 +113,11 @@ export default function Dashboard() {
                 </thead>
                 <tbody className="divide-y divide-gray-50/50">
                   {flags.slice(0, 8).map(flag => (
-                    <tr key={flag.key} className="hover:bg-emerald-50/20 transition-all">
+                    <tr key={flag.key} className="hover:bg-brand-50/20 transition-all">
                       <td className="px-8 py-5">
                       <Link
                         to={`/flags?edit=${encodeURIComponent(flag.key)}`}
-                        className="font-mono text-emerald-600 hover:text-emerald-700 transition-colors text-sm font-semibold"
+                        className="font-mono text-brand-600 hover:text-brand-700 transition-colors text-sm font-semibold"
                       >
                         {flag.key}
                       </Link>
@@ -131,7 +131,7 @@ export default function Dashboard() {
                       <td className="px-8 py-5">
                         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
                           flag.is_enabled
-                            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                            ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200'
                             : 'bg-gray-100 text-gray-500 ring-1 ring-gray-200'
                         }`}>
                           <span className={`w-2 h-2 rounded-full ${flag.is_enabled ? 'bg-emerald-500' : 'bg-gray-400'} shadow-sm`} />
@@ -163,7 +163,7 @@ export default function Dashboard() {
               <div key={sc.id} className="flex items-center gap-4 px-8 py-4 hover:bg-indigo-50/20 transition-colors">
                 <CalendarClock className="w-4 h-4 text-indigo-400 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <span className="font-mono text-sm font-semibold text-emerald-600">{sc.flag_key}</span>
+                  <span className="font-mono text-sm font-semibold text-brand-600">{sc.flag_key}</span>
                   <span className="text-gray-400 text-xs ml-2">
                     {Object.entries(sc.patch)
                       .map(([k, v]) => `${k} → ${JSON.stringify(v)}`)

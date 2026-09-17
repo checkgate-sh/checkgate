@@ -113,7 +113,7 @@ function ResultsPanel({ results }: { results: ExperimentResults }) {
           </thead>
           <tbody className="divide-y divide-gray-50/50">
             {results.variants.map(v => (
-              <tr key={v.variant} className="hover:bg-emerald-50/20">
+              <tr key={v.variant} className="hover:bg-brand-50/20">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-semibold text-gray-800">{v.variant}</span>
@@ -127,7 +127,7 @@ function ResultsPanel({ results }: { results: ExperimentResults }) {
                     <span className="font-bold text-gray-900 tabular-nums w-16">{pct(v.conversion_rate)}</span>
                     <div className="flex-1 max-w-[140px] h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${v.is_control ? 'bg-gray-400' : 'bg-emerald-500'}`}
+                        className={`h-full rounded-full ${v.is_control ? 'bg-gray-400' : 'bg-brand-500'}`}
                         style={{ width: `${(v.conversion_rate / maxRate) * 100}%` }}
                       />
                     </div>
@@ -207,7 +207,7 @@ function CreateForm({
     }
   }
 
-  const inputCls = 'w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200'
+  const inputCls = 'w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-200'
   const labelCls = 'block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1'
 
   return (
@@ -257,7 +257,7 @@ function CreateForm({
       {err && <p className="text-sm text-rose-600">{err}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-500 hover:bg-gray-50">Cancel</button>
-        <button type="submit" disabled={saving} className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+        <button type="submit" disabled={saving} className="px-4 py-2 rounded-xl text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
           {saving ? 'Creating…' : 'Create experiment'}
         </button>
       </div>
@@ -347,7 +347,7 @@ export default function Experiments() {
         {canEdit && !creating && (
           <button
             onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700"
           >
             <Plus className="w-4 h-4" /> New experiment
           </button>
@@ -367,7 +367,7 @@ export default function Experiments() {
           <FlaskConical className="w-8 h-8 text-gray-300" />
           <p className="text-gray-400 text-sm">No experiments yet.</p>
           {canEdit && (
-            <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-medium">
+            <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium">
               <Plus className="w-3.5 h-3.5" /> Create your first experiment
             </button>
           )}
@@ -396,7 +396,7 @@ export default function Experiments() {
                   {canEdit && (
                     <div className="flex items-center gap-1 shrink-0">
                       {exp.status !== 'running' && (
-                        <button onClick={() => setStatus(exp, 'running')} title="Resume" className="p-2 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50"><Play className="w-4 h-4" /></button>
+                        <button onClick={() => setStatus(exp, 'running')} title="Resume" className="p-2 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50"><Play className="w-4 h-4" /></button>
                       )}
                       {exp.status === 'running' && (
                         <button onClick={() => setStatus(exp, 'paused')} title="Pause" className="p-2 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50"><Pause className="w-4 h-4" /></button>

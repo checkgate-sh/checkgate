@@ -1,3 +1,18 @@
+// `deny` rather than `forbid`: the #[napi] / #[wasm_bindgen] proc macros expand
+// to unsafe glue carrying their own `allow(unsafe_code)`, and `forbid` cannot be
+// overridden even by generated code. `deny` still rejects hand-written unsafe.
+#![deny(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects
+    )
+)]
+
 use checkgate_core::evaluator::{Flag, UserContext, evaluate, evaluate_variant};
 use checkgate_core::store::FlagStore;
 use std::collections::HashMap;

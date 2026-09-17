@@ -12,6 +12,10 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 /// HMAC-SHA256 of `body` using `secret`. Returns `sha256=<hex>`.
+#[allow(
+    clippy::expect_used,
+    reason = "HMAC accepts a key of any length, so new_from_slice cannot return InvalidLength here"
+)]
 fn sign_payload(secret: &str, body: &[u8]) -> String {
     let mut mac =
         HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
@@ -127,7 +131,7 @@ async fn deliver_with_retry(
                 return;
             }
             Err(e) => {
-                let is_last = attempt == backoff_secs.len() - 1;
+                let is_last = attempt == backoff_secs.len().saturating_sub(1);
                 if is_last {
                     let err_str = e.to_string();
                     warn!(webhook_id, url, error = %e, "Webhook delivery failed after all retries");

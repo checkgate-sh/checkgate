@@ -76,9 +76,9 @@ function SdkKeysTab({ projectId }: { projectId: string }) {
       {loadError && <p className="text-rose-400 text-sm mb-4">{loadError}</p>}
 
       {revealedKey && (
-        <div className="mb-4 p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+        <div className="mb-4 p-4 rounded-lg bg-brand-50 border border-brand-200">
           <div className="flex items-start justify-between gap-2 mb-2">
-            <p className="text-emerald-700 text-xs font-medium flex items-center gap-1.5">
+            <p className="text-brand-700 text-xs font-medium flex items-center gap-1.5">
               <AlertCircle className="w-3.5 h-3.5" />
               Save this key now — it won't be shown again
             </p>
@@ -87,13 +87,13 @@ function SdkKeysTab({ projectId }: { projectId: string }) {
             </button>
           </div>
           <div className="flex items-center gap-2 p-2.5 rounded bg-white border border-gray-200">
-            <code className="flex-1 text-emerald-600 text-xs font-mono break-all">{revealedKey.key}</code>
+            <code className="flex-1 text-brand-600 text-xs font-mono break-all">{revealedKey.key}</code>
             <button
               onClick={() => void handleCopy(revealedKey.key, revealedKey.id)}
               className="shrink-0 p-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-800 transition-colors"
             >
               {copiedId === revealedKey.id
-                ? <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ? <Check className="w-3.5 h-3.5 text-brand-400" />
                 : <Copy className="w-3.5 h-3.5" />}
             </button>
           </div>
@@ -139,13 +139,13 @@ function SdkKeysTab({ projectId }: { projectId: string }) {
               onChange={e => setNewKeyName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Escape') setShowCreateForm(false) }}
               placeholder="Key name (e.g. iOS Production)"
-              className="flex-1 bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+              className="flex-1 bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
             />
             <div className="relative">
               <select
                 value={newKeyEnvId}
                 onChange={e => setNewKeyEnvId(e.target.value)}
-                className="appearance-none bg-white border border-gray-100 rounded-xl px-3 py-2.5 pr-7 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+                className="appearance-none bg-white border border-gray-100 rounded-xl px-3 py-2.5 pr-7 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
               >
                 {environments.map(env => (
                   <option key={env.id} value={env.id}>{env.name}</option>
@@ -158,7 +158,7 @@ function SdkKeysTab({ projectId }: { projectId: string }) {
             <button
               onClick={() => void handleCreate()}
               disabled={creating || !newKeyName.trim() || !newKeyEnvId}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200"
+              className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200"
             >
               {creating ? '…' : 'Create'}
             </button>
@@ -258,7 +258,7 @@ function MembersTab({ projectId }: { projectId: string }) {
       <div className="space-y-2 mb-4">
         {members.map(m => (
           <div key={m.user_id} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0 text-emerald-600 text-sm font-bold">
+            <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0 text-brand-600 text-sm font-bold">
               {m.name.charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
@@ -270,7 +270,7 @@ function MembersTab({ projectId }: { projectId: string }) {
                 value={m.role}
                 onChange={e => void handleRoleChange(m.user_id, e.target.value)}
                 disabled={updatingId === m.user_id}
-                className="appearance-none text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 pr-6 text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-50"
+                className="appearance-none text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 pr-6 text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50"
               >
                 <option value="admin">Admin</option>
                 <option value="editor">Editor</option>
@@ -298,7 +298,7 @@ function MembersTab({ projectId }: { projectId: string }) {
             <select
               value={addUserId}
               onChange={e => setAddUserId(Number(e.target.value))}
-              className="w-full appearance-none bg-white border border-gray-100 rounded-xl px-3 py-2.5 pr-7 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+              className="w-full appearance-none bg-white border border-gray-100 rounded-xl px-3 py-2.5 pr-7 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
             >
               <option value="">Select user…</option>
               {availableUsers.map(u => (
@@ -311,7 +311,7 @@ function MembersTab({ projectId }: { projectId: string }) {
             <select
               value={addRole}
               onChange={e => setAddRole(e.target.value)}
-              className="appearance-none bg-white border border-gray-100 rounded-xl px-3 py-2.5 pr-7 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+              className="appearance-none bg-white border border-gray-100 rounded-xl px-3 py-2.5 pr-7 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
             >
               <option value="admin">Admin</option>
               <option value="editor">Editor</option>
@@ -322,7 +322,7 @@ function MembersTab({ projectId }: { projectId: string }) {
           <button
             onClick={() => void handleAdd()}
             disabled={adding || addUserId === ''}
-            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200"
+            className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200"
           >
             {adding ? '…' : 'Add'}
           </button>
@@ -396,12 +396,12 @@ function SettingsTab({ project, onRenamed, onDeleted }: {
             type="text"
             value={name}
             onChange={e => setName(e.target.value)}
-            className="flex-1 bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+            className="flex-1 bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
           />
           <button
             onClick={() => void handleRename()}
             disabled={renaming || !name.trim() || name.trim() === project.name}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200"
+            className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200"
           >
             {renaming ? '…' : 'Rename'}
           </button>
@@ -469,7 +469,7 @@ export default function ProjectSettings() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="inline-block w-5 h-5 border-2 border-gray-200 border-t-emerald-500 rounded-full animate-spin" />
+        <span className="inline-block w-5 h-5 border-2 border-gray-200 border-t-brand-500 rounded-full animate-spin" />
       </div>
     )
   }

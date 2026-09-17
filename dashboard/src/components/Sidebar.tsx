@@ -124,11 +124,11 @@ function ProjectSwitcher() {
     <div ref={ref} className="relative px-4 mb-1">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 rounded-xl transition-colors text-left"
+        className="w-full flex items-center gap-2.5 px-3 py-2 bg-brand-50 hover:bg-brand-100 border border-brand-100 rounded-xl transition-colors text-left"
       >
-        <FolderKanban className="w-4 h-4 text-emerald-600 shrink-0" />
-        <span className="flex-1 text-sm font-bold text-emerald-800 truncate">{activeProject.name}</span>
-        <ChevronDown className={`w-3.5 h-3.5 text-emerald-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <FolderKanban className="w-4 h-4 text-brand-600 shrink-0" />
+        <span className="flex-1 text-sm font-bold text-brand-800 truncate">{activeProject.name}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-brand-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -138,7 +138,7 @@ function ProjectSwitcher() {
               key={p.id}
               onClick={() => select(p)}
               className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left hover:bg-gray-50 ${
-                p.id === activeProject.id ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-700'
+                p.id === activeProject.id ? 'bg-brand-50 text-brand-700 font-semibold' : 'text-gray-700'
               }`}
             >
               <FolderKanban className="w-3.5 h-3.5 shrink-0 text-gray-400" />
@@ -148,7 +148,7 @@ function ProjectSwitcher() {
           {isAdmin && (
             <button
               onClick={() => { setOpen(false); navigate('/projects') }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-emerald-600 hover:bg-emerald-50 border-t border-gray-100 transition-colors"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-brand-600 hover:bg-brand-50 border-t border-gray-100 transition-colors"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span className="font-semibold">New project</span>
@@ -202,7 +202,7 @@ function EnvSwitcher() {
               key={env.id}
               onClick={() => select(env)}
               className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left hover:bg-gray-50 ${
-                env.id === activeEnv.id ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-700'
+                env.id === activeEnv.id ? 'bg-brand-50 text-brand-700 font-semibold' : 'text-gray-700'
               }`}
             >
               <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: env.color }} />
@@ -237,7 +237,7 @@ function NavItemLink({ item, collapsed }: { item: NavItem; collapsed: boolean })
           collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
         } ${
           isActive
-            ? 'bg-emerald-50 text-emerald-700 shadow-sm shadow-emerald-100/50'
+            ? 'bg-brand-50 text-brand-700 shadow-sm shadow-brand-100/50'
             : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
         }`
       }
@@ -245,7 +245,7 @@ function NavItemLink({ item, collapsed }: { item: NavItem; collapsed: boolean })
       {({ isActive }) => (
         <>
           <div className={`p-1 rounded-lg transition-colors ${isActive ? 'bg-white shadow-sm' : 'group-hover:bg-white/50'}`}>
-            <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
+            <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
           </div>
           {!collapsed && <span className="flex-1">{label}</span>}
         </>
@@ -309,7 +309,7 @@ export default function Sidebar() {
       {/* Logo + workspace name */}
       <div className={`flex items-center h-16 mb-2 ${collapsed ? 'justify-center px-2' : 'gap-3 px-6'}`}>
         <div className="bg-white p-1 rounded-xl shadow-sm border border-gray-50 overflow-hidden shrink-0">
-          <img src="/checkgate_logo.png" alt="" className="h-8 w-8 object-contain" />
+          <img src="/logo.svg" alt="" className="h-8 w-8 object-contain" />
         </div>
         {!collapsed && (
           <div className="min-w-0">
@@ -392,7 +392,7 @@ export default function Sidebar() {
       {/* User section */}
       <div className={`py-4 border-t border-gray-100 bg-gray-50/50 ${collapsed ? 'px-3' : 'px-4'}`}>
         <div className={`flex items-center mb-2 ${collapsed ? 'justify-center' : 'gap-3 px-2 py-2'}`}>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-md shadow-emerald-200 flex items-center justify-center shrink-0" title={collapsed ? session?.user.name : undefined}>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 shadow-md shadow-brand-200 flex items-center justify-center shrink-0" title={collapsed ? session?.user.name : undefined}>
             <span className="text-white text-sm font-bold">
               {session?.user.name.charAt(0).toUpperCase() ?? '?'}
             </span>

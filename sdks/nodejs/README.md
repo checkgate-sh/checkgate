@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../assets/checkgate_logo.png" width="120" alt="Checkgate Logo">
+  <img src="../../assets/logo.svg" width="64" alt="Checkgate">
 </p>
 
 # @checkgate/node
@@ -68,4 +68,4 @@ attribute to the right variant.
 * **Instant Propagation:** Leverages SSE (Server Sent Events) to distribute flag toggles globally in < 50ms without polling.
 * **Self-Hosted Privacy:** Keep your user data strictly within your own infrastructure bounds.
 
-For more information and detailed architecture designs, check out the [official Checkgate documentation](https://checkgate-dev.github.io/checkgate).
+For more information and detailed architecture designs, check out the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

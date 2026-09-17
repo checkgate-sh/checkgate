@@ -15,11 +15,11 @@ This document outlines the vision and future development priorities for Checkgat
 ## 🟠 SDK & Ecosystem Expansion
 *Goal: Meet developers in every language and runtime they already use.*
 
-Every new SDK wraps the **same shared Rust evaluation core** in [`core/`](https://github.com/checkgate-dev/checkgate/tree/main/core) — exactly how the existing Node.js (NAPI), Web (WASM), React Native (JSI), and Flutter (FFI) SDKs do — so local, sub-microsecond evaluation and flag semantics (rules, rollouts, segments, prerequisites, weighted variants) stay **identical across every language**. Each also inherits the shared resilience layer: SSE streaming with backoff, offline persistence, and the `/flags/snapshot` poll fallback.
+Every new SDK wraps the **same shared Rust evaluation core** in [`core/`](https://github.com/checkgate-sh/checkgate/tree/main/core) — exactly how the existing Node.js (NAPI), Web (WASM), React Native (JSI), and Flutter (FFI) SDKs do — so local, sub-microsecond evaluation and flag semantics (rules, rollouts, segments, prerequisites, weighted variants) stay **identical across every language**. Each also inherits the shared resilience layer: SSE streaming with backoff, offline persistence, and the `/flags/snapshot` poll fallback.
 
 **Server-side languages** (backend/local evaluation)
 - [ ] **Python SDK**: PyO3 bindings to the core — Django / FastAPI / Flask apps and data/ML services.
-- [ ] **Go SDK**: A cgo-FFI **local-evaluation** SDK, complementing the existing [`checkgate-go`](https://github.com/checkgate-dev/checkgate/tree/main/integrations/checkgate-go) *management* client that already backs the Terraform provider and Kubernetes operator.
+- [ ] **Go SDK**: A cgo-FFI **local-evaluation** SDK, complementing the existing [`checkgate-go`](https://github.com/checkgate-sh/checkgate/tree/main/integrations/checkgate-go) *management* client that already backs the Terraform provider and Kubernetes operator.
 - [ ] **Java / Kotlin (JVM) SDK**: JNI bindings — Spring Boot and other JVM backends.
 - [ ] **Ruby SDK**: Rails apps and Sidekiq workers.
 - [ ] **PHP SDK**: Laravel / Symfony.
@@ -48,4 +48,4 @@ Every new SDK wraps the **same shared Rust evaluation core** in [`core/`](https:
 ---
 
 > [!TIP]
-> **Want to contribute?** I welcome ideas and pull requests! Check the [Contributing Guide](https://github.com/checkgate-dev/checkgate/blob/main/CONTRIBUTING.md) to get started.
+> **Want to contribute?** I welcome ideas and pull requests! Check the [Contributing Guide](https://github.com/checkgate-sh/checkgate/blob/main/CONTRIBUTING.md) to get started.

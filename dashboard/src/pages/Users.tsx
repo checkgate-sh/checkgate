@@ -5,12 +5,12 @@ import { userApi, type ApiUser } from '../api'
 import type { UserRole } from '../types'
 
 const inputClass =
-  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium'
+  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium'
 
 function RoleBadge({ role }: { role: string }) {
   if (role === 'admin') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-brand-50 text-brand-700 ring-1 ring-brand-200">
         <Shield className="w-2 h-2" /> Admin
       </span>
     )
@@ -140,7 +140,7 @@ function AddUserModal({ onClose, onAdd }: AddUserModalProps) {
                   onClick={() => setRole(r)}
                   className={`flex-1 py-2.5 px-3 rounded-xl border text-sm font-bold transition-all capitalize ${
                     role === r
-                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-100'
+                      ? 'bg-brand-600 border-brand-600 text-white shadow-md shadow-brand-100'
                       : 'bg-white border-gray-100 text-gray-500 hover:border-gray-200 hover:text-gray-900'
                   }`}
                 >
@@ -168,7 +168,7 @@ function AddUserModal({ onClose, onAdd }: AddUserModalProps) {
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:-translate-y-0.5"
+              className="flex-1 py-3 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5"
             >
               {saving ? '…' : 'Add user'}
             </button>
@@ -247,7 +247,7 @@ export default function Users() {
         {isAdmin && (
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300 hover:-translate-y-0.5"
+            className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5"
           >
             <UserPlus className="w-4 h-4" /> Add user
           </button>
@@ -269,7 +269,7 @@ export default function Users() {
               <tr key={user.id} className="group hover:bg-gray-50 transition-colors">
                 <td className="px-5 py-3.5">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-md shadow-emerald-200 flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 shadow-md shadow-brand-200 flex items-center justify-center shrink-0">
                       <span className="text-white text-sm font-bold">{user.name.charAt(0).toUpperCase()}</span>
                     </div>
                     <div>

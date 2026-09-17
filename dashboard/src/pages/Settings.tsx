@@ -14,8 +14,8 @@ function SectionCard({ icon: Icon, title, description, children }: {
   return (
     <div className="premium-card shadow-premium-lg border-none">
       <div className="flex items-start gap-5 px-6 py-5 border-b border-gray-50 bg-white">
-        <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
-          <Icon className="w-5 h-5 text-emerald-600" />
+        <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+          <Icon className="w-5 h-5 text-brand-600" />
         </div>
         <div>
           <h2 className="text-gray-900 font-display font-bold text-sm tracking-tight">{title}</h2>
@@ -48,7 +48,7 @@ function CodeBlock({ code }: { code: string }) {
         className="absolute top-2.5 right-2.5 p-1.5 rounded-md bg-white/10 hover:bg-white/20 text-gray-300 transition-colors"
         title="Copy"
       >
-        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? <Check className="w-3.5 h-3.5 text-brand-400" /> : <Copy className="w-3.5 h-3.5" />}
       </button>
     </div>
   )
@@ -121,9 +121,9 @@ function PersonalAccessTokensSection() {
       {loadError && <p className="text-rose-400 text-sm mb-4">{loadError}</p>}
 
       {revealedToken && (
-        <div className="mb-4 p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+        <div className="mb-4 p-4 rounded-lg bg-brand-50 border border-brand-200">
           <div className="flex items-start justify-between gap-2 mb-2">
-            <p className="text-emerald-700 text-xs font-medium flex items-center gap-1.5">
+            <p className="text-brand-700 text-xs font-medium flex items-center gap-1.5">
               <AlertCircle className="w-3.5 h-3.5" />
               Save this token now — it won't be shown again
             </p>
@@ -132,12 +132,12 @@ function PersonalAccessTokensSection() {
             </button>
           </div>
           <div className="flex items-center gap-2 p-2.5 rounded bg-white border border-gray-200">
-            <code className="flex-1 text-emerald-600 text-xs font-mono break-all">{revealedToken.token}</code>
+            <code className="flex-1 text-brand-600 text-xs font-mono break-all">{revealedToken.token}</code>
             <button
               onClick={() => void handleCopy(revealedToken.token)}
               className="shrink-0 p-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-800 transition-colors"
             >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? <Check className="w-3.5 h-3.5 text-brand-400" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>
@@ -178,13 +178,13 @@ function PersonalAccessTokensSection() {
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Escape') setShowCreateForm(false) }}
             placeholder="Token name (e.g. Terraform CI)"
-            className="w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+            className="w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
           />
           <div className="flex gap-2">
             <select
               value={newScope}
               onChange={e => setNewScope(e.target.value as TokenScope)}
-              className="flex-1 bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+              className="flex-1 bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
             >
               <option value="read_only">Read-only</option>
               <option value="read_write">Read-write</option>
@@ -192,7 +192,7 @@ function PersonalAccessTokensSection() {
             <select
               value={newExpiresInDays ?? ''}
               onChange={e => setNewExpiresInDays(e.target.value === '' ? null : Number(e.target.value))}
-              className="flex-1 bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+              className="flex-1 bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
             >
               <option value="30">Expires in 30 days</option>
               <option value="90">Expires in 90 days</option>
@@ -204,7 +204,7 @@ function PersonalAccessTokensSection() {
             <button
               onClick={() => void handleCreate()}
               disabled={creating || !newName.trim()}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200"
+              className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200"
             >
               {creating ? '…' : 'Create'}
             </button>
@@ -296,7 +296,7 @@ const enabled = client.getBool('feature_x', false, { userId: req.user.id })`
               <p className="text-xs text-gray-400">
                 Replace <code className="text-gray-600">sk_live_…</code> with an SDK key from the{' '}
                 {activeProject ? (
-                  <Link to={`/projects/${activeProject.id}?tab=keys`} className="text-emerald-600 hover:underline">
+                  <Link to={`/projects/${activeProject.id}?tab=keys`} className="text-brand-600 hover:underline">
                     Project Settings → SDK Keys
                   </Link>
                 ) : (
@@ -320,8 +320,8 @@ const enabled = client.getBool('feature_x', false, { userId: req.user.id })`
             description="Sessions use HttpOnly encrypted cookies — the SDK key is never exposed to JavaScript."
           >
             <div className="space-y-3">
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
-                <Info className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-brand-50 border border-brand-200">
+                <Info className="w-4 h-4 text-brand-600 mt-0.5 shrink-0" />
                 <p className="text-xs text-gray-600 leading-relaxed">
                   Your SDK key is validated server-side at login. After that, a short-lived
                   encrypted cookie keeps you authenticated. The key is never stored in your browser.
@@ -347,7 +347,7 @@ const enabled = client.getBool('feature_x', false, { userId: req.user.id })`
             description="The dashboard communicates with the Checkgate server at this origin."
           >
             <div className="flex items-center gap-2 p-3 rounded-lg bg-gray-50 border border-gray-200">
-              <code className="text-emerald-600 text-sm flex-1 truncate">{apiOrigin}</code>
+              <code className="text-brand-600 text-sm flex-1 truncate">{apiOrigin}</code>
             </div>
             <p className="mt-2 text-xs text-gray-400">
               Set <code className="text-gray-600">VITE_API_URL</code> at build time to point at a different server.

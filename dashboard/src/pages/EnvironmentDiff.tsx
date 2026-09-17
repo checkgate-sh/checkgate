@@ -78,7 +78,7 @@ function EnvSelect({
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-900 font-semibold focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 shadow-premium transition-all"
+      className="bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-900 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 shadow-premium transition-all"
     >
       {environments.filter(e => e.id !== exclude).map(e => (
         <option key={e.id} value={e.id}>{e.name}</option>
@@ -114,7 +114,7 @@ function FlagRow({
         <button
           onClick={action.onClick}
           disabled={action.pending}
-          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all"
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all"
         >
           {action.pending ? 'Syncing…' : action.label}
           {!action.pending && <ArrowRight className="w-3 h-3" />}
@@ -194,8 +194,8 @@ export default function EnvironmentDiff() {
     <div className="w-full space-y-5">
       <div className="premium-card shadow-premium-lg border-none">
         <div className="flex items-start gap-5 px-6 py-5 border-b border-gray-50 bg-white">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
-            <GitCompare className="w-5 h-5 text-emerald-600" />
+          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+            <GitCompare className="w-5 h-5 text-brand-600" />
           </div>
           <div className="flex-1">
             <h2 className="text-gray-900 font-display font-bold text-sm tracking-tight">Compare environments</h2>
@@ -236,7 +236,7 @@ export default function EnvironmentDiff() {
             <div className="flex items-center justify-center h-32 text-gray-400 text-sm">Loading…</div>
           ) : diff && envA && envB ? (
             diff.onlyInA.length === 0 && diff.onlyInB.length === 0 && diff.different.length === 0 ? (
-              <p className="text-center text-emerald-600 text-sm py-6 font-medium">
+              <p className="text-center text-brand-600 text-sm py-6 font-medium">
                 {envA.name} and {envB.name} are in sync ({diff.identicalCount} flag{diff.identicalCount !== 1 ? 's' : ''}).
               </p>
             ) : (

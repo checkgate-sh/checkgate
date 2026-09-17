@@ -37,7 +37,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
     <button
       type="button"
       onClick={onToggle}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 ${
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20 ${
         enabled ? 'bg-emerald-600 shadow-md shadow-emerald-200' : 'bg-gray-200'
       }`}
       aria-label={enabled ? 'Disable flag' : 'Enable flag'}
@@ -52,10 +52,10 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 }
 
 const inputClass =
-  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium disabled:opacity-50 disabled:cursor-not-allowed'
+  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium disabled:opacity-50 disabled:cursor-not-allowed'
 
 const selectClass =
-  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium appearance-none disabled:opacity-50 disabled:cursor-not-allowed'
+  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium appearance-none disabled:opacity-50 disabled:cursor-not-allowed'
 
 const FLAG_TYPES: { value: FlagType; label: string; description: string }[] = [
   { value: 'boolean', label: 'Boolean', description: 'On / off toggle' },
@@ -215,7 +215,7 @@ function WeightedVariantsEditor({
       <button
         type="button"
         onClick={addVariant}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 hover:text-emerald-700"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
       >
         <Plus className="w-3.5 h-3.5" /> Add variant
       </button>
@@ -314,7 +314,7 @@ function PrerequisitesEditor({
         <button
           type="button"
           onClick={addPrereq}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 hover:text-emerald-700"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
         >
           <Plus className="w-3.5 h-3.5" /> Add prerequisite
         </button>
@@ -340,13 +340,13 @@ function TagsInput({ tags, onChange }: { tags: string[]; onChange: (tags: string
           {tags.map(t => (
             <span
               key={t}
-              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 bg-emerald-50 text-emerald-700 rounded text-xs font-medium"
+              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-medium"
             >
               {t}
               <button
                 type="button"
                 onClick={() => onChange(tags.filter(x => x !== t))}
-                className="hover:text-emerald-900"
+                className="hover:text-brand-900"
                 aria-label={`Remove tag ${t}`}
               >
                 <X className="w-3 h-3" />
@@ -696,7 +696,7 @@ export default function FlagForm({
                   value={rolloutInput}
                   onChange={e => setRolloutInput(e.target.value)}
                   placeholder="100"
-                  className="w-28 bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium"
+                  className="w-28 bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
                 />
                 <span className="text-gray-400 text-sm">%</span>
               </div>
@@ -846,7 +846,7 @@ export default function FlagForm({
         <button
           type="submit"
           disabled={saving}
-          className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200 hover:shadow-emerald-300"
+          className="flex items-center gap-2 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300"
         >
           {saving ? (
             <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

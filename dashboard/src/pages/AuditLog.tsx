@@ -5,7 +5,7 @@ import type { AuditEntry } from '../types'
 import { useEnvironment, type Environment } from '../context/EnvironmentContext'
 
 const ACTION_STYLES: Record<AuditEntry['action'], { label: string; cls: string }> = {
-  CREATE:     { label: 'Created',     cls: 'bg-emerald-50 text-emerald-700 ring-emerald-100' },
+  CREATE:     { label: 'Created',     cls: 'bg-brand-50 text-brand-700 ring-brand-100' },
   UPDATE:     { label: 'Updated',     cls: 'bg-blue-50   text-blue-700   ring-blue-100'   },
   DELETE:     { label: 'Deleted',     cls: 'bg-red-50    text-red-700    ring-red-100'    },
   PROMOTE:    { label: 'Promoted',    cls: 'bg-violet-50 text-violet-700 ring-violet-100' },
@@ -174,12 +174,12 @@ export default function AuditLog() {
             placeholder="Filter by flag key…"
             value={flagKey}
             onChange={e => setFlagKey(e.target.value)}
-            className="w-full bg-white border border-gray-100 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/40 shadow-premium transition-all"
+            className="w-full bg-white border border-gray-100 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500/40 shadow-premium transition-all"
           />
         </div>
         <button
           type="submit"
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
+          className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
         >
           Search
         </button>
@@ -221,7 +221,7 @@ export default function AuditLog() {
                 {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-sm font-semibold text-emerald-600">
+                    <span className="font-mono text-sm font-semibold text-brand-600">
                       {entry.flag_key}
                     </span>
                     <ActionBadge action={entry.action} />

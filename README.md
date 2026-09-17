@@ -1,10 +1,14 @@
 <p align="center">
-  <img src="assets/checkgate_logo.png" width="160" alt="Checkgate Logo">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
+    <img src="assets/banner-dark.svg" alt="Checkgate — feature flags without the round-trip" width="100%">
+  </picture>
 </p>
 
 # Checkgate — Feature Flags Without the Round-Trip.
 
-[![CI](https://github.com/checkgate-dev/checkgate/actions/workflows/ci.yml/badge.svg)](https://github.com/checkgate-dev/checkgate/actions/workflows/ci.yml)
+[![CI](https://github.com/checkgate-sh/checkgate/actions/workflows/ci.yml/badge.svg)](https://github.com/checkgate-sh/checkgate/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![npm @checkgate/node](https://img.shields.io/npm/v/@checkgate/node?label=npm%20node)](https://www.npmjs.com/package/@checkgate/node)
 [![npm @checkgate/web](https://img.shields.io/npm/v/@checkgate/web?label=npm%20web)](https://www.npmjs.com/package/@checkgate/web)
@@ -14,7 +18,7 @@
 
 It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), browsers (WebAssembly), React Native (JSI), and Flutter (FFI). A persistent SSE stream propagates flag changes to every connected SDK instance in under 50 ms.
 
-**[Explore the Documentation →](https://checkgate-dev.github.io/checkgate)**
+**[Explore the Documentation →](https://checkgate-sh.github.io/checkgate)**
 
 ---
 

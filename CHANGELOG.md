@@ -5,71 +5,85 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.24] - Unreleased
+
+### Added
+
+- Workspace-wide Clippy safety policy (`unwrap`/`panic`/indexing/arithmetic/casts) enforced at
+  `deny`, with test code exempted; `#![forbid(unsafe_code)]` on every crate except the two FFI SDKs.
+- `cargo-deny` and `cargo-audit` configuration, plus CI jobs for supply chain, Miri, and docs.
+- Toolchain pinned via `rust-toolchain.toml`.
+- `// SAFETY:` documentation on all 19 unsafe blocks in the React Native and Flutter FFI crates,
+  backed by pointer-level smoke tests that run under Miri (no UB found).
+
+### Changed
+
+- **New brand.** The primary color moves from emerald to **indigo `#4F46E5`**, and green, red and
+  amber are now reserved for flag state (enabled / disabled / pending) rather than shared with
+  brand chrome — so a green control in the dashboard always means "on". New minimalist logo, and a
+  banner replacing the 1.7 MB PNG that was duplicated into four directories.
+- GitHub organisation moved from `checkgate-dev` to **`checkgate-sh`**. Go module paths, npm
+  `package.json` URLs, the podspec, pubspec, docs, and `ghcr.io` image paths all follow.
+  Consumers of the Go client, operator, or Terraform provider must update their import paths.
+- Variant colors on the Exposure page no longer include emerald or indigo, so a variant cannot be
+  mistaken for an enabled state or for brand chrome.
+- Variant bucketing carries its total weight as `NonZeroU64`, making the zero-weight case
+  unrepresentable rather than guarded.
+- `checkgate_is_enabled_ctx` now accepts a NULL context and fails closed instead of dereferencing it.
+
+### Fixed
+
+- Flag list pagination accepted an unbounded `limit`/`offset`; large values could also wrap to a
+  negative SQL `LIMIT`. Both are now clamped.
+- The server integration and SSE suites reported success while skipping when their database
+  environment variables were unset. They still skip locally but now fail hard under CI.
+- Stale doc comment in the hashing core, and two unresolved rustdoc links.
+- The dashboard's `brand` color ramp was two different hues stitched together — steps 50–400 were
+  Tailwind green, 500–950 emerald — so tints never matched the primary. It is now one hue, and is
+  actually referenced: every component previously hardcoded `emerald-*` and the token was unused.
+
+### Security
+
+- `rustls` upgraded to 0.23.45 (RUSTSEC-2026-0285). The outstanding `rsa` advisory
+  (RUSTSEC-2023-0071) is lockfile-only via `sqlx-mysql` and never built; suppressed with rationale.
+
+## [0.1.23] - 2026-08-02
+
+- Updated `quinn-proto` for a published CVE.
+- Documentation and contribution-workflow updates.
+
 ## [0.1.22] - 2026-07-18
 
 ### Changed — License
 
-- **Checkgate is now licensed under the Apache License 2.0** (previously MIT). Both are permissive
-  and neither restricts commercial or closed-source use; Apache 2.0 adds an **explicit patent grant**
-  from contributors to users, which MIT is silent on, plus a defensive patent-retaliation clause and
-  an explicit statement that trademark rights are not granted. The SPDX identifier on every crate
-  and npm package is now `Apache-2.0`, and a `NOTICE` file has been added.
-- Releases up to and including **`v0.1.21` remain MIT-licensed** — that grant is irrevocable for
-  those versions and for anyone who already received them.
+- **Relicensed from MIT to Apache License 2.0.** Both are permissive; Apache 2.0 adds an explicit
+  patent grant, a patent-retaliation clause, and an explicit trademark disclaimer. A `NOTICE` file
+  was added. **Releases up to and including `v0.1.21` remain MIT-licensed** — that grant is
+  irrevocable for anyone who already received them.
 
 ### Added
 
-- **Slack & Microsoft Teams alerts** — flag and change-request activity can now be delivered straight
-  into a chat channel, configured per environment under **Chat Alerts** in the dashboard. Each
-  provider receives its own native message format rather than a raw JSON envelope: Slack gets a
-  **Block Kit** message (header, detail fields, colour-coded attachment, plus a fallback line so push
-  notifications are readable on their own), Teams gets a **MessageCard** with the same details as
-  facts. Messages carry the environment, flag key, enabled/disabled state, rollout percentage, the
-  acting user, and — for rejections — the stated reason.
-  - **Seven event types**, subscribable per integration: `flag.created`, `flag.updated`,
-    `flag.deleted`, `flag.promoted`, `change_request.opened`, `change_request.approved`,
-    `change_request.rejected`. Leaving the selection empty subscribes to everything.
-  - **Change-request events are new to the notification system entirely** — previously only flag
-    mutations fired outbound events, so approval workflows were invisible to webhooks as well. Both
-    raw webhooks and chat integrations now receive them.
-  - Delivery reuses the webhook pipeline: fire-and-forget (never blocks the API response), retried
-    with 1s/5s/15s backoff, and recorded in a bounded per-integration delivery log
-    (`GET …/integrations/{id}/deliveries`) so failures are diagnosable. A **Send test message**
-    action fires a sample event through the real delivery path.
-  - The incoming-webhook URL is treated as a bearer credential: it is **never returned by the API**
-    after creation (only an elided `…XXXXXX` preview), and plaintext `http://` is rejected outside
-    loopback.
-  - New `POST/GET/PATCH/DELETE /api/environments/{env}/integrations` endpoints, admin-gated at the
-    same tier as webhooks.
+- **Slack & Microsoft Teams alerts**, configured per environment, with native Block Kit and
+  MessageCard formatting. Seven subscribable event types covering flag and change-request activity —
+  change-request events are new to the notification system entirely, and reach raw webhooks too.
+  Delivery reuses the webhook pipeline (retries, bounded delivery log, test-message action); the
+  incoming URL is treated as a credential and never returned after creation.
 
 ### Changed
 
-- Outbound events now fan out through a single `notify()` entry point instead of each call site
-  invoking the webhook dispatcher directly, so a newly-added event cannot reach one sink and silently
-  miss the other.
-- **Dashboard now builds and runs on [Bun](https://bun.sh)** instead of pnpm + Node. The Docker image
-  builds it from `oven/bun:1-slim` (dropping the Node toolchain and the global pnpm install layer
-  entirely), and CI uses `oven-sh/setup-bun`. Vite and Vitest are unchanged. Contributors need Bun
-  1.3+ for `dashboard/`; note `bun run test`, not `bun test` — the latter invokes Bun's own runner,
-  which does not understand the Vitest setup.
-- **Flag create/edit moved into a slide-over panel** on the flag list rather than a separate page.
-  The panel's state lives in the URL (`/flags?new=1`, `/flags?edit=<key>`), so it is linkable,
-  survives a refresh, and closes on browser Back; the previous `/flags/new` and `/flags/:key/edit`
-  routes redirect into it, keeping existing bookmarks working.
-- **Sidebar navigation is grouped by scope** — Environment, Project, and Workspace — with each
-  header naming the project or environment it applies to. Membership follows the API each page
-  actually calls. The admin-oriented Project and Workspace sections start collapsed (a section
-  holding the current page always stays open), cutting the default list from fifteen items to ten.
+- Outbound events fan out through a single `notify()` entry point, so a new event cannot reach one
+  sink and silently miss another.
+- Dashboard builds and runs on [Bun](https://bun.sh) instead of pnpm + Node. Contributors need Bun
+  1.3+ for `dashboard/`; use `bun run test`, not `bun test`.
+- Flag create/edit moved into a URL-addressable slide-over panel; old routes redirect.
+- Sidebar navigation grouped by scope (Environment, Project, Workspace), cutting the default list
+  from fifteen items to ten.
 
 ### Fixed
 
-- The `isEnabled() · ~100 ns, in-process` caption in the architecture diagram was centred on the
-  client column and overflowed the SVG viewBox, clipping the last few characters. It is now
-  right-anchored.
+- Architecture-diagram caption overflowed the SVG viewBox.
 
 ## [0.1.21] - 2026-07-18
-
-### Fixed
 
 - Documentation and release-workflow corrections. No library, SDK, or server changes.
 
@@ -77,184 +91,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **SSR / bootstrap helpers** (`@checkgate/ssr`) — server-render initial flag state and hydrate the
-  client with zero flag flicker (Next.js, Remix, SvelteKit, any SSR framework). `buildBootstrap()`
-  evaluates a page's flags for the current user on the server; `bootstrapScriptTag()` embeds the
-  result as an XSS-safe `<script>` (escapes `</script>` and U+2028/U+2029, supports a CSP nonce);
-  `readBootstrap()` + `BootstrapValues` render the first client paint from the server-resolved values
-  (null-safe, version-checked). The Web SDK gained a `bootstrap` option that seeds its WASM core from
-  the embedded snapshot so the live client is ready without waiting for its stream, and
-  `@checkgate/edge` gained `snapshotFlags()` to expose the raw snapshot for embedding. Zero
-  dependencies; unit-tested with `node --test`.
-- **Infrastructure as code** — manage flags and segments outside the dashboard, all on one shared Go
-  API client (`integrations/checkgate-go`, dependency-free and unit-tested):
-  - **Terraform / OpenTofu provider** (`terraform-provider-checkgate`) with `checkgate_flag` and
-    `checkgate_segment` resources and a `checkgate_flag` data source. Polymorphic/nested fields
-    (`default_value`, `rules`, `variants`, `prerequisites`) use semantic-JSON equality so
-    re-serialisation never churns a plan; supports import and detects `require_approval`
-    environments (surfaces the queued change request instead of hanging). Built on
-    terraform-plugin-framework.
-  - **Kubernetes operator** (`checkgate-operator`) reconciling a `FeatureFlag` CRD
-    (`flags.checkgate.io/v1alpha1`) into Checkgate — create/update via the API, a finalizer that
-    deletes the remote flag with the CR, periodic drift correction, and status conditions. The token
-    is read from a referenced Secret. Reconcile logic is unit-tested with a fake client + fake server.
-- **Edge Side Evaluation** (`@checkgate/edge`) — a new, zero-dependency, runtime-agnostic edge
-  evaluator that pulls a flag snapshot from `/flags/snapshot`, caches it with a TTL plus optional
-  stale-while-revalidate, keeps the last-known-good snapshot through origin outages (fail-open), and
-  delegates evaluation to the shared `@checkgate/web` WASM engine — so edge results are identical to
-  every other SDK, with no re-implemented rule/rollout/segment logic. Ships with a **Cloudflare
-  Workers** example (per-request edge evaluation in a warm isolate + a Cron Trigger that keeps the
-  snapshot warm) and a **Fly.io** multi-region deploy recipe (`fly.toml` + guide). Lives in `edge/`
-  with a full `node --test` suite covering refresh de-duplication, TTL/SWR behavior, and fail-open
-  resilience.
-- **Type-Safe Schema CLI** (`@checkgate/cli`) — a new `checkgate typegen` command generates
-  type-safe flag accessors for **TypeScript, Dart, and Rust** from your flag definitions, read
-  either from a running server (`--url`/`--env`/`--token`, or the `CHECKGATE_*` env vars) or a local
-  JSON export (`--input`). TypeScript emits a `FlagKey` union, per-flag value types, defaults, and a
-  `typedFlags()` wrapper so a wrong key or mis-typed value is a compile error; Dart emits a `FlagKey`
-  enum + `TypedFlags` wrapper; Rust emits a `FlagKey` enum (`as_str()`/`ALL`/`Display`) and a
-  dependency-free `defaults` module. Output is deterministic (sorted, archived flags excluded);
-  non-identifier keys (hyphens, leading digits) are converted safely per language. Zero runtime
-  dependencies; Node 18+. Lives in `cli/` with a full `node --test` suite.
-
-- **Exposure Dashboards** — a new **Exposure** page visualizes which users are being exposed to
-  which flag variant. Per-flag it shows the variant distribution (share of evaluations and unique
-  users) and a 14-day stacked timeline of evaluations per variant, all derived from existing
-  impression data. Backed by `GET /api/environments/{env}/impressions/exposure?flag_key=…`.
-- **A/B Testing (Beta)** — an end-to-end conversion-measurement pipeline:
-  - **Goal events**: SDKs gained a `track(eventKey, userKey, { value, context })` method that
-    batches and reports conversion events best-effort, mirroring impression reporting. Available in
-    all four SDKs — Node, Web (WASM), React Native (JSI), and Flutter (FFI). Events land via a new
-    `POST /api/environments/{env}/events` ingest endpoint (256 KB body limit, same as impressions).
-    Both impression and event ingest now clamp the client-supplied timestamp to the server clock
-    (`LEAST(_, NOW())`) so a future-fast client clock can't make a conversion sort ahead of the
-    exposure that caused it; genuinely-old (offline-queued) timestamps are preserved.
-  - **Experiments**: a new **Experiments** page (and full CRUD API) ties a flag (the variant source)
-    to a goal event. Its results view computes each variant's conversion rate, relative uplift vs.
-    the control, and a two-proportion z-test with p-value and a 95% significance verdict. Each user
-    enters the experiment at their first exposure to the flag and is bucketed into the variant seen
-    then; they count as converted only if they fired the goal at or after that exposure. The control
-    is the configured `control_variant` or, if unset, the highest-exposure variant.
-  - New tables: `events` and `experiments`. New sidebar entries: **Exposure** and **Experiments**.
+- **SSR / bootstrap helpers** (`@checkgate/ssr`) — server-render initial flag state and hydrate with
+  zero flicker, via an XSS-safe embedded snapshot. Works with any SSR framework; zero dependencies.
+- **Edge Side Evaluation** (`@checkgate/edge`) — runtime-agnostic edge evaluator with TTL and
+  stale-while-revalidate caching, fail-open on origin outages, delegating to the shared WASM engine
+  so results match every other SDK. Ships Cloudflare Workers and Fly.io recipes.
+- **Infrastructure as code** on a shared Go API client — a Terraform/OpenTofu provider (flags,
+  segments, import, approval-aware) and a Kubernetes operator reconciling a `FeatureFlag` CRD with
+  drift correction and finalizers.
+- **Type-safe schema CLI** (`@checkgate/cli`) — `checkgate typegen` generates flag accessors for
+  TypeScript, Dart, and Rust from a live server or a JSON export.
+- **A/B testing (beta)** — a `track()` goal-event method across all four SDKs, a new events ingest
+  endpoint, and an Experiments page computing conversion rate, uplift, and a two-proportion z-test
+  with significance verdict.
+- **Exposure dashboards** — per-flag variant distribution and a 14-day stacked timeline, derived
+  from existing impression data.
 
 ## [0.1.19] - 2026-07-05
 
 ### Changed
 
-- **Dashboard layout overhaul** — the sidebar can now be collapsed to an icon-only rail (persisted
-  across sessions via `localStorage`), reclaiming space on smaller screens. Every list/table page
-  (Dashboard, Feature Flags, Environments, Compare, Change Requests, Projects, Users, Audit Log,
-  Impressions, SDK Health, Scheduled, Webhooks) is now genuinely full width instead of capped at an
-  arbitrary max-width with dead space on either side.
-- **Flag Editor and Settings restructured into two columns** — behavior/configuration (flag type,
-  rollout, targeting rules; SDK snippets, personal access tokens) in a wider main column, with
-  identity/metadata (key, tags, ownership, prerequisites; auth info, API endpoint, account) in a
-  narrower sidebar. Previously everything was stacked in a single column, requiring far more
-  scrolling and leaving most of the screen empty on anything wider than a laptop.
-- **Setup and Login pages** now fill the browser window edge to edge (previously framed/centered
-  with growing dead space in the middle on wide monitors, then over-corrected to a narrow centered
-  card — this settles on genuinely full-width panels with wider inner content blocks). The Setup
-  welcome screen's headline now wraps to two lines instead of three, and gained an "Already set up?
-  Sign in" link for anyone who lands there after setup is already complete.
-- `ProjectSettings` now supports deep-linking to a specific tab via `?tab=keys` (etc.), so other
-  pages can link straight to e.g. SDK Keys instead of dropping the user on the default tab.
+- **Dashboard layout overhaul** — collapsible icon-only sidebar rail (persisted), and genuinely
+  full-width list and table pages.
+- Flag Editor and Settings restructured into two columns, separating behaviour from metadata.
+- Setup and Login pages fill the window; `ProjectSettings` supports deep-linking via `?tab=`.
 
 ### Fixed
 
-- **Setup/login redirect loop** — `/api/auth/me` 401s for anyone without a valid session cookie,
-  which the frontend was also using to determine "has setup been completed?" A fresh browser, a
-  different device, or a session that expired after a server restart would incorrectly conclude
-  setup had never been done and permanently redirect to `/setup` instead of `/login`, with no way
-  back. Fixed by checking the public `/api/auth/workspace` endpoint (now also returns
-  `is_setup_complete`) instead, and by fixing a related race where the redirect decision fired on a
-  stale guess before that check even resolved.
-- **Dead "SDK Keys" link on the Settings page** — pointed to `/settings` (itself) instead of the
-  actual key-management page. Now links to `/projects/{id}?tab=keys` and lands directly on the SDK
-  Keys tab.
-- **React Native SDK packaging** — `sdks/react-native/android/.gradle/` (a local Gradle build cache,
-  accidentally committed) was being swept into the published npm tarball via the `files` field
-  covering the whole `android/` directory. Untracked and gitignored; harmless to existing consumers,
-  just junk that shouldn't have shipped.
+- **Setup/login redirect loop** — setup completion was inferred from an authenticated endpoint, so a
+  fresh browser or expired session redirected permanently to `/setup`. Now uses a public endpoint.
+- Dead "SDK Keys" link pointed at itself.
+- React Native SDK shipped a stray local Gradle cache in the npm tarball.
 
 ## [0.1.18] - 2026-07-04
 
 ### Added
 
-- **Prerequisite (dependent) flags** — a flag can require another flag to be enabled, or resolved to a
-  specific value, before its own rules/rollout are considered. Evaluated recursively (a prerequisite
-  can itself have prerequisites) with a depth guard that fails closed on cycles or misconfigured
-  chains. Lives in the shared evaluation core, so every SDK supports it automatically.
-- **Weighted multivariate rollouts** — a `variants` field distributes traffic across multiple values
-  by weight (e.g. a 60/30/10 A/B/C split), independent of the on/off rollout gate. The foundation for
-  A/B testing.
-- **`getValue`/`getVariant` in every SDK wrapper** — the underlying bindings already supported
-  multi-variant flags, but the public Node, Web, React Native, and Flutter wrappers only exposed
-  `isEnabled`. All four now expose the full evaluation surface.
-- **SDK impression reporting** — all SDKs asynchronously batch and report evaluation events, feeding
-  the dashboard's impression stats and evaluation stream. Off by default; user attributes are never
-  sent unless `sendEvaluationContext` is enabled.
-- **Numeric targeting operators** — `greater_than`, `greater_than_or_equal`, `less_than`,
-  `less_than_or_equal`, alongside the existing string operators.
-- **SDK resilience** — exponential backoff with jitter on SSE reconnect (replacing a fixed retry
-  delay); flag-change listeners (`onChange`) with bootstrap/reconnect-resync suppression so only
-  genuine live deltas fire; offline persistence via a pluggable storage adapter (hydrate on cold
-  start, persist on bootstrap/delta); and an HTTP poll fallback (`GET /flags/snapshot`) for
-  environments where SSE can't be established (e.g. a proxy blocking long-lived connections).
-- **Unified `connect()`/ready semantics** — a new server-emitted `ready` SSE event gives every SDK a
-  consistent way to know when the initial flag set has loaded, instead of each platform inferring it
-  differently.
-- **Flag lifecycle hygiene** — tags, an owner email, and archival (soft-delete, reversible, zero
-  evaluation impact). Kept as dashboard-only metadata on a `FlagWithMetadata` wrapper so it never
-  flows into the evaluation core or the SSE/`/flags/snapshot` wire format.
-- **Cross-environment diff** — a "Compare environments" dashboard page showing flags that exist in
-  only one environment, or differ in evaluation-relevant fields (rollout, rules, variants,
-  prerequisites), with a one-click sync action per flag.
-- **Scoped personal access tokens** — user-owned, revocable API credentials for CI/CD, Terraform, and
-  scripts, as an alternative to the always-admin-equivalent SDK key. A token acts as its owning user
-  (same role, same project memberships) and can be capped to `read_only`. Tokens are SHA-256 hashed
-  at rest, support optional expiry, and are strictly self-service (list/create/revoke your own only).
-- **Change requests (approval workflow)** — a per-environment `require_approval` toggle. When set, a
-  flag `PATCH` is captured as a pending change request instead of applying immediately, and a
-  *different* editor/admin must review it. Approve applies the original patch against the flag's
-  current state; reject (with an optional reason) or withdraw never touch the flag.
+- **Prerequisite (dependent) flags** — recursive, with a depth guard that fails closed on cycles.
+- **Weighted multivariate rollouts** — distribute traffic by weight, independent of the on/off gate.
+- **`getValue`/`getVariant` in every SDK wrapper** — the bindings already supported multi-variant
+  flags; the public wrappers only exposed `isEnabled`.
+- **SDK impression reporting**, batched and off by default; attributes are never sent unless opted in.
+- **Numeric targeting operators** alongside the existing string ones.
+- **SDK resilience** — backoff with jitter on SSE reconnect, `onChange` listeners, offline
+  persistence via a pluggable storage adapter, and an HTTP poll fallback.
+- **Unified `connect()`/ready semantics** via a server-emitted `ready` event.
+- **Flag lifecycle hygiene** — tags, owner email, and reversible archival, kept out of the
+  evaluation core and wire format.
+- **Cross-environment diff** with a one-click per-flag sync.
+- **Scoped personal access tokens** — user-owned, revocable, optionally `read_only`, SHA-256 hashed.
+- **Change requests** — a per-environment `require_approval` toggle routing flag edits through a
+  different reviewer.
 
 ### Changed
 
-- `evaluate`/`evaluate_variant` in the core evaluator now take a `&FlagStore` parameter to support
-  recursive prerequisite lookups. Internal API change — all four SDK bindings were updated
-  accordingly; public SDK surfaces are unaffected.
+- `evaluate`/`evaluate_variant` take a `&FlagStore` for recursive prerequisite lookups. Internal
+  only; public SDK surfaces unaffected.
 
 ### Fixed
 
-- `time::OffsetDateTime` fields in `impressions.rs`, `keys.rs`, and `users.rs` were serializing in a
-  proprietary, non-RFC-3339 format that JavaScript's `Date` cannot parse, despite doc comments
-  claiming "ISO-8601." Corrected to genuine RFC 3339 output across all affected endpoints.
-- Node.js SDK: `eventsource` v4's named export and dropped `headers` option meant the Bearer token
-  was silently omitted from SSE reconnect requests. Fixed via a custom `fetch` hook.
-- Dashboard `Environments.tsx` called bare `/api/environments...` routes that don't exist on the
-  server (the real routes are nested under `/api/projects/{project_id}/environments...`), causing
-  "Server returned 405" on environment creation and silent failures on delete/set-default.
-- Removed stale, git-tracked copies of `sdks/react-native/rust-core/` — a generated build artifact
-  that had drifted out of sync with `core/`. Now gitignored; regenerated fresh before every release.
-- **Node.js SDK packaging** — `index.js` (the hand-written wrapper) and `napi build --platform`'s
-  auto-generated multi-platform dispatch loader both wrote to the same filename, so whichever ran
-  last won; the checked-in wrapper always won in practice, and it `require()`d a single-file
-  `index.node` that never exists in the real per-platform release output
-  (`checkgate.darwin-x64.node`, `checkgate.linux-x64-gnu.node`, etc.). Every install of
-  `@checkgate/node` would have thrown `Cannot find module './index.node'`. Pre-existing since at
-  least v0.1.17 and never caught because nothing in CI actually `require()`d the assembled package.
-  Fixed by generating the dispatch loader to a separate `native-binding.js`/`native-binding.d.ts`
-  (via `napi build`'s `--js`/`--dts` flags) that `index.js` requires instead, and by adding a real
-  `require()` smoke test to the release workflow so this class of bug fails loudly in CI instead of
-  shipping silently.
+- Several timestamp fields serialized in a non-RFC-3339 format JavaScript's `Date` cannot parse,
+  despite doc comments claiming ISO-8601.
+- Node SDK omitted the Bearer token on SSE reconnect under `eventsource` v4.
+- Dashboard called non-existent bare `/api/environments...` routes.
+- **Node SDK packaging was broken since ~v0.1.17** — the hand-written wrapper and the generated
+  multi-platform loader collided on one filename, so every install would have thrown
+  `Cannot find module './index.node'`. Fixed, with a `require()` smoke test in the release workflow.
+- Removed stale git-tracked copies of generated `rust-core/` build artifacts.
 
 ### Security
 
-- Personal access tokens are SHA-256 hashed at rest (SDK keys remain plaintext, by contrast, since
-  they're a different, coarser-grained credential class), scoped to the owning user's actual role and
-  project memberships rather than being blanket admin-equivalent, and a `read_only` token cannot mint
-  a `read_write` replacement for itself.
-- Change-request self-approval is rejected — a reviewer other than the requester must approve.
+- Personal access tokens are hashed at rest and scoped to the owner's real role and project
+  memberships; a `read_only` token cannot mint a `read_write` replacement.
+- Change-request self-approval is rejected.
 
 ## [0.1.17] - 2026-06-14
 

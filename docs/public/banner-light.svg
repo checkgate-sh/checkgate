@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2304" height="576" viewBox="0 0 2304 576" fill="none" role="img" aria-label="Checkgate — feature flags without the round-trip">
+  <title>Checkgate — feature flags without the round-trip</title>
+  <defs>
+    <clipPath id="frame-light">
+      <rect width="2304" height="576" rx="0"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#frame-light)">
+    <rect width="2304" height="576" fill="#FFFFFF"/>
+    <circle cx="2110" cy="70" r="360" fill="#4F46E5" opacity="0.07"/>
+    <circle cx="1930" cy="600" r="250" fill="#6366F1" opacity="0.05"/>
+
+    <!-- mark: 48x48 artwork scaled to 112x112 at (144,160) -->
+    <g transform="translate(144 160) scale(2.3333)">
+      <path d="M33.4 13.6 A14 14 0 1 0 33.4 34.4" stroke="#4F46E5" stroke-width="6" stroke-linecap="round"/>
+      <path d="M23 24 H39" stroke="#4F46E5" stroke-width="6" stroke-linecap="round"/>
+    </g>
+
+    <text x="296" y="248"
+          font-family="'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+          font-size="92" font-weight="700" letter-spacing="-2.5" fill="#0F172A">Checkgate</text>
+
+    <text x="146" y="356"
+          font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+          font-size="38" font-weight="400" fill="#4F46E5">Feature flags without the round-trip.</text>
+
+    <text x="146" y="408"
+          font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+          font-size="29" font-weight="400" fill="#64748B">Open-source, Rust-native, evaluated in-process. No network call on the hot path.</text>
+  </g>
+</svg>

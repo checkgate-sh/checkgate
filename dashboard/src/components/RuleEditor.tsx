@@ -14,10 +14,10 @@ const OPERATORS: { value: Operator; label: string }[] = [
 ]
 
 const inputClass =
-  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium'
+  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium'
 
 const selectClass =
-  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium appearance-none'
+  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2 text-gray-900 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium appearance-none'
 
 interface RuleEditorProps {
   rules: TargetingRule[]
@@ -218,7 +218,7 @@ export default function RuleEditor({
         <button
           type="button"
           onClick={addRule}
-          className="flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-bold transition-colors"
+          className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-bold transition-colors"
         >
           <Plus className="w-4 h-4" /> Add rule
         </button>

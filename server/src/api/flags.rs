@@ -187,6 +187,31 @@ fn default_limit() -> usize {
     200
 }
 
+/// Hard ceiling on `limit`, whatever the client asks for. Two reasons: an
+/// uncapped `limit` lets one authenticated request pull the entire flag table,
+/// and a `usize` too large for `i64` used to wrap to a negative `LIMIT`, which
+/// Postgres rejects with a 500 rather than a 4xx.
+const MAX_PAGE_LIMIT: i64 = 500;
+
+/// Ceiling on `offset`. Paging deeper than this is a sequential scan, not a query.
+const MAX_PAGE_OFFSET: i64 = 1_000_000;
+
+impl Pagination {
+    /// `limit` clamped into `0..=MAX_PAGE_LIMIT`, as the `i64` Postgres binds.
+    fn limit_i64(&self) -> i64 {
+        i64::try_from(self.limit)
+            .unwrap_or(MAX_PAGE_LIMIT)
+            .clamp(0, MAX_PAGE_LIMIT)
+    }
+
+    /// `offset` clamped into `0..=MAX_PAGE_OFFSET`.
+    fn offset_i64(&self) -> i64 {
+        i64::try_from(self.offset)
+            .unwrap_or(MAX_PAGE_OFFSET)
+            .clamp(0, MAX_PAGE_OFFSET)
+    }
+}
+
 /// Builds a `FlagWithMetadata` from a `flags` row that selected
 /// `data, tags, owner_email, archived_at`. Returns `None` if `data` doesn't
 /// deserialize into a valid `Flag` (defensive — should not happen for rows
@@ -223,8 +248,8 @@ async fn list_flags(
          ORDER BY key ASC LIMIT $2 OFFSET $3",
     )
     .bind(&env_id)
-    .bind(page.limit as i64)
-    .bind(page.offset as i64)
+    .bind(page.limit_i64())
+    .bind(page.offset_i64())
     .bind(page.include_archived)
     .bind(page.tag.as_deref())
     .fetch_all(&state.db)

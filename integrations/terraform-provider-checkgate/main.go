@@ -9,7 +9,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"github.com/checkgate-dev/terraform-provider-checkgate/internal/provider"
+	"github.com/checkgate-sh/terraform-provider-checkgate/internal/provider"
 )
 
 // version is set at release time via -ldflags "-X main.version=...".
@@ -21,7 +21,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.terraform.io/checkgate-dev/checkgate",
+		Address: "registry.terraform.io/checkgate-sh/checkgate",
 		Debug:   debug,
 	})
 	if err != nil {

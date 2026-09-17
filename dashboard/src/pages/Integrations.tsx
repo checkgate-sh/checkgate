@@ -15,7 +15,7 @@ const KIND_HINT: Record<IntegrationKind, string> = {
 }
 
 const inputClass =
-  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/30 transition-all shadow-premium'
+  'w-full bg-white border border-gray-100 rounded-xl px-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium'
 
 /** Friendly label for an event name, e.g. `flag.created` → "Flag created". */
 function eventLabel(event: string): string {
@@ -77,7 +77,7 @@ function CreateForm({ envId, onCreated }: { envId: string; onCreated: (i: Integr
                 onClick={() => setKind(k)}
                 className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
                   kind === k
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    ? 'bg-brand-50 border-brand-200 text-brand-700'
                     : 'bg-white border-gray-100 text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -127,7 +127,7 @@ function CreateForm({ envId, onCreated }: { envId: string; onCreated: (i: Integr
                 onClick={() => toggleEvent(event)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
                   on
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    ? 'bg-brand-50 border-brand-200 text-brand-700'
                     : 'bg-white border-gray-100 text-gray-400 hover:text-gray-600'
                 }`}
               >
@@ -146,7 +146,7 @@ function CreateForm({ envId, onCreated }: { envId: string; onCreated: (i: Integr
       <button
         type="submit"
         disabled={saving}
-        className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-emerald-200"
+        className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-brand-200"
       >
         <Plus className="w-4 h-4" /> {saving ? 'Connecting…' : 'Connect'}
       </button>
@@ -205,7 +205,7 @@ function IntegrationRow({
   }
 
   return (
-    <tr className={`group hover:bg-emerald-50/20 transition-all ${integration.enabled ? '' : 'opacity-50'}`}>
+    <tr className={`group hover:bg-brand-50/20 transition-all ${integration.enabled ? '' : 'opacity-50'}`}>
       <td className="px-8 py-5">
         <span className="font-semibold text-gray-900 text-sm">{integration.name}</span>
         <div className="text-xs text-gray-400 mt-0.5">
@@ -246,7 +246,7 @@ function IntegrationRow({
           <button
             onClick={() => void sendTest()}
             disabled={busy}
-            className="p-1.5 rounded-md text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+            className="p-1.5 rounded-md text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
             title="Send a test message"
             aria-label="Send test message"
           >

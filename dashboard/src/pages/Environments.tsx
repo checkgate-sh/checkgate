@@ -30,7 +30,7 @@ function CreateEnvironmentForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
-  const [color, setColor] = useState(COLORS[5].value)
+  const [color, setColor] = useState(COLORS[3].value)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -95,7 +95,7 @@ function CreateEnvironmentForm({ onDone }: { onDone: () => void }) {
             value={name}
             onChange={e => handleNameChange(e.target.value)}
             placeholder="e.g. Canary"
-            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
           />
         </div>
         <div>
@@ -105,7 +105,7 @@ function CreateEnvironmentForm({ onDone }: { onDone: () => void }) {
             value={slug}
             onChange={e => { setSlug(e.target.value); setSlugTouched(true) }}
             placeholder="canary"
-            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
           />
         </div>
         <div>
@@ -129,7 +129,7 @@ function CreateEnvironmentForm({ onDone }: { onDone: () => void }) {
         <button
           onClick={() => void handleCreate()}
           disabled={saving || !name.trim() || !slug.trim()}
-          className="flex-1 py-2 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-all"
+          className="flex-1 py-2 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-all"
         >
           {saving ? 'Creating…' : 'Create environment'}
         </button>
@@ -167,7 +167,7 @@ function EnvRow({ env, onDelete, onSetDefault, onToggleApproval }: {
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold text-gray-900">{env.name}</p>
           {env.is_default && (
-            <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded uppercase tracking-wide border border-emerald-100">
+            <span className="px-1.5 py-0.5 bg-brand-50 text-brand-700 text-[10px] font-bold rounded uppercase tracking-wide border border-brand-100">
               default
             </span>
           )}
@@ -275,8 +275,8 @@ export default function Environments() {
       <div className="premium-card shadow-premium-lg border-none">
         {/* Header */}
         <div className="flex items-start gap-5 px-6 py-5 border-b border-gray-50 bg-white">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
-            <Globe className="w-5 h-5 text-emerald-600" />
+          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+            <Globe className="w-5 h-5 text-brand-600" />
           </div>
           <div className="flex-1">
             <h2 className="text-gray-900 font-display font-bold text-sm tracking-tight">Environments</h2>
@@ -294,7 +294,7 @@ export default function Environments() {
             {isAdmin && !showCreate && (
               <button
                 onClick={() => setShowCreate(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm shadow-emerald-200"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm shadow-brand-200"
               >
                 <Plus className="w-3.5 h-3.5" /> New
               </button>

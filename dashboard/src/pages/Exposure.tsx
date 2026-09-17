@@ -7,15 +7,18 @@ import { useEnvironment } from '../context/EnvironmentContext'
 // A fixed, reasonably color-blind-safe categorical palette. Variants are
 // assigned colors by their exposure rank (index into the ordered variants
 // array) so the same value keeps a stable color across both charts on the page.
+// Emerald and indigo are deliberately absent: emerald reads as "enabled" next
+// to the flag-state UI, and indigo is the brand. A variant should never be
+// mistaken for either.
 const PALETTE = [
-  '#10b981', // emerald
-  '#6366f1', // indigo
+  '#0ea5e9', // sky
+  '#8b5cf6', // violet
   '#f59e0b', // amber
   '#ec4899', // pink
-  '#14b8a6', // teal
-  '#8b5cf6', // violet
+  '#06b6d4', // cyan
+  '#d946ef', // fuchsia
   '#ef4444', // red
-  '#0ea5e9', // sky
+  '#64748b', // slate
 ]
 
 function StatCard({
@@ -25,8 +28,8 @@ function StatCard({
 }) {
   return (
     <div className="premium-card bg-white p-5 flex items-start gap-4">
-      <div className="p-2.5 bg-emerald-50 rounded-xl">
-        <Icon className="w-5 h-5 text-emerald-600" />
+      <div className="p-2.5 bg-brand-50 rounded-xl">
+        <Icon className="w-5 h-5 text-brand-600" />
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">{label}</p>
@@ -180,7 +183,7 @@ export default function Exposure() {
           <select
             value={selected}
             onChange={e => setSelected(e.target.value)}
-            className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-mono font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+            className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-mono font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-200"
           >
             {flagKeys.map(k => <option key={k} value={k}>{k}</option>)}
           </select>

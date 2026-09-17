@@ -12,3 +12,6 @@ napi = { version = "3.8.3", features = ["napi2", "napi3"] }
 napi-derive = "3.5.2"
 serde_json = "1.0"
 checkgate-core = { version = "0.1.0", path = "../../core" }
+
+[lints]
+workspace = true

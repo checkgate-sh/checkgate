@@ -1,18 +1,19 @@
 /**
  * docs/.vitepress/theme/custom.css
- * Checkgate custom branding relying on premium violet variables.
+ * Checkgate custom branding. Indigo is the brand; green, red and amber are
+ * reserved for flag state and are never used as accents here.
  */
 
 :root {
-  /* Tailwind Emerald 500 - Deep striking green */
-  --vp-c-brand-1: #10b981; 
-  /* Tailwind Emerald 400 - Core vibrant highlight */
-  --vp-c-brand-2: #34d399;
-  /* Tailwind Emerald 300 - Brightest glow */
-  --vp-c-brand-3: #6ee7b7; 
-  
+  /* Indigo 600 - primary */
+  --vp-c-brand-1: #4f46e5;
+  /* Indigo 500 - hover / highlight */
+  --vp-c-brand-2: #6366f1;
+  /* Indigo 400 - brightest */
+  --vp-c-brand-3: #818cf8;
+
   /* Soft background for badges, hover states */
-  --vp-c-brand-soft: rgba(16, 185, 129, 0.16);
+  --vp-c-brand-soft: rgba(79, 70, 229, 0.16);
 
   /* Primary action button text/bg overrides */
   --vp-button-brand-border: transparent;
@@ -27,7 +28,7 @@
 
   /* Premium Gradient Text for the main Hero Title */
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #6ee7b7 10%, #059669 90%);
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #818cf8 10%, #4338ca 90%);
 }
 
 /* Add a very subtle gradient animation to the main title */

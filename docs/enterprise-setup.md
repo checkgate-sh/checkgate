@@ -35,7 +35,7 @@ docker run -d -p 3000:3000 \
   -e REDIS_URL="redis://your-elasticache-endpoint:6379" \
   -e SESSION_SECRET="$(openssl rand -hex 32)" \
   -e COOKIE_SECURE="true" \
-  ghcr.io/checkgate-dev/checkgate:latest
+  ghcr.io/checkgate-sh/checkgate:latest
 ```
 
 ---
