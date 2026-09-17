@@ -9,14 +9,9 @@ const config: Config = {
         display: ['Outfit', 'sans-serif'],
       },
       colors: {
-        // Indigo. One hue end to end — the previous ramp mixed Tailwind's
-        // green (50-400) with emerald (500-950), so tints never matched the
-        // primary. `brand-600` is the primary; it clears 4.5:1 on white both
-        // as text and as a fill behind white text.
-        //
-        // Green, red and amber are deliberately NOT brand colors: they are
-        // reserved for flag state (enabled / disabled / pending). Use them
-        // only where they carry that meaning.
+        // Indigo is used for navigation, actions, enabled controls, and success indicators.
+        // Red and amber communicate errors and pending reviews; gray marks inactive state.
+        // `brand-600` is the primary and clears 4.5:1 against white.
         brand: {
           50: '#eef2ff',
           100: '#e0e7ff',

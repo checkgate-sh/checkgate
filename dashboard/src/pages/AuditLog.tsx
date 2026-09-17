@@ -25,7 +25,7 @@ function ActionBadge({ action }: { action: AuditEntry['action'] }) {
 }
 
 function ActionIcon({ action }: { action: AuditEntry['action'] }) {
-  if (action === 'CREATE')    return <Plus className="w-3.5 h-3.5 text-emerald-500" />
+  if (action === 'CREATE')    return <Plus className="w-3.5 h-3.5 text-brand-500" />
   if (action === 'DELETE')    return <Minus className="w-3.5 h-3.5 text-red-500" />
   if (action === 'PROMOTE')   return <ArrowUpRight className="w-3.5 h-3.5 text-violet-500" />
   if (action === 'ARCHIVE')   return <Archive className="w-3.5 h-3.5 text-gray-500" />

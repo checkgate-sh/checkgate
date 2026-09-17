@@ -38,7 +38,7 @@ function ValueBadge({ value }: { value: string }) {
   const isTrue = value === 'true'
   const isFalse = value === 'false'
   const color = isTrue
-    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+    ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-100'
     : isFalse
     ? 'bg-gray-100 text-gray-500 ring-1 ring-gray-200'
     : 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'

@@ -64,7 +64,7 @@ Content-Type: application/json
 ```json
 {
   "email": "admin@example.com",
-  "name": "Jane Smith",
+  "name": "Juan Dela Cruz",
   "role": "admin",
   "workspace_name": "Acme Corp",
   "is_setup_complete": true
@@ -226,8 +226,8 @@ GET /api/projects/{project_id}/members
 [
   {
     "user_id": 1,
-    "name": "Jane Smith",
-    "email": "jane@example.com",
+    "name": "Juan Dela Cruz",
+    "email": "juan.delacruz@example.com",
     "role": "admin"
   }
 ]
@@ -1331,8 +1331,8 @@ GET /api/users
 [
   {
     "id": 1,
-    "name": "Jane Smith",
-    "email": "jane@example.com",
+    "name": "Juan Dela Cruz",
+    "email": "juan.delacruz@example.com",
     "role": "admin",
     "created_at": "2026-04-10T00:00:00Z"
   }
@@ -1622,7 +1622,7 @@ Entries are returned newest first.
     "id": 128,
     "environment_id": "660e8400-e29b-41d4-a716-446655440001",
     "flag_key": "checkout_v2",
-    "actor_email": "jane@example.com",
+    "actor_email": "juan.delacruz@example.com",
     "action": "update",
     "before_data": { "is_enabled": false },
     "after_data": { "is_enabled": true },

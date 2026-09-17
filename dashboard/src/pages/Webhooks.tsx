@@ -18,7 +18,7 @@ function statusBadge(code: number | null, error: string | null) {
   }
   if (code && code >= 200 && code < 300) {
     return (
-      <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">
+      <span className="px-2 py-0.5 rounded text-xs font-medium bg-brand-100 text-brand-700">
         {code}
       </span>
     )
@@ -338,7 +338,7 @@ export default function Webhooks() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-gray-900">{hook.name}</span>
                   {hook.enabled ? (
-                    <span className="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700">
+                    <span className="px-2 py-0.5 rounded text-xs bg-brand-100 text-brand-700">
                       active
                     </span>
                   ) : (

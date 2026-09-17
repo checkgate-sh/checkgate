@@ -50,7 +50,7 @@ It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), brows
 
 ## Screenshots
 
-*Dashboard shown with example data for a fictional company, Vantage Robotics.*
+*Indigo dashboard with the Checkgate gate logo, shown with example data for Vantage Robotics and administrator Juan Dela Cruz. [Explore the dashboard guide](docs/guide/dashboard.md).*
 
 **Dashboard overview** — flag counts, rollout status, and recent activity at a glance.
 
@@ -93,6 +93,7 @@ It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), brows
 | Why Checkgate / comparisons | [What is Checkgate?](docs/guide/what-is-checkgate.md) |
 | System architecture | [Architecture](docs/guide/architecture.md) |
 | Flags, rules, rollout concepts | [Core Concepts](docs/guide/concepts.md) |
+| Dashboard tour | [Dashboard](docs/guide/dashboard.md) |
 | Step-by-step setup | [Getting Started](docs/guide/getting-started.md) |
 | REST API + SSE stream reference | [API Reference](docs/api-reference.md) |
 | Node.js SDK | [SDK: Node.js](docs/sdks/nodejs.md) |

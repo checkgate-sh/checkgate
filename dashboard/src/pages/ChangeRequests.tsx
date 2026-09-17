@@ -13,7 +13,7 @@ const STATUS_LABEL: Record<ChangeRequestStatus, string> = {
 
 const STATUS_STYLE: Record<ChangeRequestStatus, string> = {
   pending: 'bg-amber-50 text-amber-700 border-amber-100',
-  approved: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  approved: 'bg-brand-50 text-brand-700 border-brand-100',
   rejected: 'bg-rose-50 text-rose-700 border-rose-100',
   cancelled: 'bg-gray-50 text-gray-500 border-gray-200',
 }

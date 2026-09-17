@@ -4,6 +4,8 @@ const TITLES: Record<string, string> = {
   '/': 'Dashboard',
   '/flags': 'Feature Flags',
   '/segments': 'Segments',
+  '/change-requests': 'Change Requests',
+  '/environments/diff': 'Compare Environments',
   '/schedule': 'Scheduled Changes',
   '/impressions': 'Impressions',
   '/audit': 'Audit Log',

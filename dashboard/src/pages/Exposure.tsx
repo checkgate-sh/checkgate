@@ -7,9 +7,8 @@ import { useEnvironment } from '../context/EnvironmentContext'
 // A fixed, reasonably color-blind-safe categorical palette. Variants are
 // assigned colors by their exposure rank (index into the ordered variants
 // array) so the same value keeps a stable color across both charts on the page.
-// Emerald and indigo are deliberately absent: emerald reads as "enabled" next
-// to the flag-state UI, and indigo is the brand. A variant should never be
-// mistaken for either.
+// Indigo is reserved for the brand and enabled state, so it is excluded from
+// the categorical palette to keep variants distinct from controls.
 const PALETTE = [
   '#0ea5e9', // sky
   '#8b5cf6', // violet

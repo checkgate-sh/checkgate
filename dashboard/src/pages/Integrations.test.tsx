@@ -27,7 +27,7 @@ vi.mock('../api', () => ({
   },
 }))
 
-const ENV = { id: 'env-1', name: 'Production', color: '#10b981' }
+const ENV = { id: 'env-1', name: 'Production', color: '#ef4444' }
 const ENV_CTX = { environments: [ENV], activeEnv: ENV, setActiveEnv: vi.fn() }
 
 vi.mock('../context/EnvironmentContext', () => ({

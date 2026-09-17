@@ -56,6 +56,7 @@ export default defineConfig({
         items: [
           { text: "What is Checkgate?", link: "/guide/what-is-checkgate" },
           { text: "Getting Started", link: "/guide/getting-started" },
+          { text: "Dashboard", link: "/guide/dashboard" },
           { text: "Architecture", link: "/guide/architecture" },
           { text: "Roadmap", link: "/roadmap" },
         ],
