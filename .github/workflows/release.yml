@@ -94,7 +94,7 @@ jobs:
             artifact: checkgate.linux-arm64-gnu.node
             cross: true
 
-          # Linux x64 (musl — Alpine) — build with musl-gcc
+          # Linux x64 (musl — Alpine) — cross-compile with Zig
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact: checkgate.linux-x64-musl.node
@@ -125,11 +125,11 @@ jobs:
           rustup show
           rustup target add "${{ matrix.target }}"
 
-      - name: Install musl compiler
+      - name: Install Zig for musl
         if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -150,12 +150,9 @@ jobs:
         run: |
           JS_FLAGS="--js native-binding.js --dts native-binding.d.ts"
           if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
-            # NAPI's cross toolchain supports GNU targets only. A Node addon is
-            # a shared library, so disable musl's default static CRT linkage.
-            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
-            export TARGET_CC=musl-gcc
-            export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=-crt-static"
-            npx napi build --platform --release --target ${{ matrix.target }} $JS_FLAGS
+            # Zig supplies the musl runtime and unwinder that Ubuntu's
+            # musl-gcc wrapper lacks. NAPI also disables static CRT linkage.
+            npx napi build --platform --release --target ${{ matrix.target }} --cross-compile $JS_FLAGS
           elif [ "${{ matrix.cross }}" = "true" ]; then
             npx napi build --platform --release --target ${{ matrix.target }} --use-napi-cross $JS_FLAGS
           else
