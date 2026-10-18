@@ -1,3 +1,4 @@
+#include "checkgate_jsi.h"
 #include "checkgate_core.h"
 #include <jsi/jsi.h>
 #include <memory>
@@ -157,15 +158,15 @@ void installCheckgateJSI(Runtime &jsiRuntime) {
 
   // -- Bind to global.__CheckgateInternal -----------------------------------
   Object checkgateModule = Object(jsiRuntime);
-  checkgateModule.setProperty(jsiRuntime, "upsertFlag",   move(upsertFlag));
-  checkgateModule.setProperty(jsiRuntime, "upsertFlagV2", move(upsertFlagV2));
-  checkgateModule.setProperty(jsiRuntime, "deleteFlag",   move(deleteFlag));
-  checkgateModule.setProperty(jsiRuntime, "clearStore",   move(clearStore));
-  checkgateModule.setProperty(jsiRuntime, "isEnabled",    move(isEnabled));
-  checkgateModule.setProperty(jsiRuntime, "getVariant",   move(getVariant));
+  checkgateModule.setProperty(jsiRuntime, "upsertFlag",   std::move(upsertFlag));
+  checkgateModule.setProperty(jsiRuntime, "upsertFlagV2", std::move(upsertFlagV2));
+  checkgateModule.setProperty(jsiRuntime, "deleteFlag",   std::move(deleteFlag));
+  checkgateModule.setProperty(jsiRuntime, "clearStore",   std::move(clearStore));
+  checkgateModule.setProperty(jsiRuntime, "isEnabled",    std::move(isEnabled));
+  checkgateModule.setProperty(jsiRuntime, "getVariant",   std::move(getVariant));
 
   jsiRuntime.global().setProperty(jsiRuntime, "__CheckgateInternal",
-                                  move(checkgateModule));
+                                  std::move(checkgateModule));
 }
 
 } // namespace checkgate

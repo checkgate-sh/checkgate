@@ -12,3 +12,7 @@ android/.gradle
 
 node_modules/
 coverage/
+
+# Native build outputs (Gradle, CMake, and the Rust engine built by Gradle).
+android/build
+android/.cxx

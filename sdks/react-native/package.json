@@ -22,8 +22,11 @@
     "cache-key.js",
     "cpp/",
     "src/",
-    "android/",
+    "ios/",
+    "android/build.gradle",
+    "android/src/",
     "rust-core/",
+    "scripts/build-ios-rust.sh",
     "Cargo.toml",
     "Checkgate.podspec"
   ],
