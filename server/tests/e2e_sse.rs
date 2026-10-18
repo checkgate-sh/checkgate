@@ -404,6 +404,58 @@ async fn sse_live_push_and_local_eval() {
         "segment edit gives the flag a new revision"
     );
 
+    // A flag write that starts referencing the segment while a segment edit is
+    // in flight must not be left on the old rules. Hold such a write open (the
+    // environment share lock every flag write takes, plus an uncommitted
+    // insert): the segment edit has to wait for it, then republish it too.
+    let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+    let mut flag_write = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM environments WHERE id = $1::uuid FOR SHARE")
+        .bind(&env)
+        .execute(&mut *flag_write)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO flags (key, environment_id, data) VALUES ('race-flag', $1::uuid, $2)")
+        .bind(&env)
+        .bind(json!({ "key": "race-flag", "is_enabled": true, "flag_type": "boolean", "rules": [{ "segment_key": "staff" }] }))
+        .execute(&mut *flag_write)
+        .await
+        .unwrap();
+    let segment_edit = tokio::spawn({
+        let (anon, url, token) = (
+            anon.clone(),
+            format!("{base}/api/environments/{env}/segments/staff"),
+            token.clone(),
+        );
+        async move {
+            anon.patch(url)
+                .bearer_auth(token)
+                .json(&json!({ "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@c.test"] }] }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !segment_edit.is_finished(),
+        "segment edit waits for in-flight flag writes"
+    );
+    flag_write.commit().await.unwrap();
+    assert_eq!(segment_edit.await.unwrap(), 200);
+    let raced = loop {
+        let data = pump_until(&mut rx, &store, "update").await;
+        if serde_json::from_str::<Value>(&data).unwrap()["flag"]["key"] == "race-flag" {
+            break data;
+        }
+    };
+    assert!(
+        raced.contains("@c.test"),
+        "the concurrently written flag is republished with the new rules: {raced}"
+    );
+    pool.close().await;
+
     // A broken publisher connection must recover: kill every normal Redis
     // client (the server's publisher among them; the subscriber is a pubsub
     // client and survives), then write again. The update must still arrive.

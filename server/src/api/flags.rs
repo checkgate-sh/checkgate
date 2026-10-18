@@ -120,6 +120,9 @@ pub(super) async fn check_env_write_access(
 }
 
 /// Serialize approval-policy changes with mutations of this environment.
+///
+/// Every flag write takes this shared lock; segment writes take
+/// [`lock_environment_for_segment_write`], which excludes it.
 pub(crate) async fn lock_environment(
     tx: &mut sqlx::PgTransaction<'_>,
     env_id: &str,
@@ -133,6 +136,31 @@ pub(crate) async fn lock_environment(
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)
+}
+
+/// Like [`lock_environment`], but exclusive with every flag write in the
+/// environment. A segment change re-expands (and re-revisions) the flags that
+/// reference it from inside its transaction; a flag created or re-pointed at
+/// the segment concurrently would miss that scan and be published against the
+/// old segment, with no corrective event. Excluding flag writes closes that
+/// gap: either the flag write commits first and the scan includes it, or it
+/// waits and expands against the committed segment. `NO KEY UPDATE` still
+/// lets unrelated rows reference the environment (impressions, events).
+pub(crate) async fn lock_environment_for_segment_write(
+    tx: &mut sqlx::PgTransaction<'_>,
+    env_id: &str,
+) -> Result<bool, StatusCode> {
+    sqlx::query_scalar(
+        "SELECT require_approval FROM environments WHERE id = $1::uuid FOR NO KEY UPDATE",
+    )
+    .bind(env_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| {
+        error!(error = %e, "Environment lock failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .ok_or(StatusCode::NOT_FOUND)
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +617,10 @@ pub(crate) async fn apply_patch_in_tx(
     key: &str,
     patch: serde_json::Value,
 ) -> Result<AppliedPatch, StatusCode> {
+    // Every patch path (direct, scheduled, change-request approval) serializes
+    // with segment writes here, before taking the flag's row lock.
+    lock_environment(db_tx, env_id).await?;
+
     // Re-select FOR UPDATE inside the write transaction — `merge_and_validate`
     // above may have run against a plain (non-locking) read for a dry-run.
     let rec = sqlx::query(

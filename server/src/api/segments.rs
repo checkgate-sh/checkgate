@@ -276,7 +276,7 @@ async fn create_segment(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if super::flags::lock_environment(&mut tx, &env_id).await? {
+    if super::flags::lock_environment_for_segment_write(&mut tx, &env_id).await? {
         return Err(StatusCode::CONFLICT);
     }
 
@@ -344,7 +344,7 @@ async fn patch_segment(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if super::flags::lock_environment(&mut tx, &env_id).await? {
+    if super::flags::lock_environment_for_segment_write(&mut tx, &env_id).await? {
         return Err(StatusCode::CONFLICT);
     }
 
@@ -419,7 +419,7 @@ async fn delete_segment(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if super::flags::lock_environment(&mut tx, &env_id).await? {
+    if super::flags::lock_environment_for_segment_write(&mut tx, &env_id).await? {
         return Err(StatusCode::CONFLICT);
     }
 
