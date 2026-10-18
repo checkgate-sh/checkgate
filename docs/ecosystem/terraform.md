@@ -24,7 +24,7 @@ provider "checkgate" {
 }
 ```
 
-The `token` is a **personal access token** with `read_write` scope (an SDK key also works). Create one under **Settings → Access Tokens** in the dashboard. Both `server_url` and `token` can be supplied instead through the `CHECKGATE_URL` and `CHECKGATE_TOKEN` environment variables.
+The `token` is a **personal access token** with `read_write` scope (SDK keys are rejected: they only reach the SDK endpoints). Create one under **Settings → Access Tokens** in the dashboard. Both `server_url` and `token` can be supplied instead through the `CHECKGATE_URL` and `CHECKGATE_TOKEN` environment variables.
 
 ## Resources
 

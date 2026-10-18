@@ -67,7 +67,7 @@ async fn can_access_project(
     project_id: &str,
 ) -> Result<(), StatusCode> {
     let Some(claims) = get_session_claims(jar) else {
-        return Ok(()); // SDK key auth
+        return Err(StatusCode::FORBIDDEN); // SDK keys are confined to the SDK routes
     };
     if claims.role == "admin" {
         return Ok(());
@@ -100,7 +100,7 @@ async fn can_admin_project(
     project_id: &str,
 ) -> Result<(), StatusCode> {
     let Some(claims) = get_session_claims(jar) else {
-        return Ok(()); // SDK key auth → admin-equivalent
+        return Err(StatusCode::FORBIDDEN); // SDK keys are confined to the SDK routes
     };
     if claims.role == "admin" {
         return Ok(());
@@ -315,7 +315,33 @@ async fn set_default_environment(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // Set the new default first so there is never a window with zero defaults.
+    // Serialize default changes within the project, so two concurrent requests
+    // cannot both clear and then both set.
+    sqlx::query("SELECT 1 FROM projects WHERE id = $1::uuid FOR UPDATE")
+        .bind(&project_id)
+        .execute(&mut *db_tx)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to lock project");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Clear the current default first: the unique index on (project_id) WHERE
+    // is_default is checked per row, so setting the new default while the old
+    // one is still marked would fail. Other transactions never see the gap.
+    sqlx::query(
+        "UPDATE environments SET is_default = false \
+         WHERE project_id = $1::uuid AND id != $2::uuid AND is_default",
+    )
+    .bind(&project_id)
+    .bind(&env_id)
+    .execute(&mut *db_tx)
+    .await
+    .map_err(|e| {
+        error!(error = %e, "Failed to clear other default environments");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     let row = sqlx::query(
         "UPDATE environments SET is_default = true WHERE id = $1::uuid \
          RETURNING id::text, name, slug, color, is_default, created_at::text, require_approval",
@@ -328,20 +354,6 @@ async fn set_default_environment(
         StatusCode::INTERNAL_SERVER_ERROR
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Then clear all other defaults within the project.
-    sqlx::query(
-        "UPDATE environments SET is_default = false \
-         WHERE project_id = $1::uuid AND id != $2::uuid",
-    )
-    .bind(&project_id)
-    .bind(&env_id)
-    .execute(&mut *db_tx)
-    .await
-    .map_err(|e| {
-        error!(error = %e, "Failed to clear other default environments");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
 
     db_tx.commit().await.map_err(|e| {
         error!(error = %e, "Failed to commit set-default transaction");

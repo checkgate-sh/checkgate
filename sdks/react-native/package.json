@@ -1,6 +1,6 @@
 {
   "name": "@checkgate/react-native",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "description": "Checkgate feature-flag SDK for React Native \u2014 local evaluation via Rust JSI.",
   "main": "index.js",
   "repository": {
@@ -22,8 +22,11 @@
     "cache-key.js",
     "cpp/",
     "src/",
-    "android/",
+    "ios/",
+    "android/build.gradle",
+    "android/src/",
     "rust-core/",
+    "scripts/build-ios-rust.sh",
     "Cargo.toml",
     "Checkgate.podspec"
   ],
@@ -38,6 +41,6 @@
     "rust"
   ],
   "devDependencies": {
-    "vitest": "^4.1.3"
+    "vitest": "^4.1.12"
   }
 }

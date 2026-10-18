@@ -339,6 +339,34 @@ jobs:
         run: npx vitest run
 
   # ---------------------------------------------------------------------------
+  # React Native SDK — the packed npm package must build its Rust engine on its
+  # own and link into an Android libcheckgate.so with no undefined symbols
+  # ---------------------------------------------------------------------------
+  sdk-rn-android-native:
+    name: SDK native (react-native, Android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # The package builds outside the repo (as it would from node_modules), so
+      # it uses rustup's default toolchain rather than rust-toolchain.toml's.
+      - name: Install Rust Android targets and cargo-ndk
+        working-directory: /tmp
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          cargo install cargo-ndk --locked
+
+      - name: Pack, build, and link for every ABI
+        working-directory: sdks/react-native
+        env:
+          ABIS: arm64-v8a armeabi-v7a x86 x86_64
+        run: scripts/verify-android-native.sh
+
+  # ---------------------------------------------------------------------------
   # Flutter SDK — Dart client-logic unit tests (native FFI is lazy-loaded and an
   # http.Client is injected, so no native library is needed)
   # ---------------------------------------------------------------------------

@@ -67,7 +67,7 @@ pub struct UpdateMemberRoleRequest {
 
 /// Returns the effective role the caller has within a project.
 /// - Workspace admin → "admin" (full access, no membership row needed)
-/// - SDK key auth (no session cookie) → "admin" (machine credentials)
+/// - SDK key auth (no user identity) → Err(403)
 /// - Session with project membership → the membership role
 /// - Session with no membership → Err(403)
 async fn project_role(
@@ -76,8 +76,8 @@ async fn project_role(
     project_id: &str,
 ) -> Result<String, StatusCode> {
     let Some(claims) = get_session_claims(jar) else {
-        // SDK key auth — admin-equivalent for all projects.
-        return Ok("admin".into());
+        // SDK keys are confined to the SDK routes and never manage projects.
+        return Err(StatusCode::FORBIDDEN);
     };
 
     if claims.role == "admin" {
@@ -140,13 +140,12 @@ async fn list_projects(
     State(state): State<AppState>,
     jar: AuthContext,
 ) -> Result<Json<Vec<ProjectSummary>>, StatusCode> {
-    let is_admin_or_sdk = match get_session_claims(&jar) {
-        None => true,
-        Some(ref c) if c.role == "admin" => true,
-        _ => false,
+    let is_admin = match get_session_claims(&jar) {
+        None => return Err(StatusCode::FORBIDDEN),
+        Some(c) => c.role == "admin",
     };
 
-    let rows = if is_admin_or_sdk {
+    let rows = if is_admin {
         sqlx::query(
             "SELECT p.id::text, p.name, p.slug, p.created_at::text, \
              (SELECT COUNT(*) FROM environments e WHERE e.project_id = p.id) AS environment_count, \
@@ -205,7 +204,7 @@ async fn create_project(
 ) -> Result<Json<Project>, StatusCode> {
     // Only workspace admins can create projects.
     let claims = get_session_claims(&jar);
-    let is_admin = claims.as_ref().map(|c| c.role == "admin").unwrap_or(true);
+    let is_admin = claims.as_ref().is_some_and(|c| c.role == "admin");
     if !is_admin {
         return Err(StatusCode::FORBIDDEN);
     }

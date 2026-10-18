@@ -82,11 +82,27 @@ func (c *Client) CreateFlag(ctx context.Context, envID string, flag *Flag) (*Fla
 	return &out, nil
 }
 
-// UpdateFlag applies a partial update (PATCH) to a flag. Returns
+// UpdateFlag applies a partial update (PATCH) to a flag. Fields left empty
+// in patch are omitted and keep their stored value — so UpdateFlag can never
+// clear rules, variants, prerequisites, tags, or a nullable field. To make the
+// flag match a desired state exactly, use ReplaceFlag. Returns
 // ErrApprovalRequired if the server queued the change for approval (HTTP 202).
 func (c *Client) UpdateFlag(ctx context.Context, envID, key string, patch *Flag) (*Flag, error) {
+	return c.patchFlag(ctx, envID, key, patch)
+}
+
+// ReplaceFlag sets every mutable field of a flag to its value in flag: an
+// empty slice or nil pointer clears the stored value instead of keeping it.
+// This is what declarative callers (Terraform, the Kubernetes operator) need.
+// FlagType is the exception — left empty, the stored type is kept. Returns
+// ErrApprovalRequired if the server queued the change for approval (HTTP 202).
+func (c *Client) ReplaceFlag(ctx context.Context, envID, key string, flag *Flag) (*Flag, error) {
+	return c.patchFlag(ctx, envID, key, newFlagReplacement(flag))
+}
+
+func (c *Client) patchFlag(ctx context.Context, envID, key string, body any) (*Flag, error) {
 	var out Flag
-	status, err := c.do(ctx, http.MethodPatch, flagPath(envID, key), patch, &out)
+	status, err := c.do(ctx, http.MethodPatch, flagPath(envID, key), body, &out)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +110,46 @@ func (c *Client) UpdateFlag(ctx context.Context, envID, key string, patch *Flag)
 		return nil, ErrApprovalRequired
 	}
 	return &out, nil
+}
+
+// flagReplacement is the PATCH body ReplaceFlag sends. Unlike Flag, nothing
+// clearable is omitted: nil slices are sent as [] and nil values as null.
+type flagReplacement struct {
+	IsEnabled         bool              `json:"is_enabled"`
+	RolloutPercentage *int              `json:"rollout_percentage"`
+	Description       *string           `json:"description"`
+	Rules             []TargetingRule   `json:"rules"`
+	FlagType          string            `json:"flag_type,omitempty"`
+	DefaultValue      json.RawMessage   `json:"default_value"`
+	DisabledValue     json.RawMessage   `json:"disabled_value"`
+	Variants          []WeightedVariant `json:"variants"`
+	Prerequisites     []Prerequisite    `json:"prerequisites"`
+	Tags              []string          `json:"tags"`
+	OwnerEmail        *string           `json:"owner_email"`
+}
+
+func newFlagReplacement(f *Flag) flagReplacement {
+	return flagReplacement{
+		IsEnabled:         f.IsEnabled,
+		RolloutPercentage: f.RolloutPercentage,
+		Description:       f.Description,
+		Rules:             nonNil(f.Rules),
+		FlagType:          f.FlagType,
+		DefaultValue:      f.DefaultValue,
+		DisabledValue:     f.DisabledValue,
+		Variants:          nonNil(f.Variants),
+		Prerequisites:     nonNil(f.Prerequisites),
+		Tags:              nonNil(f.Tags),
+		OwnerEmail:        f.OwnerEmail,
+	}
+}
+
+// nonNil turns a nil slice into an empty one, which encodes as [] not null.
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // DeleteFlag removes a flag. Deleting a missing flag returns a NotFound error.

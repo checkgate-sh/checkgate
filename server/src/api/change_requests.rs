@@ -297,8 +297,11 @@ pub async fn cancel_change_request(
     let is_admin = claims.as_ref().is_some_and(|c| c.role == "admin");
     let caller_email = claims.map(|c| c.email);
 
-    let result = if is_admin || caller_email.is_none() {
-        // Admin, or SDK-key auth (admin-equivalent) — can cancel any pending request.
+    let Some(caller_email) = caller_email else {
+        return Err(StatusCode::FORBIDDEN);
+    };
+    let result = if is_admin {
+        // Admins can cancel any pending request.
         sqlx::query(
             "DELETE FROM change_requests \
              WHERE id = $1 AND environment_id = $2::uuid AND status = 'pending'",
@@ -314,7 +317,7 @@ pub async fn cancel_change_request(
         )
         .bind(id)
         .bind(&env_id)
-        .bind(caller_email.as_deref())
+        .bind(&caller_email)
         .execute(&state.db)
         .await
     }

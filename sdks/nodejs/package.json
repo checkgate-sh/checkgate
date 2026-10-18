@@ -1,6 +1,6 @@
 {
   "name": "@checkgate/node",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "description": "Checkgate feature-flag SDK for Node.js — local evaluation via Rust NAPI.",
   "main": "index.js",
   "types": "index.d.ts",

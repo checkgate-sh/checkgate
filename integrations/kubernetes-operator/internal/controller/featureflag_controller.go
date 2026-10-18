@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	checkgate "github.com/checkgate-sh/checkgate/integrations/checkgate-go"
 	flagsv1alpha1 "github.com/checkgate-sh/checkgate-operator/api/v1alpha1"
+	checkgate "github.com/checkgate-sh/checkgate/integrations/checkgate-go"
 )
 
 const finalizer = "flags.checkgate.io/finalizer"
@@ -27,7 +27,7 @@ const finalizer = "flags.checkgate.io/finalizer"
 type FlagAPI interface {
 	GetFlag(ctx context.Context, envID, key string) (*checkgate.Flag, error)
 	CreateFlag(ctx context.Context, envID string, flag *checkgate.Flag) (*checkgate.Flag, error)
-	UpdateFlag(ctx context.Context, envID, key string, flag *checkgate.Flag) (*checkgate.Flag, error)
+	ReplaceFlag(ctx context.Context, envID, key string, flag *checkgate.Flag) (*checkgate.Flag, error)
 	DeleteFlag(ctx context.Context, envID, key string) error
 }
 
@@ -89,7 +89,8 @@ func (r *FeatureFlagReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.markFailed(ctx, &ff, "InvalidSpec", err)
 	}
 
-	// Upsert: create if missing, otherwise patch to match spec.
+	// Upsert: create if missing, otherwise replace it to match spec exactly
+	// (fields removed from the spec are cleared, not kept).
 	_, getErr := api.GetFlag(ctx, ff.Spec.EnvironmentID, ff.Spec.Key)
 	switch {
 	case checkgate.NotFound(getErr):
@@ -100,7 +101,7 @@ func (r *FeatureFlagReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	case getErr != nil:
 		return r.markFailed(ctx, &ff, "ReadFailed", getErr)
 	default:
-		if _, uerr := api.UpdateFlag(ctx, ff.Spec.EnvironmentID, ff.Spec.Key, desired); uerr != nil {
+		if _, uerr := api.ReplaceFlag(ctx, ff.Spec.EnvironmentID, ff.Spec.Key, desired); uerr != nil {
 			return r.markFailed(ctx, &ff, "UpdateFailed", uerr)
 		}
 	}

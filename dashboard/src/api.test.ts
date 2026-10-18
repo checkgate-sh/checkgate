@@ -33,10 +33,32 @@ describe('api functions', () => {
     const result = await api.listFlags(ENV_ID)
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      `/api/environments/${ENV_ID}/flags`,
+      `/api/environments/${ENV_ID}/flags?limit=500&offset=0`,
       expect.objectContaining({ credentials: 'same-origin' }),
     )
     expect(result).toEqual(mockFlags)
+  })
+
+  it('listFlags follows pages until a short one', async () => {
+    const flag = (i: number): Flag => ({
+      key: `flag-${i}`, is_enabled: true, rollout_percentage: null, description: null, rules: [],
+    })
+    const all = Array.from({ length: 711 }, (_, i) => flag(i))
+    const fetchMock = vi.fn((url: string) => {
+      const params = new URL(url, 'http://localhost').searchParams
+      const offset = Number(params.get('offset'))
+      const page = all.slice(offset, offset + Number(params.get('limit')))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(page) })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const result = await api.listFlags(ENV_ID, { includeArchived: true })
+
+    expect(result).toEqual(all)
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `/api/environments/${ENV_ID}/flags?limit=500&offset=0&include_archived=true`,
+      `/api/environments/${ENV_ID}/flags?limit=500&offset=500&include_archived=true`,
+    ])
   })
 
   it('createFlag forms the post body properly', async () => {

@@ -155,10 +155,8 @@ mod tests {
         let redis_client = redis::Client::open(redis_url).unwrap();
         let state = AppState {
             db: db.clone(),
-            redis_conn: redis_client
-                .get_multiplexed_async_connection()
-                .await
-                .unwrap(),
+            redis_conn: redis_client.get_connection_manager().await.unwrap(),
+            resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             redis_client,
             store: Arc::new(FlagStore::new()),
             flag_tx: broadcast::channel(256).0,

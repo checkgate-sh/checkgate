@@ -22,8 +22,9 @@ provider "checkgate" {
 }
 ```
 
-The `token` is a **personal access token** with `read_write` scope (an SDK key
-also works). Create one under **Settings → Access Tokens** in the dashboard.
+The `token` is a **personal access token** with `read_write` scope. Create one
+under **Settings → Access Tokens** in the dashboard. SDK keys are not accepted:
+they only reach the SDK endpoints.
 
 ## Resources
 

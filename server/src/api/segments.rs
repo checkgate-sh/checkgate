@@ -7,12 +7,11 @@ use axum::{
     routing::{get, post},
 };
 use checkgate_core::evaluator::{Flag, TargetingRule};
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use super::flags::check_env_access;
 
@@ -44,8 +43,21 @@ struct CreateSegmentBody {
 #[derive(Debug, Deserialize)]
 struct PatchSegmentBody {
     name: Option<String>,
-    description: Option<String>,
+    /// `None`: left out, keep the stored value. `Some(None)`: `null`, clear it.
+    #[serde(default, deserialize_with = "present_or_null")]
+    description: Option<Option<String>>,
     rules: Option<Vec<TargetingRule>>,
+}
+
+/// Deserializes a field that was present in the body (possibly as `null`), so
+/// a PATCH can tell "clear this" (`null`) apart from "leave it" (omitted, via
+/// `#[serde(default)]`).
+fn present_or_null<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +79,7 @@ fn is_valid_segment_key(key: &str) -> bool {
 /// Load all segments for an environment into a HashMap keyed by segment key.
 pub(crate) async fn load_env_segments(
     env_id: &str,
-    db: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
 ) -> Result<HashMap<String, Vec<TargetingRule>>, sqlx::Error> {
     let rows =
         sqlx::query("SELECT key, rules FROM segments WHERE environment_id = $1::uuid ORDER BY key")
@@ -264,7 +276,7 @@ async fn create_segment(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if super::flags::lock_environment(&mut tx, &env_id).await? {
+    if super::flags::lock_environment_for_segment_write(&mut tx, &env_id).await? {
         return Err(StatusCode::CONFLICT);
     }
 
@@ -293,10 +305,12 @@ async fn create_segment(
         error!(error = %e, "Failed to insert segment");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    let rebroadcast = rerevision_referencing_flags(&mut tx, &env_id, &body.key).await?;
 
     tx.commit()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    publish_rebroadcast(&state, rebroadcast).await;
 
     let rules_val: Value = row
         .try_get("rules")
@@ -330,7 +344,7 @@ async fn patch_segment(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if super::flags::lock_environment(&mut tx, &env_id).await? {
+    if super::flags::lock_environment_for_segment_write(&mut tx, &env_id).await? {
         return Err(StatusCode::CONFLICT);
     }
 
@@ -347,16 +361,17 @@ async fn patch_segment(
     let row = sqlx::query(
         "UPDATE segments SET \
          name        = COALESCE($1, name), \
-         description = COALESCE($2, description), \
+         description = CASE WHEN $6 THEN $2 ELSE description END, \
          rules       = COALESCE($3, rules) \
          WHERE environment_id = $4::uuid AND key = $5 \
          RETURNING id::text, environment_id::text, name, key, description, rules, created_at::text",
     )
     .bind(&body.name)
-    .bind(&body.description)
+    .bind(body.description.clone().flatten())
     .bind(&rules_val)
     .bind(&env_id)
     .bind(&key)
+    .bind(body.description.is_some())
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
@@ -364,6 +379,7 @@ async fn patch_segment(
         StatusCode::INTERNAL_SERVER_ERROR
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
+    let rebroadcast = rerevision_referencing_flags(&mut tx, &env_id, &key).await?;
 
     tx.commit()
         .await
@@ -386,7 +402,7 @@ async fn patch_segment(
     };
 
     info!(env_id = %env_id, key = %key, "Segment updated — re-broadcasting referencing flags");
-    rebroadcast_referencing_flags(&state, &env_id, &key).await;
+    publish_rebroadcast(&state, rebroadcast).await;
 
     Ok(Json(seg))
 }
@@ -403,11 +419,10 @@ async fn delete_segment(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if super::flags::lock_environment(&mut tx, &env_id).await? {
+    if super::flags::lock_environment_for_segment_write(&mut tx, &env_id).await? {
         return Err(StatusCode::CONFLICT);
     }
 
-    // Commit deletion before re-expanding referencing flags without these rules.
     let result = sqlx::query("DELETE FROM segments WHERE environment_id = $1::uuid AND key = $2")
         .bind(&env_id)
         .bind(&key)
@@ -421,12 +436,13 @@ async fn delete_segment(
     if result.rows_affected() == 0 {
         return Err(StatusCode::NOT_FOUND);
     }
+    let rebroadcast = rerevision_referencing_flags(&mut tx, &env_id, &key).await?;
 
     tx.commit()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    rebroadcast_referencing_flags(&state, &env_id, &key).await;
+    publish_rebroadcast(&state, rebroadcast).await;
 
     info!(env_id = %env_id, key = %key, "Segment deleted");
     Ok(StatusCode::NO_CONTENT)
@@ -436,65 +452,70 @@ async fn delete_segment(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Find all flags in `env_id` that reference `seg_key` in any targeting rule,
-/// re-expand them with the current segment state, and re-publish via Redis.
-async fn rebroadcast_referencing_flags(state: &AppState, env_id: &str, seg_key: &str) {
-    let segment_ref = json!([{"segment_key": seg_key}]);
+/// A flag re-expanded after a segment change, with its new revision.
+struct Rebroadcast {
+    env_id: String,
+    flag: Flag,
+    revision: i64,
+}
 
-    let rows = match sqlx::query(
-        "SELECT key, data FROM flags \
-         WHERE environment_id = $1::uuid \
-           AND data->'rules' @> $2::jsonb",
+/// Gives every flag in `env_id` that references `seg_key` a new revision and
+/// re-expands it against the segments as written in `tx`. Must run inside the
+/// segment write's transaction: the expanded payload changes even though the
+/// flag row doesn't, so without a new revision SDKs could not tell an old
+/// expansion from the new one, and the row locks order concurrent edits.
+async fn rerevision_referencing_flags(
+    tx: &mut sqlx::PgTransaction<'_>,
+    env_id: &str,
+    seg_key: &str,
+) -> Result<Vec<Rebroadcast>, StatusCode> {
+    let segment_ref = json!([{"segment_key": seg_key}]);
+    // The flags_bump_revision trigger assigns the new revision.
+    let rows = sqlx::query(
+        "UPDATE flags SET revision = revision \
+         WHERE environment_id = $1::uuid AND data->'rules' @> $2::jsonb \
+         RETURNING data, revision",
     )
     .bind(env_id)
     .bind(&segment_ref)
-    .fetch_all(&state.db)
+    .fetch_all(&mut **tx)
     .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            error!(error = %e, "Failed to query flags referencing segment");
-            return;
-        }
-    };
-
+    .map_err(|e| {
+        error!(error = %e, "Failed to re-revision flags referencing segment");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     if rows.is_empty() {
-        return;
+        return Ok(Vec::new());
     }
 
-    let segment_map = match load_env_segments(env_id, &state.db).await {
-        Ok(m) => m,
-        Err(e) => {
-            error!(error = %e, "Failed to load segment map for rebroadcast");
-            return;
-        }
-    };
-
-    let mut conn = state.redis_conn.clone();
-
+    let segment_map = load_env_segments(env_id, &mut **tx).await.map_err(|e| {
+        error!(error = %e, "Failed to load segment map for rebroadcast");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let flag_key: String = row.get("key");
-        let data_val: Value = match row.try_get("data") {
-            Ok(v) => v,
-            Err(_) => continue,
+        let Ok(data) = row.try_get::<Value, _>("data") else {
+            continue;
         };
-        let raw_flag: Flag = match serde_json::from_value(data_val) {
-            Ok(f) => f,
-            Err(_) => continue,
+        let Ok(flag) = serde_json::from_value::<Flag>(data) else {
+            continue;
         };
+        out.push(Rebroadcast {
+            env_id: env_id.to_string(),
+            flag: expand_flag_with_segments(flag, &segment_map),
+            revision: row.get("revision"),
+        });
+    }
+    Ok(out)
+}
 
-        let expanded = expand_flag_with_segments(raw_flag, &segment_map);
-        let msg = json!({"type": "UPSERT", "env_id": env_id, "flag": expanded}).to_string();
-
+/// Publishes flags re-expanded by `rerevision_referencing_flags`, once the
+/// segment change has committed.
+async fn publish_rebroadcast(state: &AppState, flags: Vec<Rebroadcast>) {
+    for item in flags {
+        let msg = super::flags::upsert_message(&item.env_id, &item.flag, item.revision);
         // Also update FlagStore on this instance.
-        state.store.upsert_flag(expanded);
-
-        if let Err(e) = conn.publish::<_, _, ()>("checkgate_updates", &msg).await {
-            warn!(
-                error = %e,
-                flag_key = %flag_key,
-                "Redis publish failed during segment rebroadcast"
-            );
-        }
+        state.store.upsert_flag(item.flag);
+        super::flags::publish_update(state, &msg, "segment_rebroadcast").await;
     }
 }

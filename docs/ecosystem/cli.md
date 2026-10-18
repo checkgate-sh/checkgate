@@ -25,7 +25,7 @@ checkgate typegen --lang <langs> [source] [output]
 
 ### Read from a running server
 
-Authenticate with a personal access token (or an SDK key):
+Authenticate with a personal access token (or the environment's SDK key, which may read its flags):
 
 ```bash
 checkgate typegen --lang ts \

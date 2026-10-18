@@ -136,7 +136,8 @@ pub fn read_router() -> Router<AppState> {
         .route("/environments/{env_id}/impressions/exposure", get(exposure))
 }
 
-/// Impression ingest route — any authenticated client (including SDK Bearer keys).
+/// Impression ingest route — SDK keys for their own environment, or users with
+/// write access to it (see `flags::check_ingest_access`).
 pub fn ingest_router() -> Router<AppState> {
     Router::new().route(
         "/environments/{env_id}/impressions",
@@ -154,9 +155,12 @@ pub fn ingest_router() -> Router<AppState> {
 /// Called asynchronously after flag evaluations — fire-and-forget from SDK side.
 async fn ingest_impressions(
     State(state): State<AppState>,
+    jar: AuthContext,
     Path(env_id): Path<String>,
     Json(batch): Json<Vec<ImpressionPayload>>,
 ) -> Result<StatusCode, StatusCode> {
+    super::flags::check_ingest_access(&state.db, &jar, &env_id).await?;
+
     if batch.is_empty() {
         return Ok(StatusCode::NO_CONTENT);
     }

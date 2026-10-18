@@ -214,9 +214,10 @@ Two separate authentication mechanisms:
 | Credential | Used by | How |
 |------------|---------|-----|
 | Email + password | Dashboard users | Issues an HttpOnly AES-256-GCM encrypted session cookie |
-| SDK key (`sk_live_...`) | SDK clients, CI/CD | `Authorization: Bearer <key>` or `?sdk_key=` query param |
+| SDK key (`sk_live_...`) | SDK clients | `Authorization: Bearer <key>` or `?sdk_key=` query param |
+| Personal access token (`pat_...`) | CI/CD, Terraform, Kubernetes operator | `Authorization: Bearer <token>` |
 
-SDK keys are stored in PostgreSQL, managed per-project from the **Project Settings → SDK Keys** tab. Each key is bound to one environment — it implicitly identifies both the project and the environment for all API calls and the SSE stream.
+SDK keys are stored in PostgreSQL, managed per-project from the **Project Settings → SDK Keys** tab. Each key is bound to one environment — it implicitly identifies both the project and the environment for the SSE stream and the other SDK endpoints. Because SDK keys ship inside browser and mobile apps, they are limited to those endpoints (stream, snapshot, reading flags, reporting impressions and events) for their own environment; everything else needs a session or a personal access token.
 
 ### Role Enforcement
 
