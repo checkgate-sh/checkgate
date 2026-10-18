@@ -7,12 +7,11 @@ use axum::{
     routing::{get, post},
 };
 use checkgate_core::evaluator::{Flag, TargetingRule};
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use super::flags::check_env_access;
 
@@ -442,7 +441,7 @@ async fn rebroadcast_referencing_flags(state: &AppState, env_id: &str, seg_key: 
     let segment_ref = json!([{"segment_key": seg_key}]);
 
     let rows = match sqlx::query(
-        "SELECT key, data FROM flags \
+        "SELECT data, revision FROM flags \
          WHERE environment_id = $1::uuid \
            AND data->'rules' @> $2::jsonb",
     )
@@ -470,10 +469,7 @@ async fn rebroadcast_referencing_flags(state: &AppState, env_id: &str, seg_key: 
         }
     };
 
-    let mut conn = state.redis_conn.clone();
-
     for row in rows {
-        let flag_key: String = row.get("key");
         let data_val: Value = match row.try_get("data") {
             Ok(v) => v,
             Err(_) => continue,
@@ -484,17 +480,12 @@ async fn rebroadcast_referencing_flags(state: &AppState, env_id: &str, seg_key: 
         };
 
         let expanded = expand_flag_with_segments(raw_flag, &segment_map);
-        let msg = json!({"type": "UPSERT", "env_id": env_id, "flag": expanded}).to_string();
+        let revision: i64 = row.get("revision");
+        let msg = super::flags::upsert_message(env_id, &expanded, revision);
 
         // Also update FlagStore on this instance.
         state.store.upsert_flag(expanded);
 
-        if let Err(e) = conn.publish::<_, _, ()>("checkgate_updates", &msg).await {
-            warn!(
-                error = %e,
-                flag_key = %flag_key,
-                "Redis publish failed during segment rebroadcast"
-            );
-        }
+        super::flags::publish_update(state, &msg, "segment_rebroadcast").await;
     }
 }

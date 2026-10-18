@@ -69,8 +69,8 @@ pub struct EnvFlagPath {
 // ---------------------------------------------------------------------------
 
 /// Verifies the caller can access the project that owns `env_id`.
-/// Workspace admins and SDK key auth always pass.
-/// Others must be a project member.
+/// Workspace admins always pass, an SDK key only for its bound environment,
+/// and everyone else must be a project member.
 pub(super) async fn check_env_access(
     db: &sqlx::PgPool,
     jar: &AuthContext,
@@ -78,8 +78,34 @@ pub(super) async fn check_env_access(
 ) -> Result<(), StatusCode> {
     if let Some(claims) = get_session_claims(jar) {
         crate::auth::check_env_role(db, &claims, env_id, false).await?;
+    } else {
+        check_sdk_key_env(jar, env_id)?;
     }
     Ok(())
+}
+
+/// An SDK key may only act on the environment it is bound to (the legacy
+/// `SDK_KEY` env var has no binding). A no-op for user identities.
+pub(super) fn check_sdk_key_env(jar: &AuthContext, env_id: &str) -> Result<(), StatusCode> {
+    match crate::auth::sdk_key(jar).and_then(|k| k.environment_id.as_deref()) {
+        Some(bound) if bound != env_id => Err(StatusCode::FORBIDDEN),
+        _ => Ok(()),
+    }
+}
+
+/// Authorizes analytics ingest (impressions and goal events). SDK keys may
+/// report only for their own environment; users and PATs need write access to
+/// the environment, so a viewer or `read_only` token cannot skew experiments.
+pub(super) async fn check_ingest_access(
+    db: &sqlx::PgPool,
+    jar: &AuthContext,
+    env_id: &str,
+) -> Result<(), StatusCode> {
+    if get_session_claims(jar).is_some() {
+        crate::auth::check_write_scope_ctx(jar)?;
+        return check_env_write_access(db, jar, env_id).await;
+    }
+    check_sdk_key_env(jar, env_id)
 }
 
 pub(super) async fn check_env_write_access(
@@ -301,7 +327,8 @@ async fn create_flag(
         "INSERT INTO flags (key, environment_id, data, tags, owner_email) \
          VALUES ($1, $2::uuid, $3, $4, $5) \
          ON CONFLICT (key, environment_id) \
-         DO UPDATE SET data = EXCLUDED.data, tags = EXCLUDED.tags, owner_email = EXCLUDED.owner_email WHERE NOT $6",
+         DO UPDATE SET data = EXCLUDED.data, tags = EXCLUDED.tags, owner_email = EXCLUDED.owner_email WHERE NOT $6 \
+         RETURNING revision",
     )
     .bind(&payload.key)
     .bind(&env_id)
@@ -309,16 +336,17 @@ async fn create_flag(
     .bind(&req.tags)
     .bind(&req.owner_email)
     .bind(protected)
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
         error!(error = %e, "PostgreSQL write failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    if written.rows_affected() == 0 {
+    let Some(written) = written else {
         return Err(StatusCode::CONFLICT);
-    }
+    };
+    let revision: i64 = written.get("revision");
     tx.commit()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -341,7 +369,7 @@ async fn create_flag(
         .unwrap_or_default();
     let expanded = super::segments::expand_flag_with_segments(payload.clone(), &segment_map);
     state.store.upsert_flag(expanded.clone());
-    let msg = json!({"type": "UPSERT", "env_id": env_id, "flag": expanded}).to_string();
+    let msg = upsert_message(&env_id, &expanded, revision);
     publish_update(&state, &msg, "create_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
@@ -409,7 +437,7 @@ async fn delete_flag(
 
     // RETURNING captures before_data for the audit log atomically with the delete.
     let row = sqlx::query(
-        "DELETE FROM flags WHERE key = $1 AND environment_id = $2::uuid RETURNING data",
+        "DELETE FROM flags WHERE key = $1 AND environment_id = $2::uuid RETURNING data, revision",
     )
     .bind(&path.key)
     .bind(&path.env_id)
@@ -439,7 +467,18 @@ async fn delete_flag(
     )
     .await;
 
-    let msg = json!({"type": "DELETE", "env_id": path.env_id, "key": path.key}).to_string();
+    // The deleted row's last revision: a later re-create always gets a higher
+    // one, so SDKs ignore this delete if it arrives after that re-create.
+    let revision: i64 = row
+        .try_get("revision")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let msg = json!({
+        "type": "DELETE",
+        "env_id": path.env_id,
+        "key": path.key,
+        "revision": revision,
+    })
+    .to_string();
     publish_update(&state, &msg, "delete_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
@@ -546,6 +585,8 @@ pub(crate) struct AppliedPatch {
     pub result: FlagWithMetadata,
     pub before: serde_json::Value,
     pub data: serde_json::Value,
+    /// The flag row's revision after this write (see `upsert_message`).
+    pub revision: i64,
 }
 
 pub(crate) async fn apply_patch_in_tx(
@@ -580,16 +621,16 @@ pub(crate) async fn apply_patch_in_tx(
         new_owner_email.unwrap_or(rec.try_get("owner_email").unwrap_or(None));
     let archived_at: Option<time::OffsetDateTime> = rec.try_get("archived_at").unwrap_or(None);
 
-    sqlx::query(
+    let revision: i64 = sqlx::query_scalar(
         "UPDATE flags SET data = $1, tags = $2, owner_email = $3 \
-         WHERE key = $4 AND environment_id = $5::uuid",
+         WHERE key = $4 AND environment_id = $5::uuid RETURNING revision",
     )
     .bind(&flag_val)
     .bind(&tags)
     .bind(&owner_email)
     .bind(key)
     .bind(env_id)
-    .execute(&mut **db_tx)
+    .fetch_one(&mut **db_tx)
     .await
     .map_err(|e| {
         error!(error = %e, "PostgreSQL update failed");
@@ -605,6 +646,7 @@ pub(crate) async fn apply_patch_in_tx(
         },
         before: before_val,
         data: flag_val,
+        revision,
     })
 }
 
@@ -636,7 +678,7 @@ pub(crate) async fn emit_patch(
     let expanded =
         super::segments::expand_flag_with_segments(applied.result.flag.clone(), &segment_map);
     state.store.upsert_flag(expanded.clone());
-    let msg = json!({"type": "UPSERT", "env_id": env_id, "flag": expanded}).to_string();
+    let msg = upsert_message(env_id, &expanded, applied.revision);
     publish_update(state, &msg, "patch_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
@@ -781,14 +823,15 @@ async fn promote_flag(
         serde_json::from_value(flag_val.clone()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Upsert into target environment.
-    sqlx::query(
+    let revision: i64 = sqlx::query_scalar(
         "INSERT INTO flags (key, environment_id, data) VALUES ($1, $2::uuid, $3) \
-         ON CONFLICT (key, environment_id) DO UPDATE SET data = EXCLUDED.data",
+         ON CONFLICT (key, environment_id) DO UPDATE SET data = EXCLUDED.data \
+         RETURNING revision",
     )
     .bind(&path.key)
     .bind(&target_env_id)
     .bind(&flag_val)
-    .execute(&mut *db_tx)
+    .fetch_one(&mut *db_tx)
     .await
     .map_err(|e| {
         error!(error = %e, "Failed to write promoted flag");
@@ -819,7 +862,7 @@ async fn promote_flag(
         .unwrap_or_default();
     let expanded = super::segments::expand_flag_with_segments(flag.clone(), &segment_map);
     state.store.upsert_flag(expanded.clone());
-    let msg = json!({"type": "UPSERT", "env_id": target_env_id, "flag": expanded}).to_string();
+    let msg = upsert_message(&target_env_id, &expanded, revision);
     publish_update(&state, &msg, "promote_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
@@ -916,17 +959,88 @@ async fn unarchive_flag(
 // Redis helpers
 // ---------------------------------------------------------------------------
 
-/// Publish a flag change event using the shared multiplexed connection from
-/// AppState. If Redis is unavailable the DB write already succeeded so the
-/// request is not failed, but other instances may serve stale data until their
-/// next SSE reconnect.
+/// Serializes an UPSERT change event. `revision` comes from the flag row, so
+/// an SDK can drop an event that arrives after a newer one for the same flag.
+pub(crate) fn upsert_message(env_id: &str, flag: &Flag, revision: i64) -> String {
+    json!({"type": "UPSERT", "env_id": env_id, "flag": flag, "revision": revision}).to_string()
+}
+
+/// Payload telling every SSE handler to drop its clients so they reconnect and
+/// re-bootstrap the full flag set from PostgreSQL.
+pub(crate) const RESYNC_MESSAGE: &str = r#"{"type":"RESYNC"}"#;
+
+const UPDATES_CHANNEL: &str = "checkgate_updates";
+
+/// Publish a flag change event to every instance through Redis.
+///
+/// The DB write has already committed, so a Redis failure never fails the
+/// request. Instead the event is handed straight to this instance's SSE
+/// clients, and a `RESYNC` broadcast is retried in the background until Redis
+/// is back, so clients of the other instances re-bootstrap the state they
+/// missed.
 pub(crate) async fn publish_update(state: &AppState, msg: &str, op: &str) {
-    let mut conn = state.redis_conn.clone();
-    if let Err(e) = conn.publish::<_, _, ()>("checkgate_updates", msg).await {
-        warn!(
-            error = %e,
-            operation = op,
-            "Redis publish failed — other instances may be stale"
-        );
+    let mut result = publish_once(state, msg).await;
+    if result.is_err() {
+        // The connection manager reconnects after a failure; one quick retry
+        // covers a connection that simply went stale.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        result = publish_once(state, msg).await;
     }
+    let Err(e) = result else { return };
+    warn!(
+        error = %e,
+        operation = op,
+        "Redis publish failed — delivered locally, other instances will resync"
+    );
+    let _ = state.flag_tx.send(msg.to_string());
+    schedule_resync(state);
+}
+
+/// One publish attempt, bounded so a Redis outage (during which the connection
+/// manager keeps reconnecting) cannot stall the write request behind it.
+async fn publish_once(state: &AppState, msg: &str) -> Result<(), String> {
+    let mut conn = state.redis_conn.clone();
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(1500),
+        conn.publish::<_, _, ()>(UPDATES_CHANNEL, msg),
+    )
+    .await
+    {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err("timed out".to_string()),
+    }
+}
+
+/// Retries a `RESYNC` broadcast until Redis accepts it. At most one retry loop
+/// runs per instance.
+fn schedule_resync(state: &AppState) {
+    use std::sync::atomic::Ordering;
+    if state.resync_pending.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let mut conn = state.redis_conn.clone();
+    let pending = std::sync::Arc::clone(&state.resync_pending);
+    tokio::spawn(async move {
+        let mut delay = std::time::Duration::from_secs(1);
+        loop {
+            tokio::time::sleep(delay).await;
+            match conn
+                .publish::<_, _, ()>(UPDATES_CHANNEL, RESYNC_MESSAGE)
+                .await
+            {
+                Ok(()) => {
+                    info!("Redis reachable again — resync broadcast sent");
+                    pending.store(false, Ordering::Release);
+                    return;
+                }
+                Err(e) => {
+                    warn!(error = %e, "Resync broadcast failed — retrying");
+                    delay = delay
+                        .saturating_mul(2)
+                        .min(std::time::Duration::from_secs(30));
+                }
+            }
+        }
+    });
 }

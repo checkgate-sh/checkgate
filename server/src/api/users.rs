@@ -51,11 +51,8 @@ pub async fn list_users(
     State(state): State<AppState>,
     jar: AuthContext,
 ) -> Result<Json<Vec<UserInfo>>, StatusCode> {
-    // SDK key auth (None from get_session_claims) is admin-equivalent.
-    // Session users must be admin — editors/viewers cannot enumerate all workspace accounts.
-    if let Some(claims) = get_session_claims(&jar)
-        && claims.role != "admin"
-    {
+    // Only workspace admins — editors/viewers cannot enumerate all workspace accounts.
+    if get_session_claims(&jar).is_none_or(|claims| claims.role != "admin") {
         return Err(StatusCode::FORBIDDEN);
     }
 

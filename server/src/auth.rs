@@ -2,7 +2,7 @@ use crate::state::AppState;
 use crate::state::SdkKeyEntry;
 use axum::{
     extract::{FromRequestParts, State},
-    http::{Request, StatusCode, request::Parts},
+    http::{Method, Request, StatusCode, request::Parts},
     middleware::Next,
     response::Response,
 };
@@ -30,8 +30,9 @@ pub(crate) struct SessionClaims {
 /// (and, via [`AuthContext`], handler-level project-membership checks) can see
 /// it without a second database round-trip.
 ///
-/// Unlike an SDK key (always admin-equivalent), a PAT acts *as its owning
-/// user* — same role, same project memberships — capped by `scope`.
+/// Unlike an SDK key (limited to the SDK routes of its own environment — see
+/// [`sdk_key_route_allowed`]), a PAT acts *as its owning user* — same role,
+/// same project memberships — capped by `scope`.
 #[derive(Clone)]
 pub(crate) struct PatIdentity {
     pub claims: SessionClaims,
@@ -141,11 +142,12 @@ pub(crate) async fn resolve_session(
     Ok(Some(claims))
 }
 
-/// Per-request user identities already validated by require_auth.
+/// Per-request identities already validated by require_auth.
 #[derive(Clone)]
 pub(crate) struct AuthContext {
     session: Option<SessionClaims>,
     pat: Option<PatIdentity>,
+    sdk_key: Option<SdkKeyEntry>,
 }
 
 impl<S> FromRequestParts<S> for AuthContext
@@ -157,14 +159,20 @@ where
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let session = parts.extensions.get::<SessionClaims>().cloned();
         let pat = parts.extensions.get::<PatIdentity>().cloned();
-        Ok(AuthContext { session, pat })
+        let sdk_key = parts.extensions.get::<SdkKeyEntry>().cloned();
+        Ok(AuthContext {
+            session,
+            pat,
+            sdk_key,
+        })
     }
 }
 
 /// Resolves the caller's identity: session cookie takes priority (matches the
 /// existing `require_auth` precedence), falling back to a PAT identity stashed
-/// into request extensions by `require_auth`. Returns `None` for SDK-key auth
-/// (no per-user identity — treated as admin-equivalent by callers, unchanged).
+/// into request extensions by `require_auth`. Returns `None` for SDK-key auth,
+/// which has no per-user identity. SDK keys only ever reach the routes listed
+/// in [`sdk_key_route_allowed`], so a `None` here never grants admin rights.
 pub(crate) fn get_session_claims(ctx: &AuthContext) -> Option<SessionClaims> {
     ctx.session
         .clone()
@@ -173,8 +181,8 @@ pub(crate) fn get_session_claims(ctx: &AuthContext) -> Option<SessionClaims> {
 
 /// Returns the scope of the personal access token that authenticated this
 /// request, or `None` if the caller used a session cookie or SDK key instead
-/// (both uncapped — a session already carries full user identity, and an SDK
-/// key is a separate, admin-equivalent credential class).
+/// (a session already carries full user identity, and an SDK key is confined
+/// to the SDK routes by `require_auth`).
 ///
 /// Used to stop a `read_only` PAT from minting a `read_write` PAT for the
 /// same user — without this cap, a leaked read-only token could self-escalate
@@ -184,6 +192,28 @@ pub(crate) fn pat_scope(ctx: &AuthContext) -> Option<&str> {
         return None;
     }
     ctx.pat.as_ref().map(|p| p.scope.as_str())
+}
+
+/// The SDK key that authenticated this request, if any.
+pub(crate) fn sdk_key(ctx: &AuthContext) -> Option<&SdkKeyEntry> {
+    ctx.sdk_key.as_ref()
+}
+
+/// SDK keys ship inside browser and mobile bundles, so they must be treated as
+/// public. They may only use what an SDK needs, and only for the environment
+/// they are bound to: the SSE stream, the poll snapshot, reading flags (used by
+/// `checkgate typegen`), and reporting impressions/events. The legacy
+/// `SDK_KEY` env var has no bound environment and may target any one.
+fn sdk_key_route_allowed(method: &Method, path: &str, key_env: Option<&str>) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    let env_ok = |env: &str| key_env.is_none_or(|bound| bound == env);
+    match (method, segments.as_slice()) {
+        (&Method::GET, ["stream"] | ["flags", "snapshot"]) => true,
+        (&Method::GET, ["api", "environments", env, "flags"])
+        | (&Method::GET, ["api", "environments", env, "flags", _])
+        | (&Method::POST, ["api", "environments", env, "impressions" | "events"]) => env_ok(env),
+        _ => false,
+    }
 }
 
 /// Validates a request using either:
@@ -245,6 +275,19 @@ pub async fn require_auth(
                     })
             });
         if let Some(entry) = entry {
+            if !sdk_key_route_allowed(
+                req.method(),
+                req.uri().path(),
+                entry.environment_id.as_deref(),
+            ) {
+                warn!(
+                    method = %req.method(),
+                    path = %req.uri().path(),
+                    sdk_key = %entry.name,
+                    "Rejected SDK key outside its SDK routes"
+                );
+                return Err(StatusCode::FORBIDDEN);
+            }
             req.extensions_mut().insert(entry);
             return Ok(next.run(req).await);
         }
@@ -274,7 +317,7 @@ pub async fn require_admin(
     next: Next,
 ) -> Result<Response, StatusCode> {
     if req.extensions().get::<SdkKeyEntry>().is_some() {
-        return Ok(next.run(req).await);
+        return Err(StatusCode::FORBIDDEN);
     }
     let claims = request_claims(&req)?;
     if claims.role != "admin" {
@@ -289,6 +332,13 @@ fn request_claims(req: &Request<axum::body::Body>) -> Result<&SessionClaims, Sta
         .get::<SessionClaims>()
         .or_else(|| req.extensions().get::<PatIdentity>().map(|p| &p.claims))
         .ok_or(StatusCode::UNAUTHORIZED)
+}
+
+pub(crate) fn check_write_scope_ctx(ctx: &AuthContext) -> Result<(), StatusCode> {
+    if pat_scope(ctx).is_some_and(|scope| scope != "read_write") {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
 }
 
 fn check_write_scope(req: &Request<axum::body::Body>) -> Result<(), StatusCode> {
@@ -330,7 +380,7 @@ pub async fn require_editor(
     next: Next,
 ) -> Result<Response, StatusCode> {
     if req.extensions().get::<SdkKeyEntry>().is_some() {
-        return Ok(next.run(req).await);
+        return Err(StatusCode::FORBIDDEN);
     }
     check_write_scope(&req)?;
     let claims = request_claims(&req)?;

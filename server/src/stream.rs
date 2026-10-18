@@ -75,22 +75,24 @@ pub async fn sse_handler(
         let segments = crate::api::segments::load_env_segments(env_id, &state.db)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let rows =
-            sqlx::query("SELECT data FROM flags WHERE environment_id = $1::uuid ORDER BY key")
-                .bind(env_id)
-                .fetch_all(&state.db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let rows = sqlx::query(
+            "SELECT data, revision FROM flags WHERE environment_id = $1::uuid ORDER BY key",
+        )
+        .bind(env_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         for row in rows {
             let data: serde_json::Value = row
                 .try_get("data")
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let revision: i64 = row
+                .try_get("revision")
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             let flag =
                 serde_json::from_value(data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             let flag = crate::api::segments::expand_flag_with_segments(flag, &segments);
-            bootstrap.push(
-                serde_json::json!({"type":"UPSERT", "env_id":env_id, "flag":flag}).to_string(),
-            );
+            bootstrap.push(crate::api::flags::upsert_message(env_id, &flag, revision));
         }
     }
 
@@ -156,8 +158,17 @@ pub async fn sse_handler(
         loop {
             match rx.recv().await {
                 Ok(payload) => {
-                    let should_forward = serde_json::from_str::<serde_json::Value>(&payload)
-                        .ok().and_then(|v| v.get("env_id").and_then(|e| e.as_str())
+                    let event = serde_json::from_str::<serde_json::Value>(&payload).ok();
+                    if event.as_ref().and_then(|v| v.get("type")).and_then(|t| t.as_str())
+                        == Some("RESYNC")
+                    {
+                        info!(
+                            client_ip = %client_ip,
+                            "SSE resync requested — closing connection to trigger reconnect"
+                        );
+                        break;
+                    }
+                    let should_forward = event.and_then(|v| v.get("env_id").and_then(|e| e.as_str())
                             .map(|env| allowed_envs.contains(env))).unwrap_or(false);
                     if should_forward {
                         yield Ok(Event::default().event("update").data(payload));

@@ -158,25 +158,28 @@ async fn full_api_flow() {
     };
 
     // Run the ordered scenario. Each helper asserts as it goes.
-    let (sdk_key, prod_env) = setup_and_keys(&ctx).await;
+    let (sdk_key, prod_env, token) = setup_and_keys(&ctx).await;
     auth_failures(&ctx, &prod_env).await;
-    flag_crud(&ctx, &sdk_key, &prod_env).await;
-    segment_crud(&ctx, &sdk_key, &prod_env).await;
-    analytics_and_experiments(&ctx, &sdk_key, &prod_env).await;
+    flag_crud(&ctx, &token, &prod_env).await;
+    segment_crud(&ctx, &token, &prod_env).await;
+    analytics_and_experiments(&ctx, &token, &sdk_key, &prod_env).await;
     snapshot(&ctx, &sdk_key).await;
     rbac_and_change_requests(&ctx, &prod_env).await;
     // Runs last on purpose: `rbac_and_change_requests` leaves Production in
     // approval-required mode, so a PATCH here queues a change request and
     // exercises the change_request.* notifications alongside the flag ones.
     chat_integrations(&ctx, &prod_env).await;
-    security_regressions(&ctx, &db_url, &redis_url, &sdk_key, &prod_env).await;
+    security_regressions(&ctx, &db_url, &redis_url, &sdk_key, &token, &prod_env).await;
 
     eprintln!("integration: full_api_flow passed");
 }
 
 // --- Setup + credentials ---------------------------------------------------
 
-async fn setup_and_keys(ctx: &Ctx) -> (String, String) {
+/// Returns the seeded SDK key, the Production environment id, and a
+/// `read_write` personal access token for the admin — SDK keys are confined
+/// to the SDK routes, so management calls in this suite use the PAT.
+async fn setup_and_keys(ctx: &Ctx) -> (String, String, String) {
     // Before setup, the seeded Production SDK key + environment id are readable.
     let r = ctx
         .anon
@@ -226,7 +229,21 @@ async fn setup_and_keys(ctx: &Ctx) -> (String, String) {
         .unwrap();
     assert_eq!(r.status(), 404, "second setup rejected");
 
-    (sdk_key, prod_env)
+    let r = ctx
+        .sess
+        .post(ctx.url("/api/tokens"))
+        .header("X-Checkgate-Request", "true")
+        .json(&json!({ "name": "integration", "scope": "read_write" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "create admin PAT");
+    let token = r.json::<Value>().await.unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    (sdk_key, prod_env, token)
 }
 
 // --- Auth failures ---------------------------------------------------------
@@ -252,15 +269,15 @@ async fn auth_failures(ctx: &Ctx, env: &str) {
     assert_eq!(r.status(), 401, "invalid bearer flag list");
 }
 
-// --- Flag CRUD (via SDK key, which is admin-equivalent + CSRF-exempt) -------
+// --- Flag CRUD (via an admin PAT, which is CSRF-exempt) ---------------------
 
-async fn flag_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
+async fn flag_crud(ctx: &Ctx, token: &str, env: &str) {
     let flags = format!("/api/environments/{env}/flags");
 
     let r = ctx
         .anon
         .post(ctx.url(&flags))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .json(&json!({
             "key": "new-homepage",
             "is_enabled": true,
@@ -278,7 +295,7 @@ async fn flag_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
     let r = ctx
         .anon
         .get(ctx.url(&format!("{flags}/new-homepage")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap();
@@ -288,7 +305,7 @@ async fn flag_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
     let list: Value = ctx
         .anon
         .get(ctx.url(&flags))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap()
@@ -307,7 +324,7 @@ async fn flag_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
     let r = ctx
         .anon
         .patch(ctx.url(&format!("{flags}/new-homepage")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .json(&json!({ "is_enabled": false }))
         .send()
         .await
@@ -318,7 +335,7 @@ async fn flag_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
     let r = ctx
         .anon
         .delete(ctx.url(&format!("{flags}/new-homepage")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap();
@@ -327,7 +344,7 @@ async fn flag_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
     let r = ctx
         .anon
         .get(ctx.url(&format!("{flags}/new-homepage")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap();
@@ -336,12 +353,12 @@ async fn flag_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
 
 // --- Segment CRUD ----------------------------------------------------------
 
-async fn segment_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
+async fn segment_crud(ctx: &Ctx, token: &str, env: &str) {
     let segs = format!("/api/environments/{env}/segments");
     let r = ctx
         .anon
         .post(ctx.url(&segs))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .json(&json!({
             "key": "internal",
             "name": "Internal",
@@ -355,7 +372,7 @@ async fn segment_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
     let r = ctx
         .anon
         .get(ctx.url(&format!("{segs}/internal")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap();
@@ -365,7 +382,7 @@ async fn segment_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
     let r = ctx
         .anon
         .delete(ctx.url(&format!("{segs}/internal")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap();
@@ -374,14 +391,14 @@ async fn segment_crud(ctx: &Ctx, sdk_key: &str, env: &str) {
 
 // --- Impressions, exposure, events, experiments ----------------------------
 
-async fn analytics_and_experiments(ctx: &Ctx, sdk_key: &str, env: &str) {
+async fn analytics_and_experiments(ctx: &Ctx, token: &str, sdk_key: &str, env: &str) {
     let base = format!("/api/environments/{env}");
 
     // A string flag with two variants to experiment on.
     let r = ctx
         .anon
         .post(ctx.url(&format!("{base}/flags")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .json(&json!({
             "key": "exp-flag",
             "is_enabled": true,
@@ -420,7 +437,7 @@ async fn analytics_and_experiments(ctx: &Ctx, sdk_key: &str, env: &str) {
     let stats: Value = ctx
         .anon
         .get(ctx.url(&format!("{base}/impressions/stats")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap()
@@ -439,7 +456,7 @@ async fn analytics_and_experiments(ctx: &Ctx, sdk_key: &str, env: &str) {
     let exposure: Value = ctx
         .anon
         .get(ctx.url(&format!("{base}/impressions/exposure?flag_key=exp-flag")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap()
@@ -470,7 +487,7 @@ async fn analytics_and_experiments(ctx: &Ctx, sdk_key: &str, env: &str) {
     let keys: Value = ctx
         .anon
         .get(ctx.url(&format!("{base}/events/keys")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap()
@@ -489,7 +506,7 @@ async fn analytics_and_experiments(ctx: &Ctx, sdk_key: &str, env: &str) {
     let r = ctx
         .anon
         .post(ctx.url(&format!("{base}/experiments")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .json(&json!({
             "key": "exp1",
             "name": "Checkout experiment",
@@ -504,7 +521,7 @@ async fn analytics_and_experiments(ctx: &Ctx, sdk_key: &str, env: &str) {
     let results: Value = ctx
         .anon
         .get(ctx.url(&format!("{base}/experiments/exp1/results")))
-        .bearer_auth(sdk_key)
+        .bearer_auth(token)
         .send()
         .await
         .unwrap()
@@ -1051,7 +1068,14 @@ async fn regression_request(
     }
 }
 
-async fn security_regressions(ctx: &Ctx, db_url: &str, redis_url: &str, sdk_key: &str, env: &str) {
+async fn security_regressions(
+    ctx: &Ctx,
+    db_url: &str,
+    redis_url: &str,
+    sdk_key: &str,
+    token: &str,
+    env: &str,
+) {
     use futures_util::StreamExt;
     let pool = sqlx::PgPool::connect(db_url).await.unwrap();
     // These scenarios have their own source IP so the application-wide quota
@@ -1143,6 +1167,9 @@ async fn security_regressions(ctx: &Ctx, db_url: &str, redis_url: &str, sdk_key:
     )
     .await;
     let hidden_env = private_env["id"].as_str().unwrap();
+    sdk_key_and_ingest_scope(ctx, &headers, &editor, sdk_key, token, env, hidden_env).await;
+    default_environment_per_project(&admin, ctx, &pool, &project, env, private_id, hidden_env)
+        .await;
     regression_request(
         &admin,
         &ctx.base,
@@ -1463,4 +1490,239 @@ async fn security_regressions(ctx: &Ctx, db_url: &str, redis_url: &str, sdk_key:
     .await;
     pool.close().await;
     eprintln!("integration: security regressions passed");
+}
+
+/// SDK keys ship in browser and mobile bundles, so they may only use the SDK
+/// routes of their own environment. Analytics ingest needs an SDK key for that
+/// environment, or a user with write access to it.
+async fn sdk_key_and_ingest_scope(
+    ctx: &Ctx,
+    headers: &reqwest::header::HeaderMap,
+    project_viewer: &reqwest::Client,
+    sdk_key: &str,
+    token: &str,
+    env: &str,
+    other_env: &str,
+) {
+    let bearer = |credential: &str| {
+        let mut headers = headers.clone();
+        headers.insert(
+            "Authorization",
+            format!("Bearer {credential}").parse().unwrap(),
+        );
+        reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap()
+    };
+    let sdk = bearer(sdk_key);
+    let impression = Some(json!([{ "flag_key": "gated", "user_id": "scope", "value": "true" }]));
+    let event = Some(json!([{ "event_key": "scope", "user_id": "scope" }]));
+
+    // The SDK surface works for the key's own environment.
+    regression_request(&sdk, &ctx.base, "GET", "/flags/snapshot", None, 200).await;
+    for path in ["/flags", "/flags/gated"] {
+        regression_request(
+            &sdk,
+            &ctx.base,
+            "GET",
+            &format!("/api/environments/{env}{path}"),
+            None,
+            200,
+        )
+        .await;
+    }
+    regression_request(
+        &sdk,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/impressions"),
+        impression.clone(),
+        204,
+    )
+    .await;
+    regression_request(
+        &sdk,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/events"),
+        event.clone(),
+        204,
+    )
+    .await;
+
+    // ...but nothing in another environment...
+    for (method, path, body) in [
+        ("GET", "/flags", None),
+        ("POST", "/impressions", impression.clone()),
+        ("POST", "/events", event.clone()),
+    ] {
+        regression_request(
+            &sdk,
+            &ctx.base,
+            method,
+            &format!("/api/environments/{other_env}{path}"),
+            body,
+            403,
+        )
+        .await;
+    }
+
+    // ...and no management route, even in its own environment.
+    for (method, path, body) in [
+        (
+            "POST",
+            format!("/api/environments/{env}/flags"),
+            Some(json!({"key":"sdk-key-write","is_enabled":true,"rules":[]})),
+        ),
+        (
+            "PATCH",
+            format!("/api/environments/{env}/flags/gated"),
+            Some(json!({"is_enabled":true})),
+        ),
+        (
+            "DELETE",
+            format!("/api/environments/{env}/flags/gated"),
+            None,
+        ),
+        ("GET", format!("/api/environments/{env}/segments"), None),
+        ("GET", format!("/api/environments/{env}/audit"), None),
+        ("GET", "/api/projects".to_string(), None),
+        ("GET", "/api/users".to_string(), None),
+        (
+            "POST",
+            "/api/users".to_string(),
+            Some(
+                json!({"name":"x","email":"sdk@acme.test","role":"admin","password":"supersecret1"}),
+            ),
+        ),
+        ("GET", format!("/api/environments/{env}/webhooks"), None),
+    ] {
+        regression_request(&sdk, &ctx.base, method, &path, body, 403).await;
+    }
+
+    // A project viewer and a read_only token cannot write analytics either.
+    regression_request(
+        project_viewer,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/impressions"),
+        impression.clone(),
+        403,
+    )
+    .await;
+    regression_request(
+        project_viewer,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{other_env}/events"),
+        event.clone(),
+        403,
+    )
+    .await;
+    let read_only = regression_request(
+        &bearer(token),
+        &ctx.base,
+        "POST",
+        "/api/tokens",
+        Some(json!({ "name": "read-only", "scope": "read_only" })),
+        200,
+    )
+    .await;
+    let read_only = bearer(read_only["token"].as_str().unwrap());
+    regression_request(
+        &read_only,
+        &ctx.base,
+        "GET",
+        &format!("/api/environments/{env}/flags"),
+        None,
+        200,
+    )
+    .await;
+    regression_request(
+        &read_only,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/impressions"),
+        impression.clone(),
+        403,
+    )
+    .await;
+    regression_request(
+        &read_only,
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/events"),
+        event,
+        403,
+    )
+    .await;
+
+    // An admin token may still report (e.g. server-side tooling).
+    regression_request(
+        &bearer(token),
+        &ctx.base,
+        "POST",
+        &format!("/api/environments/{env}/impressions"),
+        impression,
+        204,
+    )
+    .await;
+}
+
+/// The default environment is per project: switching it must not trip the
+/// unique index, and each project keeps its own.
+async fn default_environment_per_project(
+    admin: &reqwest::Client,
+    ctx: &Ctx,
+    pool: &sqlx::PgPool,
+    project: &str,
+    env: &str,
+    other_project: &str,
+    other_env: &str,
+) {
+    let defaults = |project: String| async move {
+        sqlx::query_scalar::<_, String>(
+            "SELECT id::text FROM environments WHERE project_id = $1::uuid AND is_default",
+        )
+        .bind(project)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    };
+    let previous = defaults(project.to_string()).await;
+    assert_eq!(previous.len(), 1, "seeded project has one default");
+
+    let path =
+        |project: &str, env: &str| format!("/api/projects/{project}/environments/{env}/default");
+    let switched =
+        regression_request(admin, &ctx.base, "POST", &path(project, env), None, 200).await;
+    assert_eq!(switched["is_default"], true);
+    assert_eq!(defaults(project.to_string()).await, vec![env.to_string()]);
+    regression_request(
+        admin,
+        &ctx.base,
+        "POST",
+        &path(project, &previous[0]),
+        None,
+        200,
+    )
+    .await;
+    assert_eq!(defaults(project.to_string()).await, previous);
+
+    // A second project can have a default of its own.
+    regression_request(
+        admin,
+        &ctx.base,
+        "POST",
+        &path(other_project, other_env),
+        None,
+        200,
+    )
+    .await;
+    assert_eq!(
+        defaults(other_project.to_string()).await,
+        vec![other_env.to_string()]
+    );
+    assert_eq!(defaults(project.to_string()).await, previous);
 }
