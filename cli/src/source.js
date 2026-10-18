@@ -3,9 +3,16 @@
 
 import { readFile } from 'node:fs/promises'
 
+/** Flags per list request — the server's maximum page size. */
+const PAGE_SIZE = 500
+/** The server clamps deeper offsets, so paging past this would repeat a page. */
+const MAX_OFFSET = 1_000_000
+
 /**
  * Fetch the flag list for an environment from the server.
- * Uses Bearer auth (a personal access token or SDK key).
+ * Uses Bearer auth (a personal access token, or the environment's SDK key).
+ * The server pages the list (200 flags by default), so this follows pages
+ * until a short one — one request would leave flags out of the generated types.
  */
 export async function fetchFlagsFromApi({ url, env, token }) {
   if (!url) throw new Error('Missing server URL (pass --url or set CHECKGATE_URL).')
@@ -15,6 +22,17 @@ export async function fetchFlagsFromApi({ url, env, token }) {
   const base = url.replace(/\/+$/, '')
   const endpoint = `${base}/api/environments/${encodeURIComponent(env)}/flags`
 
+  const flags = []
+  for (let offset = 0; offset <= MAX_OFFSET; offset += PAGE_SIZE) {
+    const page = await fetchFlagPage(`${endpoint}?limit=${PAGE_SIZE}&offset=${offset}`, env, token)
+    if (!Array.isArray(page)) throw new Error('Unexpected response: the flag list was not an array.')
+    flags.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+  return flags
+}
+
+async function fetchFlagPage(endpoint, env, token) {
   let res
   try {
     res = await fetch(endpoint, {

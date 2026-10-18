@@ -66,16 +66,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await requestRaw<T>(path, init)).body
 }
 
+/** Flags per list request — the server's maximum page size. */
+const FLAG_PAGE_SIZE = 500
+/** The server clamps deeper offsets, so paging past this would repeat a page. */
+const MAX_FLAG_OFFSET = 1_000_000
+
 export const api = {
-  listFlags(
+  /**
+   * Every flag in the environment. The server pages this list (200 flags per
+   * page by default), so fetch until a short page — one request would silently
+   * drop the rest from search, comparison, and dependency pickers.
+   */
+  async listFlags(
     envId: string,
     opts: { includeArchived?: boolean; tag?: string } = {},
   ): Promise<Flag[]> {
-    const params = new URLSearchParams()
-    if (opts.includeArchived) params.set('include_archived', 'true')
-    if (opts.tag) params.set('tag', opts.tag)
-    const qs = params.toString()
-    return request(`/api/environments/${envId}/flags${qs ? `?${qs}` : ''}`)
+    const flags: Flag[] = []
+    for (let offset = 0; offset <= MAX_FLAG_OFFSET; offset += FLAG_PAGE_SIZE) {
+      const params = new URLSearchParams({ limit: String(FLAG_PAGE_SIZE), offset: String(offset) })
+      if (opts.includeArchived) params.set('include_archived', 'true')
+      if (opts.tag) params.set('tag', opts.tag)
+      const page = await request<Flag[]>(`/api/environments/${envId}/flags?${params}`)
+      flags.push(...page)
+      if (page.length < FLAG_PAGE_SIZE) break
+    }
+    return flags
   },
 
   getFlag(envId: string, key: string): Promise<Flag> {
