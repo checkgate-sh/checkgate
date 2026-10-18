@@ -1,6 +1,6 @@
 {
   "name": "@checkgate/web",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "description": "Checkgate feature-flag SDK for the web \u2014 local evaluation via WebAssembly.",
   "type": "module",
   "main": "index.js",
