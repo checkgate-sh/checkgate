@@ -171,7 +171,9 @@ func (r *segmentResource) Update(ctx context.Context, req resource.UpdateRequest
 		resp.Diagnostics.AddError("Invalid segment", err.Error())
 		return
 	}
-	updated, err := r.client.UpdateSegment(ctx, plan.EnvironmentID.ValueString(), plan.Key.ValueString(), seg)
+	// ReplaceSegment, not UpdateSegment: a description or rules removed from
+	// the configuration must be cleared on the server, not kept.
+	updated, err := r.client.ReplaceSegment(ctx, plan.EnvironmentID.ValueString(), plan.Key.ValueString(), seg)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating segment", err.Error())
 		return

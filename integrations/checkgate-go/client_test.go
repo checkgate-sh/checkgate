@@ -253,3 +253,21 @@ func TestUpdateFlagOmitsEmptyFields(t *testing.T) {
 		}
 	}
 }
+
+// ReplaceSegment clears what is empty in the desired state: a nil description
+// is sent as null and nil rules as [].
+func TestReplaceSegmentSendsClearedFields(t *testing.T) {
+	var body map[string]json.RawMessage
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		json.NewEncoder(w).Encode(Segment{Key: "beta", Name: "Beta"})
+	})
+	if _, err := c.ReplaceSegment(context.Background(), "env1", "beta", &Segment{Key: "beta", Name: "Beta"}); err != nil {
+		t.Fatalf("ReplaceSegment: %v", err)
+	}
+	for field, want := range map[string]string{"name": `"Beta"`, "description": "null", "rules": "[]"} {
+		if got, ok := body[field]; !ok || string(got) != want {
+			t.Errorf("%s = %s (present %v), want %s", field, got, ok, want)
+		}
+	}
+}

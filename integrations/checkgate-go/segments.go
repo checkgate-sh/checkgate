@@ -50,14 +50,38 @@ type segmentPatch struct {
 	Rules       []TargetingRule `json:"rules,omitempty"`
 }
 
-// UpdateSegment applies a partial update to a segment.
+// UpdateSegment applies a partial update to a segment: a nil Description or
+// empty Rules is omitted and keeps the stored value. To make the segment match
+// a desired state exactly, use ReplaceSegment.
 func (c *Client) UpdateSegment(ctx context.Context, envID, key string, seg *Segment) (*Segment, error) {
-	patch := segmentPatch{Name: &seg.Name, Description: seg.Description, Rules: seg.Rules}
+	return c.patchSegment(ctx, envID, key, segmentPatch{Name: &seg.Name, Description: seg.Description, Rules: seg.Rules})
+}
+
+// ReplaceSegment sets the segment's name, description, and rules to the
+// values in seg: a nil Description or empty Rules clears the stored value.
+// This is what declarative callers (Terraform) need.
+func (c *Client) ReplaceSegment(ctx context.Context, envID, key string, seg *Segment) (*Segment, error) {
+	return c.patchSegment(ctx, envID, key, segmentReplacement{
+		Name:        seg.Name,
+		Description: seg.Description,
+		Rules:       nonNil(seg.Rules),
+	})
+}
+
+func (c *Client) patchSegment(ctx context.Context, envID, key string, body any) (*Segment, error) {
 	var out Segment
-	if _, err := c.do(ctx, http.MethodPatch, segmentPath(envID, key), patch, &out); err != nil {
+	if _, err := c.do(ctx, http.MethodPatch, segmentPath(envID, key), body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// segmentReplacement is the PATCH body ReplaceSegment sends: nothing is
+// omitted, so a nil description is sent as null and empty rules as [].
+type segmentReplacement struct {
+	Name        string          `json:"name"`
+	Description *string         `json:"description"`
+	Rules       []TargetingRule `json:"rules"`
 }
 
 // DeleteSegment removes a segment.

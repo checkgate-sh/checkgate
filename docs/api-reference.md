@@ -599,7 +599,7 @@ PATCH /api/environments/{env_id}/segments/{key}
 Content-Type: application/json
 ```
 
-Editor role or above. Only the provided fields are updated; omitted fields retain their current values. Flags referencing this segment are re-broadcast to connected SDK clients.
+Editor role or above. Only the provided fields are updated; omitted fields retain their current values, and `"description": null` clears the description. Flags referencing this segment are re-broadcast to connected SDK clients.
 
 ```json
 { "rules": [ { "attribute": "plan", "operator": "equals", "values": ["beta", "trial"] } ] }

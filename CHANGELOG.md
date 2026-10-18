@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   user with write access to it. Previously any authenticated caller, including a viewer from
   another project or a `read_only` token, could write analytics to any environment.
 
+### Dependencies
+
+- Patched Dependabot and RustSec advisories: rustls 0.23.46, quinn-proto 0.11.19, xxhash-rust
+  0.8.19 (plus the yanked chacha20 and spin releases); vitest 4.1.12, postcss 8.5.30,
+  source-map-js 1.2.2, js-yaml 4.3.2; grpc-go 1.83.1 in the Terraform provider. The React
+  Native SDK no longer installs its `react-native` peer dependency for local development, which
+  removes that tree's advisories from its lockfile.
+
 ### Fixed
 
 - A broken Redis publishing connection is replaced automatically instead of failing every later
@@ -37,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The Go client gains `ReplaceFlag`, which clears fields that are empty in the desired state;
   Terraform and the Kubernetes operator use it, so removing rules, prerequisites, variants, tags,
   or a description from configuration now clears them on the server.
+- Segment PATCH accepts `"description": null` to clear the description, and the Go client gains
+  `ReplaceSegment`; Terraform uses it, so a description or rules removed from configuration are
+  cleared on the server.
+- Environment slugs are unique per project instead of across all projects, so a second project
+  can have its own `production`.
 - `@checkgate/react-native` now builds and links its Rust engine (Gradle via `cargo ndk`, CocoaPods
   via a build phase) and ships the native module that installs its JSI bindings. Building the app
   needs a Rust toolchain; see the package README.

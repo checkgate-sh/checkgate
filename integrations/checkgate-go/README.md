@@ -27,7 +27,8 @@ if _, err := c.UpdateFlag(ctx, envID, "new-homepage", flag); err == checkgate.Er
 - **Flags**: `GetFlag`, `CreateFlag`, `UpdateFlag` (partial — empty fields are
   left unchanged), `ReplaceFlag` (sets every field, clearing what is empty),
   `DeleteFlag`
-- **Segments**: `GetSegment`, `CreateSegment`, `UpdateSegment`, `DeleteSegment`
+- **Segments**: `GetSegment`, `CreateSegment`, `UpdateSegment` (partial),
+  `ReplaceSegment` (sets every field, clearing what is empty), `DeleteSegment`
 - **Errors**: `*APIError` (carries the HTTP status), `NotFound(err)`, `ErrApprovalRequired`
 - **Options**: `WithHTTPClient`, `WithUserAgent`
 

@@ -43,8 +43,21 @@ struct CreateSegmentBody {
 #[derive(Debug, Deserialize)]
 struct PatchSegmentBody {
     name: Option<String>,
-    description: Option<String>,
+    /// `None`: left out, keep the stored value. `Some(None)`: `null`, clear it.
+    #[serde(default, deserialize_with = "present_or_null")]
+    description: Option<Option<String>>,
     rules: Option<Vec<TargetingRule>>,
+}
+
+/// Deserializes a field that was present in the body (possibly as `null`), so
+/// a PATCH can tell "clear this" (`null`) apart from "leave it" (omitted, via
+/// `#[serde(default)]`).
+fn present_or_null<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 // ---------------------------------------------------------------------------
@@ -346,16 +359,17 @@ async fn patch_segment(
     let row = sqlx::query(
         "UPDATE segments SET \
          name        = COALESCE($1, name), \
-         description = COALESCE($2, description), \
+         description = CASE WHEN $6 THEN $2 ELSE description END, \
          rules       = COALESCE($3, rules) \
          WHERE environment_id = $4::uuid AND key = $5 \
          RETURNING id::text, environment_id::text, name, key, description, rules, created_at::text",
     )
     .bind(&body.name)
-    .bind(&body.description)
+    .bind(body.description.clone().flatten())
     .bind(&rules_val)
     .bind(&env_id)
     .bind(&key)
+    .bind(body.description.is_some())
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {

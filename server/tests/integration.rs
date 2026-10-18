@@ -379,6 +379,31 @@ async fn segment_crud(ctx: &Ctx, token: &str, env: &str) {
     assert_eq!(r.status(), 200, "get segment");
     assert_eq!(r.json::<Value>().await.unwrap()["name"], "Internal");
 
+    // PATCH keeps an omitted description, and clears it on an explicit null.
+    for (patch, description) in [
+        (
+            json!({ "description": "Staff accounts" }),
+            json!("Staff accounts"),
+        ),
+        (json!({ "name": "Internal staff" }), json!("Staff accounts")),
+        (json!({ "description": null }), Value::Null),
+    ] {
+        let r = ctx
+            .anon
+            .patch(ctx.url(&format!("{segs}/internal")))
+            .bearer_auth(token)
+            .json(&patch)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "patch segment {patch}");
+        assert_eq!(
+            r.json::<Value>().await.unwrap()["description"],
+            description,
+            "segment description after {patch}"
+        );
+    }
+
     let r = ctx
         .anon
         .delete(ctx.url(&format!("{segs}/internal")))
@@ -1709,6 +1734,13 @@ async fn default_environment_per_project(
     )
     .await;
     assert_eq!(defaults(project.to_string()).await, previous);
+
+    // Slugs are unique per project: the second project can have its own
+    // "production" (seeded in the first), but not two of them.
+    let envs = format!("/api/projects/{other_project}/environments");
+    let production = || Some(json!({"name": "Production", "slug": "production"}));
+    regression_request(admin, &ctx.base, "POST", &envs, production(), 200).await;
+    regression_request(admin, &ctx.base, "POST", &envs, production(), 409).await;
 
     // A second project can have a default of its own.
     regression_request(
