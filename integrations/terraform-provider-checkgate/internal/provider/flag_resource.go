@@ -203,7 +203,9 @@ func (r *flagResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 
-	updated, err := r.client.UpdateFlag(ctx, plan.EnvironmentID.ValueString(), plan.Key.ValueString(), flag)
+	// ReplaceFlag, not UpdateFlag: attributes removed from the configuration
+	// must be cleared on the server rather than keep their old values.
+	updated, err := r.client.ReplaceFlag(ctx, plan.EnvironmentID.ValueString(), plan.Key.ValueString(), flag)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating flag", err.Error())
 		return

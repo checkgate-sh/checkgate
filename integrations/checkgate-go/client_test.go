@@ -194,3 +194,62 @@ func TestSegmentCRUD(t *testing.T) {
 		t.Fatalf("DeleteSegment: %v", err)
 	}
 }
+
+// ReplaceFlag must send every clearable field explicitly — an emptied rule
+// list or a removed description has to clear the stored value, which the
+// omitempty encoding UpdateFlag uses cannot express.
+func TestReplaceFlagSendsClearedFields(t *testing.T) {
+	var body map[string]json.RawMessage
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("method = %s", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		json.NewEncoder(w).Encode(Flag{Key: "f", FlagType: "boolean"})
+	})
+	if _, err := c.ReplaceFlag(context.Background(), "env1", "f", &Flag{Key: "f"}); err != nil {
+		t.Fatalf("ReplaceFlag: %v", err)
+	}
+	want := map[string]string{
+		"is_enabled":         "false",
+		"rollout_percentage": "null",
+		"description":        "null",
+		"rules":              "[]",
+		"default_value":      "null",
+		"disabled_value":     "null",
+		"variants":           "[]",
+		"prerequisites":      "[]",
+		"tags":               "[]",
+		"owner_email":        "null",
+	}
+	for field, value := range want {
+		if got, ok := body[field]; !ok || string(got) != value {
+			t.Errorf("%s = %s (present %v), want %s", field, got, ok, value)
+		}
+	}
+	if _, ok := body["flag_type"]; ok {
+		t.Error("an empty flag_type keeps the stored type and must be omitted")
+	}
+	if _, ok := body["key"]; ok {
+		t.Error("the key is in the URL, not the body")
+	}
+}
+
+// UpdateFlag stays a partial update: empty fields are left out.
+func TestUpdateFlagOmitsEmptyFields(t *testing.T) {
+	var body map[string]json.RawMessage
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		json.NewEncoder(w).Encode(Flag{Key: "f"})
+	})
+	if _, err := c.UpdateFlag(context.Background(), "env1", "f", &Flag{Key: "f", IsEnabled: true}); err != nil {
+		t.Fatalf("UpdateFlag: %v", err)
+	}
+	for _, field := range []string{"rules", "description", "tags"} {
+		if _, ok := body[field]; ok {
+			t.Errorf("%s should be omitted from a partial update", field)
+		}
+	}
+}

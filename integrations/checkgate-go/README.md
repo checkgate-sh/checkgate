@@ -8,7 +8,7 @@ automation that manages Checkgate flags and segments.
 ```go
 import checkgate "github.com/checkgate-sh/checkgate/integrations/checkgate-go"
 
-c, _ := checkgate.NewClient("https://flags.example.com", token) // read_write PAT or SDK key
+c, _ := checkgate.NewClient("https://flags.example.com", token) // a read_write personal access token
 
 flag, err := c.CreateFlag(ctx, envID, &checkgate.Flag{
     Key:          "new-homepage",
@@ -24,12 +24,16 @@ if _, err := c.UpdateFlag(ctx, envID, "new-homepage", flag); err == checkgate.Er
 
 ## Surface
 
-- **Flags**: `GetFlag`, `CreateFlag`, `UpdateFlag`, `DeleteFlag`
+- **Flags**: `GetFlag`, `CreateFlag`, `UpdateFlag` (partial — empty fields are
+  left unchanged), `ReplaceFlag` (sets every field, clearing what is empty),
+  `DeleteFlag`
 - **Segments**: `GetSegment`, `CreateSegment`, `UpdateSegment`, `DeleteSegment`
 - **Errors**: `*APIError` (carries the HTTP status), `NotFound(err)`, `ErrApprovalRequired`
 - **Options**: `WithHTTPClient`, `WithUserAgent`
 
-Auth is a Bearer token (a `read_write` personal access token, or an SDK key).
+Auth is a Bearer token: a `read_write` personal access token. SDK keys are
+limited to the SDK endpoints (stream, snapshot, impressions/events) and are
+rejected here.
 Polymorphic flag values (`default_value`, variant values, …) are `json.RawMessage`
 so any of bool/string/int/JSON round-trips losslessly.
 
