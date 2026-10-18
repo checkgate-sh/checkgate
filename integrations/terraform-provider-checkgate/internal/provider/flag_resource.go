@@ -36,11 +36,11 @@ type flagResource struct {
 // as JSON strings so the full evaluation schema is expressible without the
 // provider having to mirror it attribute-by-attribute.
 type flagModel struct {
-	EnvironmentID     types.String `tfsdk:"environment_id"`
-	Key               types.String `tfsdk:"key"`
-	IsEnabled         types.Bool   `tfsdk:"is_enabled"`
-	RolloutPercentage types.Int64  `tfsdk:"rollout_percentage"`
-	Description       types.String `tfsdk:"description"`
+	EnvironmentID     types.String         `tfsdk:"environment_id"`
+	Key               types.String         `tfsdk:"key"`
+	IsEnabled         types.Bool           `tfsdk:"is_enabled"`
+	RolloutPercentage types.Int64          `tfsdk:"rollout_percentage"`
+	Description       types.String         `tfsdk:"description"`
 	FlagType          types.String         `tfsdk:"flag_type"`
 	DefaultValue      jsontypes.Normalized `tfsdk:"default_value"`
 	DisabledValue     jsontypes.Normalized `tfsdk:"disabled_value"`
