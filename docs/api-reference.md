@@ -1695,6 +1695,11 @@ post-commit work such as audit logging runs concurrently — so clients should i
 older than the revision they hold for that flag (or not newer than the `DELETE` that removed it),
 and a `DELETE` older than the revision they hold. Servers before 0.1.25 send no `revision`.
 
+A segment change counts as a write to every flag that uses the segment: those flags get a new
+revision and are republished with the new rules. The bootstrap replay also includes a `DELETE`
+for each flag deleted in the last day, carrying its last revision, so a client that connects
+after a delete can still reject a delayed event from before it.
+
 ### Event: `ready`
 
 ```

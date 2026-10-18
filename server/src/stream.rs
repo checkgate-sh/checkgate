@@ -71,15 +71,27 @@ pub async fn sse_handler(
     // Read bootstrap before opening the stream. A query failure must not signal an empty, ready store.
     let rx = state.flag_tx.subscribe();
     let mut bootstrap = Vec::new();
+    let mut flag_count = 0usize;
+    // One consistent snapshot: each flag's revision must match the segments it
+    // is expanded with, and a tombstone must not race the flags it shadows.
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     for env_id in &env_ids {
-        let segments = crate::api::segments::load_env_segments(env_id, &state.db)
+        let segments = crate::api::segments::load_env_segments(env_id, &mut *tx)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let rows = sqlx::query(
             "SELECT data, revision FROM flags WHERE environment_id = $1::uuid ORDER BY key",
         )
         .bind(env_id)
-        .fetch_all(&state.db)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         for row in rows {
@@ -93,8 +105,33 @@ pub async fn sse_handler(
                 serde_json::from_value(data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             let flag = crate::api::segments::expand_flag_with_segments(flag, &segments);
             bootstrap.push(crate::api::flags::upsert_message(env_id, &flag, revision));
+            flag_count = flag_count.saturating_add(1);
+        }
+        // Recently deleted flags, so a change event published before the
+        // delete but delivered after this bootstrap can't bring one back.
+        let tombstones = sqlx::query(
+            "SELECT t.key, t.revision FROM flag_tombstones t \
+             WHERE t.environment_id = $1::uuid AND NOT EXISTS ( \
+                 SELECT 1 FROM flags f WHERE f.environment_id = t.environment_id AND f.key = t.key) \
+             ORDER BY t.key",
+        )
+        .bind(env_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        for row in tombstones {
+            let key: String = row
+                .try_get("key")
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let revision: i64 = row
+                .try_get("revision")
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            bootstrap.push(crate::api::flags::delete_message(env_id, &key, revision));
         }
     }
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Register this connection for the SDK health dashboard.
     let connection_id = random_connection_id();
@@ -138,7 +175,6 @@ pub async fn sse_handler(
         .to_string();
         yield Ok(Event::default().event("connected").data(connected_payload));
 
-        let flag_count = bootstrap.len();
         for payload in bootstrap {
             yield Ok(Event::default().event("update").data(payload));
         }

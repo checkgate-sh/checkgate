@@ -355,6 +355,55 @@ async fn sse_live_push_and_local_eval() {
     );
     assert_eq!(deleted, patched, "a DELETE carries the row's last revision");
 
+    // A client that bootstraps after the delete must still learn about it: the
+    // replay includes a tombstone with the deleted row's last revision, so a
+    // delayed event for the flag (revision <= that) can't bring it back.
+    let mut late = open_stream(&base, &sdk_key);
+    let mut replay = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some((event, data)) = late.recv().await {
+            if event == "ready" {
+                break;
+            }
+            replay.push((event, data));
+        }
+    })
+    .await
+    .expect("late client bootstraps");
+    let tombstone = replay
+        .iter()
+        .map(|(_, data)| serde_json::from_str::<Value>(data).unwrap())
+        .find(|msg| msg["type"] == "DELETE" && msg["key"] == "pushed-flag")
+        .expect("bootstrap replays the tombstone of a deleted flag");
+    assert_eq!(tombstone["revision"], deleted);
+    drop(late);
+
+    // A segment edit changes the expanded payload of every flag that uses the
+    // segment, so those flags must be republished under a new revision.
+    anon.post(format!("{base}/api/environments/{env}/segments"))
+        .bearer_auth(&token)
+        .json(&json!({ "key": "staff", "name": "Staff", "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@a.test"] }] }))
+        .send().await.unwrap();
+    anon.post(&flags_url).bearer_auth(&token)
+        .json(&json!({ "key": "staff-flag", "is_enabled": true, "flag_type": "boolean", "rules": [{ "segment_key": "staff" }] }))
+        .send().await.unwrap();
+    let before = revision(&pump_until(&mut rx, &store, "update").await);
+    anon.patch(format!("{base}/api/environments/{env}/segments/staff"))
+        .bearer_auth(&token)
+        .json(&json!({ "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@b.test"] }] }))
+        .send().await.unwrap();
+    let republished = pump_until(&mut rx, &store, "update").await;
+    let msg: Value = serde_json::from_str(&republished).unwrap();
+    assert_eq!(msg["flag"]["key"], "staff-flag");
+    assert!(
+        republished.contains("@b.test") && !republished.contains("@a.test"),
+        "republished with the new segment rules: {republished}"
+    );
+    assert!(
+        revision(&republished) > before,
+        "segment edit gives the flag a new revision"
+    );
+
     // A broken publisher connection must recover: kill every normal Redis
     // client (the server's publisher among them; the subscriber is a pubsub
     // client and survives), then write again. The update must still arrive.

@@ -472,13 +472,7 @@ async fn delete_flag(
     let revision: i64 = row
         .try_get("revision")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let msg = json!({
-        "type": "DELETE",
-        "env_id": path.env_id,
-        "key": path.key,
-        "revision": revision,
-    })
-    .to_string();
+    let msg = delete_message(&path.env_id, &path.key, revision);
     publish_update(&state, &msg, "delete_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
@@ -963,6 +957,12 @@ async fn unarchive_flag(
 /// an SDK can drop an event that arrives after a newer one for the same flag.
 pub(crate) fn upsert_message(env_id: &str, flag: &Flag, revision: i64) -> String {
     json!({"type": "UPSERT", "env_id": env_id, "flag": flag, "revision": revision}).to_string()
+}
+
+/// Serializes a DELETE change event carrying the deleted row's last revision
+/// (the SSE bootstrap also sends one per recent tombstone).
+pub(crate) fn delete_message(env_id: &str, key: &str, revision: i64) -> String {
+    json!({"type": "DELETE", "env_id": env_id, "key": key, "revision": revision}).to_string()
 }
 
 /// Payload telling every SSE handler to drop its clients so they reconnect and

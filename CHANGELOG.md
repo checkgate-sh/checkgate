@@ -33,7 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   directly and the other servers' clients are resynced once Redis is back; servers also resync
   their clients after re-establishing a dropped Redis subscription.
 - Flag change events carry a `revision`, and all SDKs ignore events older than the flag state they
-  hold, so concurrent writes can no longer leave clients on stale configuration.
+  hold, so concurrent writes can no longer leave clients on stale configuration. Segment edits give
+  every flag using the segment a new revision, and the SSE bootstrap replays recent deletions, so
+  a delayed event can't restore a deleted flag on a client that connected after the delete.
+- SDK change listeners fire only after a resync snapshot is fully applied, so a listener never
+  evaluates against a half-updated flag set.
 - SDKs keep evaluating the last complete flag set during a reconnect, swapping in the replay only
   once it is complete. Previously `isReady()` stayed `true` over an emptied store, and a replay cut
   short left a partial flag set live.
