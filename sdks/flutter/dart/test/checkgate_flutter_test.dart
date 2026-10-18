@@ -114,4 +114,111 @@ void main() {
     expect(paths.any((p) => p.endsWith('/impressions')), isTrue);
     expect(paths.any((p) => p.endsWith('/events')), isTrue);
   });
+
+  group('stream resync and ordering', () {
+    void send(CheckgateClient c, String event, Object data) =>
+        c.debugHandleSseEvent(event, jsonEncode(data));
+    void upsert(CheckgateClient c, String key, bool enabled, [int? revision]) =>
+        send(c, 'update', {
+          'type': 'UPSERT',
+          'flag': {'key': key, 'is_enabled': enabled},
+          if (revision != null) 'revision': revision,
+        });
+    bool? enabled(CheckgateClient c, String key) =>
+        c.debugFlags[key]?['is_enabled'] as bool?;
+
+    test('a reconnect keeps serving the last snapshot until "ready"', () {
+      final c = client();
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 1);
+      upsert(c, 'search', true, 2);
+      send(c, 'ready', 2);
+      expect(c.isReady, isTrue);
+
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', false, 3);
+      expect(c.isReady, isTrue);
+      expect(enabled(c, 'checkout'), isTrue, reason: 'old snapshot mid-replay');
+      expect(enabled(c, 'search'), isTrue);
+
+      final changed = <String>[];
+      c.onChange(changed.add);
+      send(c, 'ready', 1);
+      expect(enabled(c, 'checkout'), isFalse);
+      expect(c.debugFlags.containsKey('search'), isFalse);
+      expect(changed..sort(), ['checkout', 'search']);
+    });
+
+    test('a replay cut short by a dropped stream is discarded', () {
+      final c = client();
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 1);
+      send(c, 'ready', 1);
+
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', false, 2);
+      c.debugStreamDropped();
+      send(c, 'ready', 1); // a stray "ready" without a replay changes nothing
+      expect(enabled(c, 'checkout'), isTrue);
+    });
+
+    test('reconnect listeners run after the whole snapshot is applied', () {
+      final c = client();
+      void boot(bool on) {
+        send(c, 'connected', {'environment_id': 'env-1'});
+        upsert(c, 'a-dependent', on, on ? 3 : 1);
+        upsert(c, 'z-base', on, on ? 4 : 2);
+        send(c, 'ready', 2);
+      }
+
+      boot(false);
+      final seen = <String, bool?>{};
+      c.onChange((key) => seen[key] = enabled(c, 'z-base'));
+      boot(true);
+      expect(seen, {'a-dependent': true, 'z-base': true});
+    });
+
+    test('a bootstrap tombstone keeps a delayed older event out', () {
+      final c = client();
+      send(c, 'connected', {'environment_id': 'env-1'});
+      send(c, 'update', {'type': 'DELETE', 'key': 'ghost', 'revision': 7});
+      send(c, 'ready', 0);
+      upsert(c, 'ghost', true, 6);
+      expect(c.debugFlags.containsKey('ghost'), isFalse);
+      upsert(c, 'ghost', true, 8);
+      expect(enabled(c, 'ghost'), isTrue);
+    });
+
+    test('change events older than the applied revision are ignored', () {
+      final c = client();
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', false, 10);
+      send(c, 'ready', 1);
+
+      upsert(c, 'checkout', true, 12);
+      upsert(c, 'checkout', false, 11);
+      expect(enabled(c, 'checkout'), isTrue);
+
+      send(c, 'update', {'type': 'DELETE', 'key': 'checkout', 'revision': 12});
+      upsert(c, 'checkout', true, 12);
+      expect(c.debugFlags.containsKey('checkout'), isFalse);
+      upsert(c, 'checkout', true, 13);
+      expect(enabled(c, 'checkout'), isTrue);
+      send(c, 'update', {'type': 'DELETE', 'key': 'checkout', 'revision': 12});
+      expect(enabled(c, 'checkout'), isTrue);
+
+      upsert(c, 'legacy', true);
+      upsert(c, 'legacy', false);
+      expect(enabled(c, 'legacy'), isFalse);
+    });
+  });
+
+  test('conversions carry the time they happened', () {
+    final c = client()..debugSetEnvironment('env-123');
+    final before = DateTime.now().toUtc();
+    c.track('purchase', 'u1');
+    final at = DateTime.parse(c.debugEvents.single['occurred_at'] as String);
+    expect(at.isBefore(before), isFalse);
+    expect(at.isAfter(DateTime.now().toUtc()), isFalse);
+  });
 }

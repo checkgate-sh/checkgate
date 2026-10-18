@@ -132,7 +132,7 @@ pub fn self_service_router() -> Router<AppState> {
     tokens::self_service_router()
 }
 
-/// SDK ingest routes — any authenticated client; not admin-gated.
+/// SDK ingest routes — authorized per environment inside the handlers.
 /// Placed separately so they can carry a higher body-size limit.
 pub fn ingest_router() -> Router<AppState> {
     impressions::ingest_router().merge(events::ingest_router())

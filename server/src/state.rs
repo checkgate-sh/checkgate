@@ -3,9 +3,10 @@ use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
 use checkgate_core::store::FlagStore;
 use dashmap::DashMap;
-use redis::aio::MultiplexedConnection;
+use redis::aio::ConnectionManager;
 use sqlx::PgPool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::{RwLock, broadcast};
 
 /// A single SDK key row loaded from the database.
@@ -38,8 +39,12 @@ pub struct ConnectedClient {
 pub struct AppState {
     pub db: PgPool,
     pub redis_client: redis::Client,
-    /// Shared multiplexed Redis connection for pub/sub publishes.
-    pub redis_conn: MultiplexedConnection,
+    /// Shared Redis connection for pub/sub publishes. A `ConnectionManager`
+    /// reconnects by itself after the connection breaks.
+    pub redis_conn: ConnectionManager,
+    /// Set while a publish has failed and a `RESYNC` broadcast is still being
+    /// retried (see `flags::publish_update`).
+    pub resync_pending: Arc<AtomicBool>,
     pub store: Arc<FlagStore>,
     /// Broadcast channel: the Redis subscriber pushes payloads here;
     /// each SSE handler subscribes instead of opening its own Redis connection.

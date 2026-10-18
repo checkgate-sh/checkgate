@@ -107,10 +107,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
 
-    // Shared multiplexed connection used for pub/sub publishes from handlers.
-    // MultiplexedConnection is Clone — each handler clones it cheaply.
+    // Shared connection used for pub/sub publishes from handlers. A
+    // ConnectionManager is Clone (handlers clone it cheaply) and, unlike a bare
+    // MultiplexedConnection, replaces itself after the connection breaks.
+    // Short timeouts keep a Redis outage from stalling write requests.
     let redis_conn = redis_client
-        .get_multiplexed_async_connection()
+        .get_connection_manager_with_config(
+            redis::aio::ConnectionManagerConfig::new()
+                .set_connection_timeout(Some(Duration::from_secs(2)))
+                .set_response_timeout(Some(Duration::from_secs(2)))
+                .set_number_of_retries(3)
+                .set_max_delay(Duration::from_secs(2)),
+        )
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to connect to Redis");
@@ -293,6 +301,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let store_ref = Arc::clone(&store);
 
         tokio::spawn(async move {
+            let mut first_subscription = true;
             loop {
                 let mut con = match redis_sub.get_async_pubsub().await {
                     Ok(c) => c,
@@ -310,6 +319,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 info!("Redis subscriber: listening on channel 'checkgate_updates'");
+
+                // Anything published while the subscription was down never
+                // reached this instance, so make every local SSE client
+                // reconnect and re-bootstrap from PostgreSQL.
+                if !first_subscription {
+                    warn!("Redis subscriber: resubscribed — resyncing local SSE clients");
+                    let _ = tx.send(api::flags::RESYNC_MESSAGE.to_string());
+                }
+                first_subscription = false;
 
                 let mut msg_stream = con.into_on_message();
 
@@ -352,6 +370,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     warn!("Redis subscriber: DELETE event missing 'key' field");
                                 }
                             },
+                            Some("RESYNC") => {
+                                info!("Redis: resync requested — SSE clients will reconnect");
+                            }
                             other => {
                                 warn!(event_type = ?other, "Redis subscriber: unknown event type");
                             }
@@ -382,6 +403,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db: db.clone(),
         redis_client,
         redis_conn,
+        resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         store,
         flag_tx,
         sdk_keys,

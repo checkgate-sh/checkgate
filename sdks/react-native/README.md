@@ -15,6 +15,33 @@ npm install @checkgate/react-native
 cd ios && pod install
 ```
 
+### Native setup
+
+The evaluation engine is Rust, shipped as source in the package and compiled
+when you build the app, so the build machine needs a Rust toolchain
+([rustup](https://rustup.rs)):
+
+- **Android:** the Android targets and [cargo-ndk](https://github.com/bbqsrc/cargo-ndk).
+  Gradle runs `cargo ndk` for the ABIs you build (`reactNativeArchitectures`)
+  and links the result into `libcheckgate.so`.
+
+  ```bash
+  rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+  cargo install cargo-ndk
+  ```
+
+- **iOS:** the iOS targets. A CocoaPods build phase compiles the engine for the
+  SDK and architectures Xcode is building.
+
+  ```bash
+  rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+  ```
+
+Autolinking registers the native `Checkgate` module; there is nothing to add to
+`MainApplication` or `AppDelegate`. The client installs its JSI bindings the
+first time it is constructed. If `connect()` rejects with *Native module not
+found*, rebuild the app (and re-run `pod install` on iOS).
+
 ## Quick Start
 
 Plug the incredibly fast evaluating `CheckgateProvider` context or native clients directly into your React Native app.
@@ -24,7 +51,7 @@ import { CheckgateNativeClient } from '@checkgate/react-native'
 
 const client = new CheckgateNativeClient({
   serverUrl: 'https://checkgate.your-company.com',
-  sdkKey: 'pk_mobile_xxxxxx'
+  sdkKey: 'sk_live_xxxxxx'
 })
 
 // Run this during app initialization

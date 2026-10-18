@@ -1,3 +1,10 @@
+## 0.1.25 (Unreleased)
+
+- Reconnects keep evaluating the last complete flag set until the server's
+  replay is finished; a replay cut short is discarded.
+- Change events older than the applied flag revision are ignored.
+- Conversions carry `occurred_at` and impressions `evaluated_at`.
+
 ## 0.1.24 (2026-09-17)
 
 - Release 0.1.24.

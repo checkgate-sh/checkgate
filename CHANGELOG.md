@@ -5,6 +5,59 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.25] - Unreleased
+
+### Security
+
+- **SDK keys are no longer admin credentials.** They ship inside browser and mobile apps, yet
+  every API route accepted them as a workspace admin. An SDK key now only reaches the SDK
+  endpoints — `/stream`, `/flags/snapshot`, reading flags, and reporting impressions and events —
+  and only for the environment it is bound to. **Breaking:** automation that used an SDK key
+  (Terraform, the Kubernetes operator, scripts) must switch to a `read_write` personal access token.
+- Impression and event ingest now authorize the caller: an SDK key for that environment, or a
+  user with write access to it. Previously any authenticated caller, including a viewer from
+  another project or a `read_only` token, could write analytics to any environment.
+
+### Dependencies
+
+- Patched Dependabot and RustSec advisories: rustls 0.23.46, quinn-proto 0.11.19, xxhash-rust
+  0.8.19 (plus the yanked chacha20 and spin releases); vitest 4.1.12, postcss 8.5.30,
+  source-map-js 1.2.2, js-yaml 4.3.2; grpc-go 1.83.1 in the Terraform provider. The React
+  Native SDK no longer installs its `react-native` peer dependency for local development, which
+  removes that tree's advisories from its lockfile.
+
+### Fixed
+
+- A broken Redis publishing connection is replaced automatically instead of failing every later
+  write's SSE update. If a publish still fails, the update reaches this server's SSE clients
+  directly and the other servers' clients are resynced once Redis is back; servers also resync
+  their clients after re-establishing a dropped Redis subscription.
+- Flag change events carry a `revision`, and all SDKs ignore events older than the flag state they
+  hold, so concurrent writes can no longer leave clients on stale configuration. Segment edits give
+  every flag using the segment a new revision, and the SSE bootstrap replays recent deletions, so
+  a delayed event can't restore a deleted flag on a client that connected after the delete.
+- SDK change listeners fire only after a resync snapshot is fully applied, so a listener never
+  evaluates against a half-updated flag set.
+- SDKs keep evaluating the last complete flag set during a reconnect, swapping in the replay only
+  once it is complete. Previously `isReady()` stayed `true` over an emptied store, and a replay cut
+  short left a partial flag set live.
+- SDKs timestamp impressions (`evaluated_at`) and conversions (`occurred_at`) when they happen,
+  so a conversion batch that reaches the server first is no longer dropped from experiment results.
+- Changing a project's default environment no longer fails with HTTP 500, and each project can have
+  its own default (the uniqueness index was global).
+- The dashboard and `checkgate typegen` fetch every page of the flag list instead of stopping at 200.
+- The Go client gains `ReplaceFlag`, which clears fields that are empty in the desired state;
+  Terraform and the Kubernetes operator use it, so removing rules, prerequisites, variants, tags,
+  or a description from configuration now clears them on the server.
+- Segment PATCH accepts `"description": null` to clear the description, and the Go client gains
+  `ReplaceSegment`; Terraform uses it, so a description or rules removed from configuration are
+  cleared on the server.
+- Environment slugs are unique per project instead of across all projects, so a second project
+  can have its own `production`.
+- `@checkgate/react-native` now builds and links its Rust engine (Gradle via `cargo ndk`, CocoaPods
+  via a build phase) and ships the native module that installs its JSI bindings. Building the app
+  needs a Rust toolchain; see the package README.
+
 ## [0.1.24] -  2026-09-17
 
 ### Added

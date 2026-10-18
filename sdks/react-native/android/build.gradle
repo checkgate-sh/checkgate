@@ -10,20 +10,51 @@ buildscript {
 
 apply plugin: "com.android.library"
 
+def safeExtGet(prop, fallback) {
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+// Android ABI → Rust target triple.
+def rustTriples = [
+    "arm64-v8a"  : "aarch64-linux-android",
+    "armeabi-v7a": "armv7-linux-androideabi",
+    "x86"        : "i686-linux-android",
+    "x86_64"     : "x86_64-linux-android",
+]
+// Build only the ABIs the app ships (React Native's `reactNativeArchitectures`).
+def rustAbis = (findProperty("reactNativeArchitectures") ?: rustTriples.keySet().join(","))
+    .split(",")*.trim()
+    .findAll { rustTriples.containsKey(it) }
+def minSdkVersion = safeExtGet("minSdkVersion", 23)
+def rustTargetDir = new File(buildDir, "rust")
+
 android {
     namespace "com.checkgate.reactnative"
-    compileSdk 34
+    compileSdk safeExtGet("compileSdkVersion", 34)
+    if (rootProject.ext.has("ndkVersion")) {
+        ndkVersion rootProject.ext.get("ndkVersion")
+    }
 
     defaultConfig {
-        minSdk 23
-        targetSdk 34
+        minSdk minSdkVersion
+        targetSdk safeExtGet("targetSdkVersion", 34)
+
+        // Build native code for exactly the ABIs buildCheckgateRust compiles.
+        ndk {
+            abiFilters(*rustAbis)
+        }
 
         externalNativeBuild {
             cmake {
                 cppFlags "-O3 -frtti -fexceptions"
-                arguments "-DANDROID_STL=c++_shared"
+                arguments "-DANDROID_STL=c++_shared",
+                    "-DCHECKGATE_RUST_TARGET_DIR=${rustTargetDir.absolutePath}"
             }
         }
+    }
+
+    buildFeatures {
+        prefab true
     }
 
     externalNativeBuild {
@@ -39,6 +70,26 @@ android {
             "**/libfbjni.so"
         ]
     }
+}
+
+// Compile the bundled Rust evaluation engine (../Cargo.toml) into a static
+// library per ABI; CMake links it into libcheckgate.so. Needs a Rust toolchain
+// with the Android targets and cargo-ndk — see the README.
+def buildCheckgateRust = tasks.register("buildCheckgateRust", Exec) {
+    def cargoHome = System.getenv("CARGO_HOME") ?: "${System.getProperty("user.home")}/.cargo"
+    def cargo = new File(cargoHome, "bin/cargo").exists() ? new File(cargoHome, "bin/cargo").absolutePath : "cargo"
+    def command = [cargo, "ndk", "--platform", "${minSdkVersion}"]
+    rustAbis.each { command += ["-t", it] }
+    command += ["build", "--release", "--lib", "--target-dir", rustTargetDir.absolutePath]
+
+    workingDir file("..")
+    commandLine command
+    // Cargo's own fingerprinting decides whether anything needs rebuilding.
+    outputs.upToDateWhen { false }
+}
+
+tasks.named("preBuild") {
+    dependsOn buildCheckgateRust
 }
 
 repositories {

@@ -143,12 +143,13 @@ fn open_stream(base: &str, sdk_key: &str) -> mpsc::UnboundedReceiver<SseEvent> {
 }
 
 /// Await the next event of a given name, applying any UPSERT/DELETE deltas seen
-/// along the way to `store`. Times out so a missing event fails instead of hanging.
+/// along the way to `store`, and return that event's data. Times out so a
+/// missing event fails instead of hanging.
 async fn pump_until(
     rx: &mut mpsc::UnboundedReceiver<SseEvent>,
     store: &FlagStore,
     want_event: &str,
-) {
+) -> String {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -158,7 +159,7 @@ async fn pump_until(
             .expect("sse channel closed");
         apply_event(store, &event, &data);
         if event == want_event {
-            return;
+            return data;
         }
     }
 }
@@ -184,6 +185,38 @@ fn apply_event(store: &FlagStore, event: &str, data: &str) {
         }
         _ => {}
     }
+}
+
+fn revision(data: &str) -> i64 {
+    serde_json::from_str::<Value>(data).unwrap()["revision"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("change event carries a revision: {data}"))
+}
+
+/// Waits for the server to close the SSE stream (the open_stream task drops
+/// its sender when the response body ends).
+async fn wait_closed(rx: &mut mpsc::UnboundedReceiver<SseEvent>) {
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while rx.recv().await.is_some() {}
+    })
+    .await
+    .expect("server should close the SSE stream to force a resync");
+}
+
+async fn kill_redis_clients(redis_url: &str, client_type: &str) {
+    let mut conn = redis::Client::open(redis_url)
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let killed: i64 = redis::cmd("CLIENT")
+        .arg("KILL")
+        .arg("TYPE")
+        .arg(client_type)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert!(killed > 0, "killed at least one {client_type} Redis client");
 }
 
 fn eval(store: &FlagStore, key: &str) -> bool {
@@ -231,6 +264,10 @@ async fn sse_live_push_and_local_eval() {
     wait_healthy(&base).await;
 
     let anon = reqwest::Client::new();
+    let session = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .unwrap();
 
     // Grab the seeded SDK key + env, complete setup.
     let key_body: Value = anon
@@ -243,15 +280,27 @@ async fn sse_live_push_and_local_eval() {
         .unwrap();
     let sdk_key = key_body["key"].as_str().unwrap().to_string();
     let env = key_body["environment_id"].as_str().unwrap().to_string();
-    anon.post(format!("{base}/api/setup/complete"))
+    session.post(format!("{base}/api/setup/complete"))
         .header("X-Checkgate-Request", "true")
         .json(&json!({ "workspace_name": "E2E", "project_name": "P", "name": "A", "email": "a@e.test", "password": "supersecret1" }))
         .send().await.unwrap();
+    // SDK keys can't manage flags, so the "dashboard" side uses an admin PAT.
+    let token_body: Value = session
+        .post(format!("{base}/api/tokens"))
+        .header("X-Checkgate-Request", "true")
+        .json(&json!({ "name": "e2e", "scope": "read_write" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = token_body["token"].as_str().unwrap().to_string();
 
     let flags_url = format!("{base}/api/environments/{env}/flags");
 
     // A flag that exists before the SDK connects — it must arrive in the bootstrap replay.
-    anon.post(&flags_url).bearer_auth(&sdk_key)
+    anon.post(&flags_url).bearer_auth(&token)
         .json(&json!({ "key": "bootstrap-flag", "is_enabled": true, "rollout_percentage": 100, "flag_type": "boolean", "rules": [] }))
         .send().await.unwrap();
 
@@ -267,10 +316,10 @@ async fn sse_live_push_and_local_eval() {
     );
 
     // Now push a NEW flag over REST — it must arrive as a live SSE update.
-    anon.post(&flags_url).bearer_auth(&sdk_key)
+    anon.post(&flags_url).bearer_auth(&token)
         .json(&json!({ "key": "pushed-flag", "is_enabled": true, "rollout_percentage": 100, "flag_type": "boolean", "rules": [] }))
         .send().await.unwrap();
-    pump_until(&mut rx, &store, "update").await;
+    let created = revision(&pump_until(&mut rx, &store, "update").await);
     assert!(
         eval(&store, "pushed-flag"),
         "live-pushed flag should evaluate true"
@@ -278,28 +327,155 @@ async fn sse_live_push_and_local_eval() {
 
     // Disable it via REST — the update propagates and local eval flips to false.
     anon.patch(format!("{flags_url}/pushed-flag"))
-        .bearer_auth(&sdk_key)
+        .bearer_auth(&token)
+        .json(&json!({ "is_enabled": false }))
+        .send()
+        .await
+        .unwrap();
+    let patched = revision(&pump_until(&mut rx, &store, "update").await);
+    assert!(
+        !eval(&store, "pushed-flag"),
+        "disabled flag should evaluate false"
+    );
+    assert!(
+        patched > created,
+        "revisions increase: {created} → {patched}"
+    );
+
+    // Delete it — the DELETE removes it from the local store entirely.
+    anon.delete(format!("{flags_url}/pushed-flag"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    let deleted = revision(&pump_until(&mut rx, &store, "update").await);
+    assert!(
+        store.get_flag("pushed-flag").is_none(),
+        "deleted flag should be gone from the local store"
+    );
+    assert_eq!(deleted, patched, "a DELETE carries the row's last revision");
+
+    // A client that bootstraps after the delete must still learn about it: the
+    // replay includes a tombstone with the deleted row's last revision, so a
+    // delayed event for the flag (revision <= that) can't bring it back.
+    let mut late = open_stream(&base, &sdk_key);
+    let mut replay = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some((event, data)) = late.recv().await {
+            if event == "ready" {
+                break;
+            }
+            replay.push((event, data));
+        }
+    })
+    .await
+    .expect("late client bootstraps");
+    let tombstone = replay
+        .iter()
+        .map(|(_, data)| serde_json::from_str::<Value>(data).unwrap())
+        .find(|msg| msg["type"] == "DELETE" && msg["key"] == "pushed-flag")
+        .expect("bootstrap replays the tombstone of a deleted flag");
+    assert_eq!(tombstone["revision"], deleted);
+    drop(late);
+
+    // A segment edit changes the expanded payload of every flag that uses the
+    // segment, so those flags must be republished under a new revision.
+    anon.post(format!("{base}/api/environments/{env}/segments"))
+        .bearer_auth(&token)
+        .json(&json!({ "key": "staff", "name": "Staff", "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@a.test"] }] }))
+        .send().await.unwrap();
+    anon.post(&flags_url).bearer_auth(&token)
+        .json(&json!({ "key": "staff-flag", "is_enabled": true, "flag_type": "boolean", "rules": [{ "segment_key": "staff" }] }))
+        .send().await.unwrap();
+    let before = revision(&pump_until(&mut rx, &store, "update").await);
+    anon.patch(format!("{base}/api/environments/{env}/segments/staff"))
+        .bearer_auth(&token)
+        .json(&json!({ "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@b.test"] }] }))
+        .send().await.unwrap();
+    let republished = pump_until(&mut rx, &store, "update").await;
+    let msg: Value = serde_json::from_str(&republished).unwrap();
+    assert_eq!(msg["flag"]["key"], "staff-flag");
+    assert!(
+        republished.contains("@b.test") && !republished.contains("@a.test"),
+        "republished with the new segment rules: {republished}"
+    );
+    assert!(
+        revision(&republished) > before,
+        "segment edit gives the flag a new revision"
+    );
+
+    // A flag write that starts referencing the segment while a segment edit is
+    // in flight must not be left on the old rules. Hold such a write open (the
+    // environment share lock every flag write takes, plus an uncommitted
+    // insert): the segment edit has to wait for it, then republish it too.
+    let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+    let mut flag_write = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM environments WHERE id = $1::uuid FOR SHARE")
+        .bind(&env)
+        .execute(&mut *flag_write)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO flags (key, environment_id, data) VALUES ('race-flag', $1::uuid, $2)")
+        .bind(&env)
+        .bind(json!({ "key": "race-flag", "is_enabled": true, "flag_type": "boolean", "rules": [{ "segment_key": "staff" }] }))
+        .execute(&mut *flag_write)
+        .await
+        .unwrap();
+    let segment_edit = tokio::spawn({
+        let (anon, url, token) = (
+            anon.clone(),
+            format!("{base}/api/environments/{env}/segments/staff"),
+            token.clone(),
+        );
+        async move {
+            anon.patch(url)
+                .bearer_auth(token)
+                .json(&json!({ "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@c.test"] }] }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !segment_edit.is_finished(),
+        "segment edit waits for in-flight flag writes"
+    );
+    flag_write.commit().await.unwrap();
+    assert_eq!(segment_edit.await.unwrap(), 200);
+    let raced = loop {
+        let data = pump_until(&mut rx, &store, "update").await;
+        if serde_json::from_str::<Value>(&data).unwrap()["flag"]["key"] == "race-flag" {
+            break data;
+        }
+    };
+    assert!(
+        raced.contains("@c.test"),
+        "the concurrently written flag is republished with the new rules: {raced}"
+    );
+    pool.close().await;
+
+    // A broken publisher connection must recover: kill every normal Redis
+    // client (the server's publisher among them; the subscriber is a pubsub
+    // client and survives), then write again. The update must still arrive.
+    kill_redis_clients(&redis_url, "normal").await;
+    anon.patch(format!("{flags_url}/bootstrap-flag"))
+        .bearer_auth(&token)
         .json(&json!({ "is_enabled": false }))
         .send()
         .await
         .unwrap();
     pump_until(&mut rx, &store, "update").await;
     assert!(
-        !eval(&store, "pushed-flag"),
-        "disabled flag should evaluate false"
+        !eval(&store, "bootstrap-flag"),
+        "update published after the publisher connection was killed"
     );
 
-    // Delete it — the DELETE removes it from the local store entirely.
-    anon.delete(format!("{flags_url}/pushed-flag"))
-        .bearer_auth(&sdk_key)
-        .send()
-        .await
-        .unwrap();
-    pump_until(&mut rx, &store, "update").await;
-    assert!(
-        store.get_flag("pushed-flag").is_none(),
-        "deleted flag should be gone from the local store"
-    );
+    // Losing the subscription drops events published meanwhile, so once it is
+    // re-established the server closes SSE streams to force a re-bootstrap.
+    kill_redis_clients(&redis_url, "pubsub").await;
+    wait_closed(&mut rx).await;
 
     eprintln!("e2e: sse_live_push_and_local_eval passed");
 }

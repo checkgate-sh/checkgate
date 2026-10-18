@@ -48,7 +48,7 @@ func (p *checkgateProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 				Optional:            true,
 			},
 			"token": schema.StringAttribute{
-				MarkdownDescription: "A Checkgate personal access token with `read_write` scope (or an SDK key). May also be set via the `CHECKGATE_TOKEN` environment variable.",
+				MarkdownDescription: "A Checkgate personal access token with `read_write` scope. May also be set via the `CHECKGATE_TOKEN` environment variable.",
 				Optional:            true,
 				Sensitive:           true,
 			},

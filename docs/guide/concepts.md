@@ -321,7 +321,7 @@ User sessions are stored in an HttpOnly, AES-256-GCM encrypted cookie with a 7-d
 
 ## SDK Keys
 
-SDK keys (`sk_live_...`) authenticate SDK clients and programmatic API access. Each key is tied to a specific **environment** — so the key implicitly identifies both the project and the environment that SDK clients will receive flags from.
+SDK keys (`sk_live_...`) authenticate SDK clients. Each key is tied to a specific **environment** — so the key implicitly identifies both the project and the environment that SDK clients will receive flags from. SDK keys ship inside apps, so they only reach the SDK endpoints (streaming and reading that environment's flags, reporting its impressions and events); programmatic API access uses a personal access token.
 
 - Keys are managed from the **Project Settings → SDK Keys** tab
 - Multiple keys per project are supported (e.g. one per service or platform)

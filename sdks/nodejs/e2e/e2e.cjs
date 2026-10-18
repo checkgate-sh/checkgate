@@ -20,13 +20,14 @@ const BASE = process.env.CHECKGATE_URL || 'http://127.0.0.1:3000'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function api(method, path, { token, body } = {}) {
+async function api(method, path, { token, cookie, body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
       'X-Checkgate-Request': 'true',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(cookie ? { Cookie: cookie } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   })
@@ -54,11 +55,23 @@ async function main() {
   })
   assert.equal(setupRes.status, 200, 'POST /api/setup/complete')
 
+  // SDK keys can't manage flags, so the "dashboard" side of this test uses an
+  // admin personal access token, minted with the setup session.
+  const cookie = setupRes.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ')
+  const tokenRes = await api('POST', '/api/tokens', { cookie, body: { name: 'e2e', scope: 'read_write' } })
+  assert.equal(tokenRes.status, 200, 'POST /api/tokens')
+  const { token: adminToken } = await tokenRes.json()
+  assert.equal(
+    (await api('POST', `/api/environments/${env}/flags`, { token: sdkKey, body: { key: 'sdk-key-write', is_enabled: true, rules: [] } })).status,
+    403,
+    'an SDK key cannot create flags',
+  )
+
   const flags = `/api/environments/${env}/flags`
 
   // 2. A flag that exists before the SDK connects — must arrive in the bootstrap.
   assert.equal(
-    (await api('POST', flags, { token: sdkKey, body: { key: 'bootstrap-flag', is_enabled: true, rollout_percentage: 100, flag_type: 'boolean', rules: [] } })).status,
+    (await api('POST', flags, { token: adminToken, body: { key: 'bootstrap-flag', is_enabled: true, rollout_percentage: 100, flag_type: 'boolean', rules: [] } })).status,
     200,
     'create bootstrap-flag',
   )
@@ -70,15 +83,15 @@ async function main() {
     assert.equal(client.isEnabled('bootstrap-flag', 'user-1'), true, 'bootstrap flag evaluates true after SSE replay')
 
     // 4. Create a NEW flag over REST — it must propagate to the SDK via SSE.
-    await api('POST', flags, { token: sdkKey, body: { key: 'pushed-flag', is_enabled: true, rollout_percentage: 100, flag_type: 'boolean', rules: [] } })
+    await api('POST', flags, { token: adminToken, body: { key: 'pushed-flag', is_enabled: true, rollout_percentage: 100, flag_type: 'boolean', rules: [] } })
     await waitFor('pushed-flag → enabled locally', () => client.isEnabled('pushed-flag', 'user-1') === true)
 
     // 5. Disable it over REST — the change propagates and local eval flips.
-    await api('PATCH', `${flags}/pushed-flag`, { token: sdkKey, body: { is_enabled: false } })
+    await api('PATCH', `${flags}/pushed-flag`, { token: adminToken, body: { is_enabled: false } })
     await waitFor('pushed-flag → disabled locally', () => client.isEnabled('pushed-flag', 'user-1') === false)
 
     // 6. A variant flag + getValue round-trip.
-    await api('POST', flags, { token: sdkKey, body: { key: 'color', is_enabled: true, rollout_percentage: 100, flag_type: 'string', default_value: 'blue', rules: [] } })
+    await api('POST', flags, { token: adminToken, body: { key: 'color', is_enabled: true, rollout_percentage: 100, flag_type: 'string', default_value: 'blue', rules: [] } })
     await waitFor('color flag present locally', () => client.getVariant('color', 'user-1') !== null)
     assert.equal(client.getValue('color', 'user-1', {}, 'fallback'), 'blue', 'string flag value evaluates locally')
 

@@ -71,28 +71,67 @@ pub async fn sse_handler(
     // Read bootstrap before opening the stream. A query failure must not signal an empty, ready store.
     let rx = state.flag_tx.subscribe();
     let mut bootstrap = Vec::new();
+    let mut flag_count = 0usize;
+    // One consistent snapshot: each flag's revision must match the segments it
+    // is expanded with, and a tombstone must not race the flags it shadows.
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     for env_id in &env_ids {
-        let segments = crate::api::segments::load_env_segments(env_id, &state.db)
+        let segments = crate::api::segments::load_env_segments(env_id, &mut *tx)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let rows =
-            sqlx::query("SELECT data FROM flags WHERE environment_id = $1::uuid ORDER BY key")
-                .bind(env_id)
-                .fetch_all(&state.db)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let rows = sqlx::query(
+            "SELECT data, revision FROM flags WHERE environment_id = $1::uuid ORDER BY key",
+        )
+        .bind(env_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         for row in rows {
             let data: serde_json::Value = row
                 .try_get("data")
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let revision: i64 = row
+                .try_get("revision")
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             let flag =
                 serde_json::from_value(data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             let flag = crate::api::segments::expand_flag_with_segments(flag, &segments);
-            bootstrap.push(
-                serde_json::json!({"type":"UPSERT", "env_id":env_id, "flag":flag}).to_string(),
-            );
+            bootstrap.push(crate::api::flags::upsert_message(env_id, &flag, revision));
+            flag_count = flag_count.saturating_add(1);
+        }
+        // Recently deleted flags, so a change event published before the
+        // delete but delivered after this bootstrap can't bring one back.
+        let tombstones = sqlx::query(
+            "SELECT t.key, t.revision FROM flag_tombstones t \
+             WHERE t.environment_id = $1::uuid AND NOT EXISTS ( \
+                 SELECT 1 FROM flags f WHERE f.environment_id = t.environment_id AND f.key = t.key) \
+             ORDER BY t.key",
+        )
+        .bind(env_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        for row in tombstones {
+            let key: String = row
+                .try_get("key")
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let revision: i64 = row
+                .try_get("revision")
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            bootstrap.push(crate::api::flags::delete_message(env_id, &key, revision));
         }
     }
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Register this connection for the SDK health dashboard.
     let connection_id = random_connection_id();
@@ -136,7 +175,6 @@ pub async fn sse_handler(
         .to_string();
         yield Ok(Event::default().event("connected").data(connected_payload));
 
-        let flag_count = bootstrap.len();
         for payload in bootstrap {
             yield Ok(Event::default().event("update").data(payload));
         }
@@ -156,8 +194,17 @@ pub async fn sse_handler(
         loop {
             match rx.recv().await {
                 Ok(payload) => {
-                    let should_forward = serde_json::from_str::<serde_json::Value>(&payload)
-                        .ok().and_then(|v| v.get("env_id").and_then(|e| e.as_str())
+                    let event = serde_json::from_str::<serde_json::Value>(&payload).ok();
+                    if event.as_ref().and_then(|v| v.get("type")).and_then(|t| t.as_str())
+                        == Some("RESYNC")
+                    {
+                        info!(
+                            client_ip = %client_ip,
+                            "SSE resync requested — closing connection to trigger reconnect"
+                        );
+                        break;
+                    }
+                    let should_forward = event.and_then(|v| v.get("env_id").and_then(|e| e.as_str())
                             .map(|env| allowed_envs.contains(env))).unwrap_or(false);
                     if should_forward {
                         yield Ok(Event::default().event("update").data(payload));

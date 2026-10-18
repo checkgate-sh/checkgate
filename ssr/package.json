@@ -1,6 +1,6 @@
 {
   "name": "@checkgate/ssr",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "description": "Server-side rendering & bootstrap helpers for Checkgate — evaluate flags on the server, embed the result in the HTML, and hydrate the client with zero flag flicker (Next.js, Remix, SvelteKit, any SSR framework).",
   "type": "module",
   "main": "src/index.js",

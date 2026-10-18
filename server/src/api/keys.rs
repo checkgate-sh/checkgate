@@ -82,7 +82,7 @@ async fn can_access_project(
     project_id: &str,
 ) -> Result<(), StatusCode> {
     let Some(claims) = get_session_claims(jar) else {
-        return Ok(()); // SDK key auth
+        return Err(StatusCode::FORBIDDEN); // SDK keys are confined to the SDK routes
     };
     if claims.role == "admin" {
         return Ok(());
@@ -113,7 +113,7 @@ async fn can_admin_project(
     project_id: &str,
 ) -> Result<(), StatusCode> {
     let Some(claims) = get_session_claims(jar) else {
-        return Ok(());
+        return Err(StatusCode::FORBIDDEN); // SDK keys are confined to the SDK routes
     };
     if claims.role == "admin" {
         return Ok(());

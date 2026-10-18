@@ -19,8 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	checkgate "github.com/checkgate-sh/checkgate/integrations/checkgate-go"
 	flagsv1alpha1 "github.com/checkgate-sh/checkgate-operator/api/v1alpha1"
+	checkgate "github.com/checkgate-sh/checkgate/integrations/checkgate-go"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -37,7 +37,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 
 // recorder counts the API calls the reconciler makes to a fake Checkgate server.
 type recorder struct {
-	mu                       sync.Mutex
+	mu                         sync.Mutex
 	gets, posts, patches, dels int
 }
 

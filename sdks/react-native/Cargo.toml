@@ -4,7 +4,8 @@ version.workspace = true
 license.workspace = true
 edition = "2021"
 
-# Produces both a dynamic lib (Android .so) and a static lib (iOS .a)
+# The staticlib is what the app links: Gradle (cargo ndk) links it into
+# libcheckgate.so on Android, and the CocoaPods build phase into the app on iOS.
 [lib]
 name = "checkgate_rn"
 crate-type = ["cdylib", "staticlib"]
