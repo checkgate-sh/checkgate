@@ -25,11 +25,18 @@ Authorization: Bearer pat_your_personal_access_token
 
 or an active session cookie set by `POST /api/auth/login`.
 
-An SDK key is always admin-equivalent, intended for the SDKs themselves. A
-personal access token (see [Personal Access Tokens](#personal-access-tokens))
-instead acts *as its owning user* — same role, same project memberships —
-and can be capped to read-only, making it the right choice for CI/CD,
-Terraform, or any script that shouldn't hold blanket admin access.
+An SDK key is for the SDKs themselves and ships inside browser and mobile
+apps, so treat it as public. It only reaches the SDK endpoints, and only for
+the environment it is bound to: the [SSE stream](#sse-stream), the
+[flags snapshot](#flags-snapshot-poll-fallback), reading flags
+(`GET /api/environments/{env_id}/flags[/{key}]`), and reporting
+[impressions](#ingest-impressions) and [events](#ingest-events). Every other
+endpoint returns `403` for an SDK key.
+
+For CI/CD, Terraform, the Kubernetes operator, or any other automation, use a
+personal access token (see [Personal Access Tokens](#personal-access-tokens)):
+it acts *as its owning user* — same role, same project memberships — and can
+be capped to read-only.
 
 Dashboard mutation requests also require:
 
@@ -775,7 +782,7 @@ Authorization: Bearer sk_live_your_key
 Content-Type: application/json
 ```
 
-Reports a batch of flag evaluation events from an SDK client. Authenticated with an SDK key; does not require admin role. CSRF header not required for Bearer-authenticated requests.
+Reports a batch of flag evaluation events from an SDK client. Accepts an SDK key bound to `env_id`, or a user (session or `read_write` token) with write access to the environment — viewers and `read_only` tokens get `403`. CSRF header not required for Bearer-authenticated requests.
 
 **Request Body** — array of up to 500 impression objects
 
@@ -797,7 +804,7 @@ Reports a batch of flag evaluation events from an SDK client. Authenticated with
 | `user_id` | `string \| null` | No | User identifier; `null` for anonymous |
 | `value` | `string` | Yes | Evaluation result (e.g. `"true"`, `"false"`) |
 | `context` | `object \| null` | No | Evaluation context attributes |
-| `evaluated_at` | ISO-8601 string | No | Defaults to server receive time |
+| `evaluated_at` | ISO-8601 string | No | When the evaluation happened. Defaults to server receive time; the SDKs always send it, so experiment attribution doesn't depend on which batch arrives first |
 
 **Response** `204 No Content`
 
@@ -1106,7 +1113,7 @@ Authorization: Bearer sk_live_your_key
 Content-Type: application/json
 ```
 
-Authenticated with an SDK key; does not require admin role. CSRF header not required for Bearer-authenticated requests.
+Accepts an SDK key bound to `env_id`, or a user (session or `read_write` token) with write access to the environment — viewers and `read_only` tokens get `403`. CSRF header not required for Bearer-authenticated requests.
 
 **Request Body** — array of up to 500 event objects
 
@@ -1666,21 +1673,27 @@ data: {"environment_id":"<uuid>"}
 ```
 
 Sent once when the connection is established. `environment_id` is `null` for session-cookie
-(dashboard) connections, which aren't scoped to a single environment. SDK clients should clear
-their local store on receiving this event to prepare for a clean bootstrap, and use
-`environment_id` to route impression reporting (`POST /api/environments/{environment_id}/impressions`).
+(dashboard) connections, which aren't scoped to a single environment. SDK clients should start
+staging the bootstrap replay that follows (keeping their current flags live until `ready`), and
+use `environment_id` to route impression reporting (`POST /api/environments/{environment_id}/impressions`).
 
 ### Event: `update`
 
 ```
 event: update
-data: {"type":"UPSERT","env_id":"<uuid>","flag":{"key":"my-flag","is_enabled":true,...}}
+data: {"type":"UPSERT","env_id":"<uuid>","flag":{"key":"my-flag","is_enabled":true,...},"revision":41}
 ```
 
 ```
 event: update
-data: {"type":"DELETE","env_id":"<uuid>","key":"my-flag"}
+data: {"type":"DELETE","env_id":"<uuid>","key":"my-flag","revision":42}
 ```
+
+Every event carries the flag's `revision`. Each write to a flag gets a higher one, and a
+`DELETE` carries the deleted row's last revision. Change events can arrive out of order —
+post-commit work such as audit logging runs concurrently — so clients should ignore an `UPSERT`
+older than the revision they hold for that flag (or not newer than the `DELETE` that removed it),
+and a `DELETE` older than the revision they hold. Servers before 0.1.25 send no `revision`.
 
 ### Event: `ready`
 
@@ -1705,11 +1718,17 @@ Sent every 15 seconds to prevent proxy timeouts.
 
 If the SSE connection drops, clients should reconnect with exponential backoff. On reconnect:
 
-1. Server sends `connected` → SDK clears local store
-2. Server replays all current flags for the environment → SDK rebuilds from scratch
-3. Server sends `ready` → SDK resolves `connect()` again if it hadn't already
+1. Server sends `connected` → SDK starts staging a fresh copy, still evaluating the old one
+2. Server replays all current flags for the environment → SDK collects them in the staged copy
+3. Server sends `ready` → SDK swaps the staged copy in as a whole, and resolves `connect()` if it
+   hadn't already
 
-This guarantees consistency even after missed updates during the disconnected period.
+This guarantees consistency even after missed updates during the disconnected period, and a
+replay cut short by another disconnect never replaces a complete flag set with a partial one.
+
+The server also closes streams itself to force this resync when it may have missed updates:
+after its Redis subscription is re-established, or once Redis is reachable again after a
+failed publish.
 
 ---
 
