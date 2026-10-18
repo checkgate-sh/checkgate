@@ -207,3 +207,99 @@ test('overlapping polls share a request and disconnect invalidates its response'
     expect(client._flagCache.size).toEqual(0);
     expect(client.isReady()).toEqual(false);
 });
+
+// --- Reconnect staging, event ordering, and occurrence timestamps ----------
+
+class FakeEventSource {
+  constructor(url, opts) { this.url = url; this.opts = opts; this.closed = false; this.listeners = {} }
+  addEventListener(name, fn) { this.listeners[name] = fn }
+  emit(name, data) { this.listeners[name]({ data: JSON.stringify(data) }) }
+  close() { this.closed = true }
+}
+
+function connectedClient() {
+  vi.stubGlobal('EventSource', FakeEventSource)
+  const client = newClient({ reportImpressions: false })
+  client.core = fakeCore()
+  client._connectDeltas()
+  return client
+}
+
+function bootstrap(client, flags, envId = 'env-1') {
+  client.sse.emit('connected', { environment_id: envId })
+  for (const [flag, revision] of flags) {
+    client.sse.emit('update', { type: 'UPSERT', env_id: envId, flag, revision })
+  }
+  client.sse.emit('ready', flags.length)
+}
+
+describe('stream resync and ordering', () => {
+  test('a reconnect keeps serving the last snapshot until the replay is complete', () => {
+    const client = connectedClient()
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'search', is_enabled: true }, 2]])
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+
+    client.sse.emit('connected', { environment_id: 'env-1' })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 3 })
+    expect(client.isReady()).toBe(true)
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+    expect(client.isEnabled('search', 'u')).toBe(true)
+
+    const changed = []
+    client.onChange((key) => changed.push(key))
+    client.sse.emit('ready', 1)
+    expect(client.isEnabled('checkout', 'u')).toBe(false)
+    expect(client.isEnabled('search', 'u')).toBe(false)
+    expect(changed.sort()).toEqual(['checkout', 'search'])
+    client.disconnect()
+  })
+
+  test('a replay cut short by a dropped stream is discarded', () => {
+    const client = connectedClient()
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'search', is_enabled: true }, 2]])
+    client.sse.emit('connected', { environment_id: 'env-1' })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 3 })
+    client._scheduleReconnect()
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+    expect(client.isEnabled('search', 'u')).toBe(true)
+    expect(client._staged).toBe(null)
+    client.disconnect()
+  })
+
+  test('change events older than the applied revision are ignored', () => {
+    const client = connectedClient()
+    bootstrap(client, [[{ key: 'checkout', is_enabled: false }, 10]])
+    const update = (flag, revision) => client.sse.emit('update', { type: 'UPSERT', flag, revision })
+
+    update({ key: 'checkout', is_enabled: true }, 12)
+    update({ key: 'checkout', is_enabled: false }, 11)
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 12 })
+    update({ key: 'checkout', is_enabled: true }, 12)
+    expect(client._flagCache.has('checkout')).toBe(false)
+    update({ key: 'checkout', is_enabled: true }, 13)
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 12 })
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+
+    update({ key: 'legacy', is_enabled: true })
+    update({ key: 'legacy', is_enabled: false })
+    expect(client.isEnabled('legacy', 'u')).toBe(false)
+    client.disconnect()
+  })
+
+  test('impressions and conversions carry the time they happened', () => {
+    const client = ready(newClient())
+    client.core.upsert_flag_v2(JSON.stringify({ key: 'f', is_enabled: true }))
+    const before = Date.now()
+    client.isEnabled('f', 'u1')
+    client.track('purchase', 'u1')
+    for (const stamp of [client._impressions[0].evaluated_at, client._events[0].occurred_at]) {
+      const at = Date.parse(stamp)
+      expect(at).toBeGreaterThanOrEqual(before)
+      expect(at).toBeLessThanOrEqual(Date.now())
+    }
+  })
+})

@@ -269,3 +269,97 @@ test('overlapping polls share a request and disconnect invalidates its response'
     assert.equal(client._flagCache.size, 0);
     assert.equal(client.isReady(), false);
 });
+
+// --- Reconnect staging, event ordering, and occurrence timestamps ----------
+
+function connectedClient(opts = {}) {
+    const client = newClient({ reportImpressions: false, ...opts });
+    client._connectDeltas();
+    return client;
+}
+
+function bootstrap(client, flags, envId = 'env-1') {
+    client.sse.emit('connected', { environment_id: envId });
+    for (const [flag, revision] of flags) {
+        client.sse.emit('update', { type: 'UPSERT', env_id: envId, flag, revision });
+    }
+    client.sse.emit('ready', flags.length);
+}
+
+test('a reconnect keeps serving the last snapshot until the replay is complete', () => {
+    const client = connectedClient();
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'search', is_enabled: true }, 2]]);
+    assert.equal(client.isEnabled('checkout', 'u'), true);
+
+    // The stream drops and reconnects: during the replay nothing changes.
+    client.sse.emit('connected', { environment_id: 'env-1' });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 3 });
+    assert.equal(client.isReady(), true);
+    assert.equal(client.isEnabled('checkout', 'u'), true, 'old snapshot still live mid-replay');
+    assert.equal(client.isEnabled('search', 'u'), true);
+
+    // "ready" swaps the replay in as a whole; flags missing from it are gone.
+    const changed = [];
+    client.onChange((key) => changed.push(key));
+    client.sse.emit('ready', 1);
+    assert.equal(client.isEnabled('checkout', 'u'), false);
+    assert.equal(client.isEnabled('search', 'u'), false);
+    assert.deepEqual(changed.sort(), ['checkout', 'search']);
+    client.disconnect();
+});
+
+test('a replay cut short by a dropped stream is discarded', () => {
+    const client = connectedClient();
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'search', is_enabled: true }, 2]]);
+
+    client.sse.emit('connected', { environment_id: 'env-1' });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 3 });
+    client._scheduleReconnect(); // the connection drops before "ready"
+    assert.equal(client.isEnabled('checkout', 'u'), true);
+    assert.equal(client.isEnabled('search', 'u'), true);
+    assert.equal(client._staged, null);
+    client.disconnect();
+});
+
+test('change events older than the applied revision are ignored', () => {
+    const client = connectedClient();
+    bootstrap(client, [[{ key: 'checkout', is_enabled: false }, 10]]);
+    const update = (flag, revision) => client.sse.emit('update', { type: 'UPSERT', flag, revision });
+
+    // Two writes committed as 11 then 12 but published in the opposite order.
+    update({ key: 'checkout', is_enabled: true }, 12);
+    update({ key: 'checkout', is_enabled: false }, 11);
+    assert.equal(client.isEnabled('checkout', 'u'), true, 'revision 11 arrived late and is dropped');
+
+    // A late upsert cannot resurrect a deleted flag; a newer re-create can.
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 12 });
+    update({ key: 'checkout', is_enabled: true }, 12);
+    assert.equal(client._flagCache.has('checkout'), false);
+    update({ key: 'checkout', is_enabled: true }, 13);
+    assert.equal(client.isEnabled('checkout', 'u'), true);
+
+    // A delete older than a re-create does not remove it.
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 12 });
+    assert.equal(client.isEnabled('checkout', 'u'), true);
+
+    // Servers without revisions keep the old apply-everything behaviour.
+    update({ key: 'legacy', is_enabled: true });
+    update({ key: 'legacy', is_enabled: false });
+    assert.equal(client.isEnabled('legacy', 'u'), false);
+    client.disconnect();
+});
+
+test('impressions and conversions carry the time they happened', () => {
+    const client = newClient();
+    client._hydrated = true;
+    client._envId = 'env-123';
+    client.core.upsertFlagV2(JSON.stringify({ key: 'f', is_enabled: true }));
+    const before = Date.now();
+    client.isEnabled('f', 'u1');
+    client.track('purchase', 'u1');
+    for (const stamp of [client._impressions[0].evaluated_at, client._events[0].occurred_at]) {
+        const at = Date.parse(stamp);
+        assert.ok(at >= before && at <= Date.now(), `timestamp ${stamp} is the occurrence time`);
+    }
+    client.disconnect();
+});

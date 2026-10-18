@@ -7,6 +7,18 @@ const { CheckgateCore } = require('./native-binding.js');
 // eventsource v4 exports EventSource as a named export, not a default export.
 const { EventSource } = require('eventsource');
 
+/**
+ * Whether a change event is older than what the client already holds for that
+ * flag. Change events carry the flag row's revision and can arrive out of
+ * order; events from servers that predate revisions (no number) always apply.
+ * After a delete, only a strictly newer upsert may bring the flag back.
+ */
+function isStaleEvent(known, revision, isUpsert) {
+    if (!known || typeof revision !== 'number') return false;
+    if (isUpsert && known.deleted) return revision <= known.revision;
+    return revision < known.revision;
+}
+
 class CheckgateClient {
     /**
      * @param {Object} options
@@ -46,7 +58,12 @@ class CheckgateClient {
         this.maxReconnectDelayMs = maxReconnectDelayMs;
         this.core = new CheckgateCore();
         this._ready = false;
-        this._bootstrapping = false;
+        // During a (re)connect replay: the flags received so far and their
+        // revisions. Swapped in as a whole on "ready" (see _connectDeltas).
+        this._staged = null;
+        this._stagedRevisions = null;
+        // Last applied revision per flag key: { revision, deleted }.
+        this._revisions = new Map();
         this._connectPromise = null;
         this._resolveReady = null;
         this._changeListeners = [];
@@ -125,7 +142,8 @@ class CheckgateClient {
     /**
      * Registers a listener invoked whenever a flag changes after the initial
      * bootstrap (created, updated, or deleted). The flag's key is passed to the
-     * callback. Bootstrap and reconnect re-syncs do not trigger listeners.
+     * callback. The initial bootstrap does not trigger listeners; a reconnect
+     * re-sync triggers them only for flags that changed while disconnected.
      *
      * @param {(flagKey: string) => void} callback
      * @returns {() => void} an unsubscribe function.
@@ -166,34 +184,39 @@ class CheckgateClient {
         });
 
         // Server sends "connected" before the full-state dump on every (re)connect.
-        // Clear the cache so stale/deleted flags from the previous session are evicted.
+        // The replay is staged and only replaces the live flag set on "ready", so
+        // evaluations keep using the last complete snapshot while it streams in,
+        // and a replay cut short by a dropped connection never goes live.
         this.sse.addEventListener('connected', (e) => {
-            this.core.clearStore();
-            this._flagCache.clear();
+            this._staged = new Map();
+            this._stagedRevisions = new Map();
             // A successful connection resets the backoff schedule and ends any
             // active poll fallback — SSE deltas take over again.
             this._reconnectAttempts = 0;
             this._stopPollFallback();
-            console.log('[Checkgate] Stream connected — cache cleared, rebuilding from server state.');
+            console.log('[Checkgate] Stream connected — rebuilding from server state.');
 
-            // Capture the environment id so impressions can be routed to the
-            // correct ingest endpoint. Older servers send "true" (no id).
+            // Capture the environment id so impressions route to the right endpoint.
+            // Older servers send "true" (no id) — parsing simply yields no id.
             try {
                 const payload = JSON.parse(e.data);
                 this._envId = payload && payload.environment_id ? payload.environment_id : null;
             } catch {
                 this._envId = null;
             }
-            // Every (re)connect replays the full flag set as bootstrap "update"
-            // events. Suppress change notifications until "ready" so listeners
-            // only fire for genuine live deltas, not the initial/resync flood.
-            this._bootstrapping = true;
             this._startImpressionTimer();
         });
 
         // Server sends "ready" once the full flag set has been replayed.
         this.sse.addEventListener('ready', () => {
-            this._bootstrapping = false;
+            const staged = this._staged;
+            if (!staged) return;
+            const revisions = this._stagedRevisions;
+            this._staged = null;
+            this._stagedRevisions = null;
+            // Swap in the complete replay. On a reconnect, listeners fire only for
+            // flags that changed while the stream was down.
+            this._applySnapshot(Array.from(staged.values()), revisions);
             this._hydrated = true;
             // Persist the freshly-bootstrapped full flag set for offline use.
             this._persistCache();
@@ -207,30 +230,14 @@ class CheckgateClient {
         });
 
         this.sse.addEventListener('update', (e) => {
+            let event;
             try {
-                const event = JSON.parse(e.data);
-
-                if (event.type === 'UPSERT') {
-                    // Pass the full flag (flag_type, default/disabled values, and
-                    // per-rule variants) so getValue()/getVariant() resolve
-                    // non-boolean flags correctly.
-                    this.core.upsertFlagV2(JSON.stringify(event.flag));
-                    this._flagCache.set(event.flag.key, event.flag);
-                    if (!this._bootstrapping) {
-                        this._emitChange(event.flag.key);
-                        this._persistCache(); // keep the offline snapshot fresh
-                    }
-                } else if (event.type === 'DELETE') {
-                    this.core.deleteFlag(event.key);
-                    this._flagCache.delete(event.key);
-                    if (!this._bootstrapping) {
-                        this._emitChange(event.key);
-                        this._persistCache();
-                    }
-                }
+                event = JSON.parse(e.data);
             } catch (err) {
                 console.error('[Checkgate] Failed to parse delta update:', err);
+                return;
             }
+            this._applyDelta(event);
         });
 
         this.sse.onerror = () => {
@@ -238,6 +245,41 @@ class CheckgateClient {
             // of the library's fixed retry cadence.
             this._scheduleReconnect();
         };
+    }
+
+    /**
+     * Applies one stream change event. While a (re)connect replay is in progress
+     * the event is staged for "ready"; afterwards it is applied unless it is
+     * older than the revision the client already holds for that flag.
+     */
+    _applyDelta(event) {
+        const isUpsert = event && event.type === 'UPSERT';
+        if (!isUpsert && !(event && event.type === 'DELETE')) return;
+        const flag = isUpsert ? event.flag : null;
+        const key = isUpsert ? flag && flag.key : event.key;
+        if (typeof key !== 'string') return;
+        const revision = typeof event.revision === 'number' ? event.revision : null;
+
+        if (this._staged) {
+            if (isUpsert) this._staged.set(key, flag);
+            else this._staged.delete(key);
+            if (revision !== null) this._stagedRevisions.set(key, { revision, deleted: !isUpsert });
+            return;
+        }
+
+        if (isStaleEvent(this._revisions.get(key), revision, isUpsert)) return;
+        if (revision !== null) this._revisions.set(key, { revision, deleted: !isUpsert });
+        if (isUpsert) {
+            // Pass the full flag (flag_type, default/disabled values, and per-rule
+            // variants) so getValue()/getVariant() resolve non-boolean flags.
+            this.core.upsertFlagV2(JSON.stringify(flag));
+            this._flagCache.set(key, flag);
+        } else {
+            this.core.deleteFlag(key);
+            this._flagCache.delete(key);
+        }
+        this._emitChange(key);
+        this._persistCache(); // keep the offline snapshot fresh
     }
 
     /**
@@ -256,6 +298,9 @@ class CheckgateClient {
         const capped = Math.min(this.maxReconnectDelayMs, base);
         const delay = capped + Math.random() * capped * 0.3; // up to 30% jitter
         this._reconnectAttempts++;
+        // A replay cut short never replaces the live snapshot.
+        this._staged = null;
+        this._stagedRevisions = null;
 
         // SSE is failing repeatedly (e.g. a proxy blocking long-lived connections) —
         // fall back to polling so flags still stay current. SSE retries continue in
@@ -364,9 +409,11 @@ class CheckgateClient {
     /**
      * Applies a full flag snapshot, diffing against `_flagCache` so only flags
      * that actually changed (added, updated, or removed) trigger onChange and a
-     * cache write. Returns true if anything changed.
+     * cache write. `revisions` (flag key → { revision, deleted }) replaces the
+     * per-flag revisions; poll snapshots carry none. Returns true if anything
+     * changed.
      */
-    _applySnapshot(flags) {
+    _applySnapshot(flags, revisions = new Map()) {
         const newKeys = new Set();
         let anyChange = false;
 
@@ -389,6 +436,7 @@ class CheckgateClient {
             if (this._ready) this._emitChange(key);
         }
 
+        this._revisions = revisions;
         if (anyChange) this._persistCache();
         return anyChange;
     }
@@ -473,6 +521,10 @@ class CheckgateClient {
             flag_key: flagKey,
             user_id: userKey,
             value,
+            // When the evaluation happened, not when the batch reaches the
+            // server: impressions and conversions flush independently, and
+            // experiment attribution needs the real order.
+            evaluated_at: new Date().toISOString(),
             // Attributes are omitted unless explicitly opted in — the whole point
             // of local evaluation is that user attributes never leave the process.
             ...(this.sendEvaluationContext ? { context: attributes } : {}),
@@ -543,6 +595,7 @@ class CheckgateClient {
         this._events.push({
             event_key: eventKey,
             user_id: userKey,
+            occurred_at: new Date().toISOString(),
             ...(opts.value != null ? { value: opts.value } : {}),
             ...(opts.context != null ? { context: opts.context } : {}),
         });
@@ -636,7 +689,8 @@ class CheckgateClient {
         }
         // Reset readiness so a later connect() re-establishes the stream.
         this._ready = false;
-        this._bootstrapping = false;
+        this._staged = null;
+        this._stagedRevisions = null;
         this._connectPromise = null;
         this._resolveReady = null;
         this._reconnectAttempts = 0;
