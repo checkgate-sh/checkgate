@@ -363,3 +363,25 @@ test('impressions and conversions carry the time they happened', () => {
     }
     client.disconnect();
 });
+
+test('reconnect listeners run after the whole snapshot is applied', () => {
+    const client = connectedClient();
+    bootstrap(client, [[{ key: 'a-dependent', is_enabled: false }, 1], [{ key: 'z-base', is_enabled: false }, 2]]);
+    const seen = {};
+    client.onChange((key) => { seen[key] = client.isEnabled('z-base', 'u'); });
+    bootstrap(client, [[{ key: 'a-dependent', is_enabled: true }, 3], [{ key: 'z-base', is_enabled: true }, 4]]);
+    assert.deepEqual(seen, { 'a-dependent': true, 'z-base': true }, 'a-dependent saw z-base already updated');
+    client.disconnect();
+});
+
+test('a tombstone in the bootstrap keeps a delayed older event from resurrecting the flag', () => {
+    const client = connectedClient();
+    client.sse.emit('connected', { environment_id: 'env-1' });
+    client.sse.emit('update', { type: 'DELETE', key: 'ghost', revision: 7 });
+    client.sse.emit('ready', 0);
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'ghost', is_enabled: true }, revision: 6 });
+    assert.equal(client._flagCache.has('ghost'), false, 'pre-delete event ignored');
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'ghost', is_enabled: true }, revision: 8 });
+    assert.equal(client.isEnabled('ghost', 'u'), true, 're-created flag applies');
+    client.disconnect();
+});

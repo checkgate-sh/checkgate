@@ -303,3 +303,27 @@ describe('stream resync and ordering', () => {
     }
   })
 })
+
+describe('snapshot consistency', () => {
+  test('reconnect listeners run after the whole snapshot is applied', () => {
+    const client = connectedClient()
+    bootstrap(client, [[{ key: 'a-dependent', is_enabled: false }, 1], [{ key: 'z-base', is_enabled: false }, 2]])
+    const seen = {}
+    client.onChange((key) => { seen[key] = client.isEnabled('z-base', 'u') })
+    bootstrap(client, [[{ key: 'a-dependent', is_enabled: true }, 3], [{ key: 'z-base', is_enabled: true }, 4]])
+    expect(seen).toEqual({ 'a-dependent': true, 'z-base': true })
+    client.disconnect()
+  })
+
+  test('a tombstone in the bootstrap keeps a delayed older event from resurrecting the flag', () => {
+    const client = connectedClient()
+    client.sse.emit('connected', { environment_id: 'env-1' })
+    client.sse.emit('update', { type: 'DELETE', key: 'ghost', revision: 7 })
+    client.sse.emit('ready', 0)
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'ghost', is_enabled: true }, revision: 6 })
+    expect(client._flagCache.has('ghost')).toBe(false)
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'ghost', is_enabled: true }, revision: 8 })
+    expect(client.isEnabled('ghost', 'u')).toBe(true)
+    client.disconnect()
+  })
+})

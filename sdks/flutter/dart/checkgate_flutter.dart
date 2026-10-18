@@ -330,13 +330,13 @@ class CheckgateClient {
   }
 
   /// Applies a full flag snapshot, diffing against `_flagCache` so only flags
-  /// that actually changed (added, updated, or removed) trigger onChange and a
-  /// cache write. [revisions] replaces the per-flag revisions; poll snapshots
+  /// that actually changed (added, updated, or removed) trigger onChange —
+  /// after the whole snapshot is applied — and a cache write. [revisions] replaces the per-flag revisions; poll snapshots
   /// carry none. Returns true if anything changed.
   bool _applySnapshot(List<dynamic> flags,
       [Map<String, _Revision> revisions = const {}]) {
     final newKeys = <String>{};
-    var anyChange = false;
+    final changed = <String>[];
 
     for (final raw in flags) {
       final flag = raw as Map<String, dynamic>;
@@ -347,21 +347,24 @@ class CheckgateClient {
 
       _upsertFlag(flag);
       _flagCache[key] = flag;
-      anyChange = true;
-      if (_ready) _emitChange(key);
+      changed.add(key);
     }
 
     for (final key in List<String>.from(_flagCache.keys)) {
       if (newKeys.contains(key)) continue;
       _deleteFlag(key);
       _flagCache.remove(key);
-      anyChange = true;
-      if (_ready) _emitChange(key);
+      changed.add(key);
     }
 
     _revisions = Map<String, _Revision>.of(revisions);
-    if (anyChange) _persistCache();
-    return anyChange;
+    if (changed.isEmpty) return false;
+    _persistCache();
+    // Notify only once the whole snapshot is in place: a listener that
+    // evaluates a flag must not see some of its prerequisites updated and
+    // others not yet.
+    if (_ready) changed.forEach(_emitChange);
+    return true;
   }
 
   void _handleSseEvent(String eventName, String data) {

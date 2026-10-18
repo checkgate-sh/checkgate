@@ -162,6 +162,33 @@ void main() {
       expect(enabled(c, 'checkout'), isTrue);
     });
 
+    test('reconnect listeners run after the whole snapshot is applied', () {
+      final c = client();
+      void boot(bool on) {
+        send(c, 'connected', {'environment_id': 'env-1'});
+        upsert(c, 'a-dependent', on, on ? 3 : 1);
+        upsert(c, 'z-base', on, on ? 4 : 2);
+        send(c, 'ready', 2);
+      }
+
+      boot(false);
+      final seen = <String, bool?>{};
+      c.onChange((key) => seen[key] = enabled(c, 'z-base'));
+      boot(true);
+      expect(seen, {'a-dependent': true, 'z-base': true});
+    });
+
+    test('a bootstrap tombstone keeps a delayed older event out', () {
+      final c = client();
+      send(c, 'connected', {'environment_id': 'env-1'});
+      send(c, 'update', {'type': 'DELETE', 'key': 'ghost', 'revision': 7});
+      send(c, 'ready', 0);
+      upsert(c, 'ghost', true, 6);
+      expect(c.debugFlags.containsKey('ghost'), isFalse);
+      upsert(c, 'ghost', true, 8);
+      expect(enabled(c, 'ghost'), isTrue);
+    });
+
     test('change events older than the applied revision are ignored', () {
       final c = client();
       send(c, 'connected', {'environment_id': 'env-1'});

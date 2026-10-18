@@ -451,14 +451,14 @@ export class CheckgateWeb {
 
     /**
      * Applies a full flag snapshot, diffing against `_flagCache` so only flags
-     * that actually changed (added, updated, or removed) trigger onChange and a
-     * cache write. `revisions` (flag key → { revision, deleted }) replaces the
+     * that actually changed (added, updated, or removed) trigger onChange — after
+     * the whole snapshot is applied — and a cache write. `revisions` (flag key → { revision, deleted }) replaces the
      * per-flag revisions; poll snapshots carry none. Returns true if anything
      * changed.
      */
     _applySnapshot(flags, revisions = new Map()) {
         const newKeys = new Set();
-        let anyChange = false;
+        const changed = [];
 
         for (const flag of flags) {
             newKeys.add(flag.key);
@@ -467,21 +467,24 @@ export class CheckgateWeb {
 
             this.core.upsert_flag_v2(JSON.stringify(flag));
             this._flagCache.set(flag.key, flag);
-            anyChange = true;
-            if (this._ready) this._emitChange(flag.key);
+            changed.push(flag.key);
         }
 
         for (const key of Array.from(this._flagCache.keys())) {
             if (newKeys.has(key)) continue;
             this.core.delete_flag(key);
             this._flagCache.delete(key);
-            anyChange = true;
-            if (this._ready) this._emitChange(key);
+            changed.push(key);
         }
 
         this._revisions = revisions;
-        if (anyChange) this._persistCache();
-        return anyChange;
+        if (changed.length === 0) return false;
+        this._persistCache();
+        // Notify only once the whole snapshot is in place: a listener that
+        // evaluates a flag must not see some of its prerequisites updated and
+        // others not yet.
+        if (this._ready) changed.forEach((key) => this._emitChange(key));
+        return true;
     }
 
     /**
