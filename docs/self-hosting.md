@@ -102,6 +102,77 @@ openssl rand -hex 32
 
 SDK keys are managed through the dashboard Settings page. The first key is auto-generated on first boot. Additional keys can be created and revoked without restarting the server.
 
+## First-run setup
+
+A fresh installation is claimed by whoever completes the setup wizard, so the
+wizard requires a one-time **setup token**. This keeps an internet-reachable
+server from being taken over by the first stranger to open it.
+
+- **Choose the token yourself (recommended for production and required for
+  read-only filesystems):** set `SETUP_TOKEN` to a random string of at least 16
+  characters (`openssl rand -hex 32`). With several replicas, give them all the
+  same value.
+- **Or let the server generate one:** with `SETUP_TOKEN` unset, every instance
+  writes a random token to `SETUP_TOKEN_FILE` (default `checkgate-setup-token`
+  in its working directory; `/var/lib/checkgate/setup-token` in the Docker
+  image) with mode `0600`, and logs the file's path — never the token. Any
+  instance accepts any instance's token. Read it with, for example:
+
+  ```bash
+  docker exec checkgate cat /var/lib/checkgate/setup-token
+  ```
+
+Paste the token into the first step of the wizard. It is sent in the
+`X-Checkgate-Setup-Token` header, never in a URL. Completing setup invalidates
+every setup token and the instance deletes its token file; other instances
+delete theirs on their next start.
+
+**Upgrading:** installations that have already completed setup are not
+affected. An installation that was never set up needs the token from now on.
+No database migration is involved — generated token hashes are stored in the
+existing `settings` table.
+
+## Rate limits
+
+Requests are limited per client IP, with an independent budget per class of
+endpoint, so SDK traffic cannot lock operators out of the dashboard and a
+password-guessing run cannot exhaust the SDK budget. `/health` is never
+limited. Opening an SSE stream counts once; events delivered on an open stream
+are never counted.
+
+| Variable | Default (per minute) | Applies to |
+|----------|----------------------|------------|
+| `RATE_LIMIT_AUTH_PER_MINUTE` | `20` | `POST /api/auth/login`, `/api/setup/*` |
+| `RATE_LIMIT_API_PER_MINUTE` | `300` | all other `/api/*` routes |
+| `RATE_LIMIT_SDK_PER_MINUTE` | `600` | `GET /flags/snapshot` |
+| `RATE_LIMIT_SSE_PER_MINUTE` | `120` | opening `GET /stream` |
+| `RATE_LIMIT_INGEST_PER_MINUTE` | `600` | impression and event ingestion |
+
+Set a variable to `0` to disable that class (for example, when a gateway in
+front of Checkgate already limits it). Many SDK instances behind one NAT or
+egress IP share a budget; raise the SDK, SSE and ingest limits accordingly.
+Limiter state holds only recently active clients (IPv6 clients are grouped by
+/64) and is pruned every minute.
+
+### Behind a reverse proxy or load balancer
+
+By default the client is the TCP peer, and `X-Forwarded-For` is **ignored** —
+otherwise any client could choose its own rate-limit identity by sending the
+header. If Checkgate runs behind a proxy, list the proxy's addresses so its
+header is believed:
+
+```bash
+TRUSTED_PROXIES="10.0.0.0/8, 192.168.1.10"   # IPs and/or CIDR ranges
+```
+
+The `X-Forwarded-For` chain is read from the right: hops that are trusted
+proxies are skipped and the first untrusted hop is the client. Entries a
+client supplies itself are never used. If the header is malformed, the request
+is attributed to the nearest trusted proxy. An invalid `TRUSTED_PROXIES` value
+stops the server at startup. Only trust addresses that your proxies actually
+use — a trusted range that untrusted clients can connect from lets them spoof
+any address.
+
 ## External PostgreSQL and Redis
 
 To use your own PostgreSQL and Redis instead of the bundled ones, run the image directly and pass the connection strings:

@@ -144,6 +144,8 @@ jobs:
         run: |
           cargo test -p server --test integration -- --nocapture
           cargo test -p server --test e2e_sse -- --nocapture
+          cargo test -p server --test rate_limit -- --nocapture
+          cargo test -p server --test setup_ownership -- --nocapture
 
   # ---------------------------------------------------------------------------
   # Native SDK e2e — build the real @checkgate/node addon and drive it over a
@@ -203,12 +205,15 @@ jobs:
           REDIS_URL: redis://localhost:6379
         run: |
           PORT=3111
+          SETUP_TOKEN="ci-setup-token-$(openssl rand -hex 16)"
           SESSION_SECRET=ci-secret-0123456789-0123456789-0123456789-0123456789 \
+            SETUP_TOKEN="$SETUP_TOKEN" \
             COOKIE_SECURE=false PORT=$PORT PUBLIC_DIR="$(mktemp -d)" RUST_LOG=warn \
             ./target/debug/server > server.log 2>&1 &
           SRV=$!
           for i in $(seq 1 60); do curl -sf "http://127.0.0.1:$PORT/health" >/dev/null && break; sleep 1; done
-          CHECKGATE_URL="http://127.0.0.1:$PORT" node sdks/nodejs/e2e/e2e.cjs
+          CHECKGATE_URL="http://127.0.0.1:$PORT" CHECKGATE_SETUP_TOKEN="$SETUP_TOKEN" \
+            node sdks/nodejs/e2e/e2e.cjs
           RC=$?
           kill $SRV 2>/dev/null || true
           if [ $RC -ne 0 ]; then echo "=== server log ==="; cat server.log; fi

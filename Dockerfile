@@ -77,7 +77,8 @@ COPY --from=dashboard-builder /app/server/public ./public
 COPY docker/entrypoint-full.sh /entrypoint.sh
 
 RUN sed -i 's/\r//' /entrypoint.sh && chmod +x /entrypoint.sh && \
-    mkdir -p /var/lib/postgresql/data /var/log && \
+    mkdir -p /var/lib/postgresql/data /var/log /var/lib/checkgate && \
+    chmod 700 /var/lib/checkgate && \
     chown -R postgres:postgres /var/lib/postgresql && \
     touch /var/log/postgresql.log /var/log/redis.log && \
     chown postgres:postgres /var/log/postgresql.log /var/log/redis.log
@@ -89,6 +90,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
 ENV PUBLIC_DIR=/app/public \
+    SETUP_TOKEN_FILE=/var/lib/checkgate/setup-token \
     PGDATA=/var/lib/postgresql/data \
     POSTGRES_USER=checkgate \
     POSTGRES_PASSWORD=checkgate \

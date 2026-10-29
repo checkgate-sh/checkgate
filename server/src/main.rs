@@ -17,6 +17,7 @@ mod integrations;
 mod notify;
 mod rate_limit;
 mod scheduler;
+mod setup;
 mod state;
 mod stream;
 mod webhook_fire;
@@ -95,6 +96,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     info!("Migrations complete — schema ready");
+
+    // ── First-run setup token ─────────────────────────────────────────────────
+
+    let setup_token = setup::configured_token().map_err(|e| {
+        error!(error = %e, "Invalid SETUP_TOKEN");
+        e
+    })?;
+    setup::prepare(&db, setup_token.as_deref())
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to prepare first-run setup");
+            e
+        })?;
 
     // ── Redis ─────────────────────────────────────────────────────────────────
 
@@ -432,6 +446,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_key,
         connected_clients: Arc::new(DashMap::new()),
         webhook_client,
+        setup_token,
     };
 
     // ── Middleware stack ───────────────────────────────────────────────────────

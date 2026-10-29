@@ -24,6 +24,9 @@ services:
       POSTGRES_DB: checkgate
       SDK_KEY: ${SDK_KEY:-}
       SESSION_SECRET: ${SESSION_SECRET:-}
+      # One-time token for the setup wizard. Leave empty to have the server
+      # generate one: docker exec checkgate cat /var/lib/checkgate/setup-token
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - checkgate_pgdata:/var/lib/postgresql/data

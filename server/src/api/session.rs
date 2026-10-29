@@ -5,7 +5,7 @@ use argon2::{
 use axum::{
     Json, Router,
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar, SameSite};
@@ -15,6 +15,7 @@ use time::Duration;
 use tracing::{error, info, warn};
 
 use crate::client_ip::ClientIp;
+use crate::setup;
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -139,13 +140,7 @@ async fn get_workspace_name(state: &AppState) -> String {
 }
 
 async fn get_is_setup_complete(state: &AppState) -> bool {
-    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'setup_complete'")
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .map(|v| v == "true")
-        .unwrap_or(false)
+    setup::is_setup_complete(&state.db).await.unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -436,22 +431,27 @@ pub async fn me(
 }
 
 /// First-run setup: creates the admin user and workspace, issues a session cookie.
+///
+/// Requires the one-time setup token (see [`crate::setup`]). The whole claim
+/// runs in one transaction under a database-wide advisory lock, and
+/// `setup_complete` is re-read while holding it, so of any number of
+/// concurrent requests — on any number of server instances — exactly one
+/// creates the admin; the rest see setup already complete and get 404.
 pub async fn setup_complete(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
+    headers: HeaderMap,
     Json(req): Json<SetupRequest>,
 ) -> Result<(PrivateCookieJar, Json<UserInfo>), StatusCode> {
-    let complete =
-        sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'setup_complete'")
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .map(|v| v == "true")
-            .unwrap_or(false);
-
-    if complete {
+    // Cheap pre-check so a finished installation answers 404 without a token.
+    // Not relied upon: the authoritative check is repeated under the lock.
+    if setup::is_setup_complete(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::NOT_FOUND);
     }
+    setup::verify(&state, &headers).await?;
 
     let workspace_name = req.workspace_name.trim().to_string();
     let name = req.name.trim().to_string();
@@ -468,24 +468,51 @@ pub async fn setup_complete(
 
     let password_hash = hash_password(&req.password)?;
 
+    // Any early return drops `db_tx`, which rolls the transaction back and
+    // releases the advisory lock.
     let mut db_tx = state.db.begin().await.map_err(|e| {
         error!(error = %e, "Failed to begin setup transaction");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(setup::SETUP_ADVISORY_LOCK)
+        .execute(&mut *db_tx)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to acquire setup lock");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if setup::is_setup_complete(&mut *db_tx).await.map_err(|e| {
+        error!(error = %e, "Failed to re-check setup state");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })? {
+        info!("Setup request lost the race — setup was completed concurrently");
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // A row for this email may predate password auth (migration
+    // 20260416000004 left such rows without a password); setup may claim it.
+    // An account that already has a password is never overwritten.
     let row = sqlx::query(
         "INSERT INTO users (name, email, role, password_hash) VALUES ($1, $2, 'admin', $3) \
          ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, role = 'admin', \
-         password_hash = EXCLUDED.password_hash RETURNING id",
+         password_hash = EXCLUDED.password_hash WHERE users.password_hash IS NULL \
+         RETURNING id",
     )
     .bind(&name)
     .bind(&email)
     .bind(&password_hash)
-    .fetch_one(&mut *db_tx)
+    .fetch_optional(&mut *db_tx)
     .await
     .map_err(|e| {
         error!(error = %e, "Failed to create admin user during setup");
         StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .ok_or_else(|| {
+        warn!("Setup rejected: an account with this email already has a password");
+        StatusCode::CONFLICT
     })?;
 
     sqlx::query(
@@ -524,10 +551,16 @@ pub async fn setup_complete(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    setup::revoke_all(&mut *db_tx).await.map_err(|e| {
+        error!(error = %e, "Failed to revoke setup tokens");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     db_tx.commit().await.map_err(|e| {
         error!(error = %e, "Failed to commit setup transaction");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    setup::remove_token_file();
 
     info!(email = %email, workspace = %workspace_name, project = %project_name, "Setup complete — admin user created");
 

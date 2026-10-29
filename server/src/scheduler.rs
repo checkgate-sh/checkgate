@@ -164,6 +164,7 @@ mod tests {
             session_key: Key::generate(),
             connected_clients: Arc::new(DashMap::new()),
             webhook_client: reqwest::Client::new(),
+            setup_token: None,
         };
         tokio::time::timeout(Duration::from_secs(5), execute_due(&state))
             .await

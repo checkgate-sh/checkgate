@@ -56,6 +56,9 @@ pub struct AppState {
     pub connected_clients: Arc<DashMap<String, ConnectedClient>>,
     /// Shared HTTP client for outbound webhook delivery.
     pub webhook_client: reqwest::Client,
+    /// Operator-configured `SETUP_TOKEN`; `None` means per-instance generated
+    /// tokens, verified by hash against `settings` (see `crate::setup`).
+    pub setup_token: Option<Arc<str>>,
 }
 
 /// Allows `PrivateCookieJar` extractors to pull the key out of `AppState` automatically.

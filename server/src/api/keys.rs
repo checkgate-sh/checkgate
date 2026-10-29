@@ -149,21 +149,20 @@ async fn can_admin_project(
 pub async fn get_setup_key(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<NewKeyResponse>, StatusCode> {
     if jar.get("lg_session").is_some() {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let complete = sqlx::query("SELECT value FROM settings WHERE key = 'setup_complete'")
-        .fetch_optional(&state.db)
+    if crate::setup::is_setup_complete(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map(|row| row.get::<String, _>("value") == "true")
-        .unwrap_or(false);
-
-    if complete {
+    {
         return Err(StatusCode::NOT_FOUND);
     }
+    // The key is only shown to whoever is entitled to claim the installation.
+    crate::setup::verify(&state, &headers).await?;
 
     let row = sqlx::query(
         "SELECT k.id, k.name, k.value, k.created_at, k.environment_id::text, e.name AS env_name \

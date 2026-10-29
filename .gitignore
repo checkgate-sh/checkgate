@@ -22,3 +22,6 @@ docs/bun.lock
 .env
 .env.*
 !.env.example
+
+# One-time setup token written by a local server that has not been set up.
+checkgate-setup-token
