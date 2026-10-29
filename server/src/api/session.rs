@@ -475,6 +475,18 @@ pub async fn setup_complete(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // READ COMMITTED takes a fresh snapshot per statement, so the re-check
+    // below sees a commit that happened while this request waited for the
+    // lock. Set explicitly: under a REPEATABLE READ database default the
+    // snapshot would predate the wait.
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *db_tx)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to set setup transaction isolation");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(setup::SETUP_ADVISORY_LOCK)
         .execute(&mut *db_tx)

@@ -107,6 +107,24 @@ async fn concurrent_setups_across_instances_have_one_winner() {
 }
 
 #[tokio::test]
+async fn concurrent_setups_have_one_winner_under_repeatable_read_default() {
+    let Some(env) = test_env() else { return };
+    let db = env.fresh_database("cg_setup_rr").await;
+    // Setup must not rely on the database's default isolation level: under
+    // REPEATABLE READ a snapshot taken before the lock wait would miss the
+    // winner's commit.
+    let pool = sqlx::PgPool::connect(&db).await.unwrap();
+    sqlx::query("ALTER DATABASE cg_setup_rr SET default_transaction_isolation = 'repeatable read'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let server = Server::spawn(&db, &env.redis_url, &[]).await;
+    let results = post_concurrently(&[&server], 8).await;
+    assert_single_winner(&db, &server, &results).await;
+}
+
+#[tokio::test]
 async fn setup_requires_a_valid_token_and_is_one_time() {
     let Some(env) = test_env() else { return };
     let db = env.fresh_database("cg_setup_token").await;

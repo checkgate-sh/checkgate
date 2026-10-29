@@ -19,9 +19,10 @@ die() {
   exit 1
 }
 
-# Strip credentials before a URL reaches the log.
+# Strip credentials before a URL reaches the log: the userinfo part, and the
+# whole query string (libpq-style URLs may carry ?password=…).
 redact() {
-  printf '%s' "$1" | sed -E 's#(://)[^@/]*@#\1***@#'
+  printf '%s' "$1" | sed -E 's#(://)[^@/]*@#\1***@#; s#\?.*#?***#'
 }
 
 MODE="${CHECKGATE_MODE:-}"

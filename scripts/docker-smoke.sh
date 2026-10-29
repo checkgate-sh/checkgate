@@ -156,7 +156,7 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-EXT_DB_URL="postgres://cgext:ext-db-secret@$EXT_PG:5432/checkgate_ext"
+EXT_DB_URL="postgres://cgext:ext-db-secret@$EXT_PG:5432/checkgate_ext?sslmode=disable"
 EXT_TOKEN="smoke-ext-setup-token-0123456789"
 run_ext() {
   docker run -d --name "$EXT" --network "$NET" -p 127.0.0.1::3000 \
@@ -168,7 +168,7 @@ run_ext
 wait_healthy "$EXT"
 LOGS="$(docker logs "$EXT" 2>&1)"
 grep -q "Mode: external" <<<"$LOGS" || fail "external mode not selected from DATABASE_URL"
-grep -qF "postgres://***@$EXT_PG:5432/checkgate_ext" <<<"$LOGS" || fail "external DB target not logged"
+grep -qF "postgres://***@$EXT_PG:5432/checkgate_ext?***" <<<"$LOGS" || fail "external DB target not logged (redacted)"
 if grep -qF "ext-db-secret" <<<"$LOGS"; then fail "database password appears in the log"; fi
 PROCS="$(process_names "$EXT")"
 if grep -qxE "postgres|redis-server" <<<"$PROCS"; then fail "external mode started a bundled service"; fi
