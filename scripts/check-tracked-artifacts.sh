@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fails if generated or machine-specific files are tracked by Git.
+# Fails if generated, machine-specific or internal-only files are tracked by Git.
 #
 # Dependencies, build output and tool caches are recreated by each package's
 # own install/build step (npm/bun install, flutter pub get, cargo build), so
@@ -20,6 +20,8 @@ pattern+='|^docs/\.vitepress/dist/|^server/public/'
 # Generated or local-only files.
 pattern+='|\.(node|tsbuildinfo|dill|pyc)$|(^|/)native-binding\.(js|d\.ts)$'
 pattern+='|(^|/)\.DS_Store$|(^|/)checkgate-setup-token$|(^|/)\.env$'
+# Internal reports and working notes stay local.
+pattern+='|^internal_docs/'
 
 offending="$(git ls-files | grep -E "$pattern" || true)"
 if [ -n "$offending" ]; then

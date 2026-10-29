@@ -33,3 +33,7 @@ docs/bun.lock
 
 # One-time setup token written by a local server that has not been set up.
 checkgate-setup-token
+
+# Internal engineering reports and working notes — kept locally, never
+# committed.
+internal_docs/
