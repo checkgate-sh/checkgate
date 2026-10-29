@@ -4,12 +4,20 @@ use std::time::Duration;
 use tracing::{error, info};
 
 /// Claim each due job and apply its flag patch in the same transaction.
-pub async fn run(state: AppState) {
+/// Stops between runs once `cancel` fires; a run in progress is not cut
+/// short (each job is its own transaction, so being killed mid-run is safe
+/// too, and a lost change event is recovered by reconciliation).
+pub async fn run(state: AppState, cancel: tokio_util::sync::CancellationToken) {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        interval.tick().await;
-        execute_due(&state).await;
+        tokio::select! {
+            () = cancel.cancelled() => {
+                info!("Scheduler stopped");
+                return;
+            }
+            _ = interval.tick() => execute_due(&state).await,
+        }
     }
 }
 
@@ -163,6 +171,12 @@ mod tests {
             connected_clients: Arc::new(DashMap::new()),
             webhook_client: reqwest::Client::new(),
             setup_token: None,
+            sync: crate::sync::SyncState::new(crate::sync::SyncConfig::from_env().unwrap()),
+            metrics: crate::metrics::Metrics::new(5),
+            lifecycle: Arc::new(crate::lifecycle::Lifecycle::new(
+                crate::lifecycle::LifecycleConfig::from_env().unwrap(),
+            )),
+            sse_limits: Arc::new(crate::stream::SseLimits::from_env(5).unwrap()),
         };
         tokio::time::timeout(Duration::from_secs(5), execute_due(&state))
             .await

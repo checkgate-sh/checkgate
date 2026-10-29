@@ -1,0 +1,23 @@
+[package]
+name = "checkgate-bench"
+version.workspace = true
+license.workspace = true
+edition = "2024"
+publish = false
+description = "Benchmarks of checkgate-core. Not published."
+
+# Kept out of checkgate-core so the core manifest the SDK packages copy (see
+# sdks/react-native/scripts/bundle-rust.js) carries no bench target or
+# benchmark-only dependency.
+
+[dev-dependencies]
+checkgate-core = { path = "../core" }
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support", "rayon"] }
+serde_json = "1.0.149"
+
+[[bench]]
+name = "evaluation"
+harness = false
+
+[lints]
+workspace = true

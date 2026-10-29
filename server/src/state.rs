@@ -7,6 +7,11 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::{RwLock, broadcast};
 
+use crate::lifecycle::Lifecycle;
+use crate::metrics::Metrics;
+use crate::stream::SseLimits;
+use crate::sync::{SyncEvent, SyncState};
+
 /// A single SDK key row loaded from the database.
 #[derive(Clone, Debug)]
 pub struct SdkKeyEntry {
@@ -43,9 +48,17 @@ pub struct AppState {
     /// Set while a publish has failed and a `RESYNC` broadcast is still being
     /// retried (see `flags::publish_update`).
     pub resync_pending: Arc<AtomicBool>,
-    /// Broadcast channel: the Redis subscriber pushes payloads here;
+    /// Broadcast channel: change events relayed by `sync::relay` (from the
+    /// Redis subscriber, or locally after a failed publish or a resync);
     /// each SSE handler subscribes instead of opening its own Redis connection.
-    pub flag_tx: broadcast::Sender<String>,
+    pub flag_tx: broadcast::Sender<Arc<SyncEvent>>,
+    /// Relay index and reconciliation settings (see `crate::sync`).
+    pub sync: Arc<SyncState>,
+    pub metrics: Arc<Metrics>,
+    /// Readiness, draining and the shutdown signal for streams and tasks.
+    pub lifecycle: Arc<Lifecycle>,
+    /// SSE connection cap and bootstrap concurrency.
+    pub sse_limits: Arc<SseLimits>,
     /// Local key-management cache. Authentication always checks PostgreSQL.
     pub sdk_keys: Arc<RwLock<Vec<SdkKeyEntry>>>,
     /// Encryption key for `PrivateCookieJar`. Derived from `SESSION_SECRET` env var.

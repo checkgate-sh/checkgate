@@ -29,13 +29,14 @@ RUN bun run build
 # ---------------------------------------------------------------------------
 FROM rust:1.98-slim-bookworm AS server-builder
 
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Cache dependency layer
 COPY Cargo.toml Cargo.lock ./
 COPY core/Cargo.toml core/Cargo.toml
+COPY bench/ bench/
 COPY server/Cargo.toml server/Cargo.toml
 COPY sdks/nodejs/Cargo.toml sdks/nodejs/Cargo.toml
 COPY sdks/web/Cargo.toml sdks/web/Cargo.toml
@@ -82,24 +83,36 @@ COPY --from=server-builder /app/target/release/server /usr/local/bin/checkgate-s
 COPY --from=dashboard-builder /app/server/public ./public
 COPY docker/entrypoint-full.sh /entrypoint.sh
 
+# Processes never run as root. The server runs as `checkgate` (10001); in
+# all-in-one mode the bundled PostgreSQL and Redis run as their own package
+# users. The entrypoint starts as root only to prepare volumes for those
+# services and then drops privileges for every long-running process; external
+# mode also runs with `--user 10001:10001` (or Kubernetes runAsNonRoot), in
+# which case nothing at all runs as root.
 RUN sed -i 's/\r//' /entrypoint.sh && chmod +x /entrypoint.sh && \
+    groupadd --system --gid 10001 checkgate && \
+    useradd --system --uid 10001 --gid checkgate --home-dir /var/lib/checkgate \
+        --no-create-home --shell /usr/sbin/nologin checkgate && \
     mkdir -p /var/lib/postgresql/data /var/log /var/lib/checkgate /var/lib/redis && \
-    chmod 700 /var/lib/checkgate && \
+    chown checkgate:checkgate /var/lib/checkgate && chmod 700 /var/lib/checkgate && \
     chown -R postgres:postgres /var/lib/postgresql && \
+    chown redis:redis /var/lib/redis && \
     touch /var/log/postgresql.log /var/log/redis.log && \
-    chown postgres:postgres /var/log/postgresql.log /var/log/redis.log
+    chown postgres:postgres /var/log/postgresql.log && \
+    chown redis:redis /var/log/redis.log
 
 EXPOSE 3000
 
-# Allow orchestrators to monitor container health
+# Liveness only: a database outage must not mark the container unhealthy.
+# Orchestrators should route traffic by /health/ready (see docs/operations).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD curl -fsS http://localhost:3000/health/live >/dev/null || exit 1
 
+# POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB default to `checkgate` in
+# the entrypoint (all-in-one mode only), so no credential is baked into the
+# image's environment.
 ENV PUBLIC_DIR=/app/public \
     SETUP_TOKEN_FILE=/var/lib/checkgate/setup-token \
-    PGDATA=/var/lib/postgresql/data \
-    POSTGRES_USER=checkgate \
-    POSTGRES_PASSWORD=checkgate \
-    POSTGRES_DB=checkgate
+    PGDATA=/var/lib/postgresql/data
 
 ENTRYPOINT ["/entrypoint.sh"]

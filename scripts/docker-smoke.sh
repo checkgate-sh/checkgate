@@ -82,6 +82,28 @@ json_field() { python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[
 
 process_names() { docker exec "$1" sh -c 'cat /proc/[0-9]*/comm 2>/dev/null' | sort -u; }
 
+# UIDs of the processes named $2 in container $1 (one per line, deduplicated).
+process_uids() {
+  docker exec "$1" sh -c '
+    for d in /proc/[0-9]*; do
+      if [ "$(cat "$d/comm" 2>/dev/null)" = "$0" ]; then
+        sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" "$d/status"
+      fi
+    done' "$2" | sort -u
+}
+
+# expect_uid CONTAINER PROCESS USER — every PROCESS runs as USER (and not root).
+expect_uid() {
+  local want got
+  want="$(docker exec "$1" id -u "$3")"
+  got="$(process_uids "$1" "$2")"
+  [ -n "$got" ] || fail "$1: no $2 process"
+  [ "$got" = "$want" ] || fail "$1: $2 runs as uid(s) $(echo "$got" | tr '\n' ' ')— expected $3 ($want)"
+}
+
+# Status of a plain GET on the published port (no cookies).
+status_of() { curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(port_of "$1")$2"; }
+
 SETUP='{"workspace_name":"Smoke","project_name":"Smoke","name":"Admin","email":"admin@smoke.test","password":"smoke-password-1"}'
 LOGIN='{"email":"admin@smoke.test","password":"smoke-password-1"}'
 
@@ -91,8 +113,10 @@ AIO="$RUN_ID-aio"
 PGVOL="$RUN_ID-pgdata"
 VOLUMES+=("$PGVOL")
 CONTAINERS+=("$AIO")
+# A fresh tmpfs on /run (as some runtimes and BuildKit builders give) must
+# not break the bundled PostgreSQL, whose socket directory lives there.
 run_aio() {
-  docker run -d --name "$AIO" -p 127.0.0.1::3000 \
+  docker run -d --name "$AIO" -p 127.0.0.1::3000 --tmpfs /run \
     -e SESSION_SECRET="$SECRET" -e COOKIE_SECURE=false -e POSTGRES_PASSWORD=smoke-db-password \
     -v "$PGVOL:/var/lib/postgresql/data" "$IMAGE" >/dev/null
 }
@@ -108,6 +132,19 @@ for p in postgres redis-server checkgate-serve; do
 done
 
 docker exec "$AIO" test -d /var/lib/redis/appendonlydir || fail "bundled Redis does not write to its /var/lib/redis volume"
+
+log "all-in-one: no service runs as root"
+expect_uid "$AIO" checkgate-serve checkgate
+expect_uid "$AIO" postgres postgres
+expect_uid "$AIO" redis-server redis
+
+log "all-in-one: health endpoints and dashboard headers"
+expect 200 "$(status_of "$AIO" /health/live)" "liveness"
+expect 200 "$(status_of "$AIO" /health/ready)" "readiness"
+[ "$(docker inspect -f '{{.State.Health.Status}}' "$AIO")" != "unhealthy" ] || fail "container HEALTHCHECK reports unhealthy"
+HEADERS="$(curl -sI "http://127.0.0.1:$(port_of "$AIO")/")"
+grep -qi '^x-content-type-options: nosniff' <<<"$HEADERS" || fail "dashboard index lacks security headers"
+grep -qi '^content-security-policy:.*fonts.googleapis.com' <<<"$HEADERS" || fail "dashboard CSP does not allow its web fonts"
 
 TOKEN="$(docker exec "$AIO" cat /var/lib/checkgate/setup-token)"
 [ "${#TOKEN}" -eq 64 ] || fail "generated setup token has unexpected length"
@@ -185,7 +222,21 @@ docker restart "$EXT" >/dev/null
 wait_healthy "$EXT"
 rm -f "$WORK/cookies-$EXT"
 expect 200 "$(api "$EXT" POST /api/auth/login "$LOGIN")" "external login after restart"
+expect_uid "$EXT" checkgate-serve checkgate
 docker rm -f "$EXT" >/dev/null
+
+log "external: whole container as a non-root user"
+EXT_NR="$RUN_ID-ext-nonroot"
+CONTAINERS+=("$EXT_NR")
+docker run -d --name "$EXT_NR" --network "$NET" -p 127.0.0.1::3000 --user 10001:10001 \
+  -e DATABASE_URL="$EXT_DB_URL" -e REDIS_URL="redis://$EXT_REDIS:6379" \
+  -e SESSION_SECRET="$SECRET" -e COOKIE_SECURE=false -e SETUP_TOKEN="$EXT_TOKEN" \
+  "$IMAGE" >/dev/null
+wait_healthy "$EXT_NR"
+expect_uid "$EXT_NR" checkgate-serve checkgate
+[ "$(docker exec "$EXT_NR" id -u)" = "10001" ] || fail "docker exec does not default to the non-root user"
+expect 200 "$(api "$EXT_NR" POST /api/auth/login "$LOGIN")" "non-root external login"
+docker rm -f "$EXT_NR" >/dev/null
 
 # ---------------------------------------------------------------------------
 # expect_refusal DESCRIPTION EXPECTED_MESSAGE docker-run-args...
@@ -217,6 +268,8 @@ expect_refusal "server without REDIS_URL" "REDIS_URL is not set" \
 expect_refusal "unreachable external database" "Failed to connect to PostgreSQL" \
   -e DATABASE_URL="postgres://cgext:ext-db-secret@$RUN_ID-missing:5432/checkgate_ext" \
   -e REDIS_URL="redis://$EXT_REDIS:6379" "$IMAGE"
+expect_refusal "all-in-one as a non-root user" "must start as root" \
+  --user 10001:10001 "$IMAGE"
 expect_refusal "short SETUP_TOKEN" "SETUP_TOKEN must be at least" \
   -e DATABASE_URL="$EXT_DB_URL" -e REDIS_URL="redis://$EXT_REDIS:6379" -e SETUP_TOKEN=short "$IMAGE"
 

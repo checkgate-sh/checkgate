@@ -61,12 +61,16 @@ impl RouteClass {
 pub fn classify(method: &Method, path: &str) -> RouteClass {
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match (method, segments.as_slice()) {
-        (_, ["health"]) => RouteClass::Exempt,
+        (_, ["health", ..]) => RouteClass::Exempt,
         (&Method::POST, ["api", "auth", "login"]) | (_, ["api", "setup", ..]) => RouteClass::Auth,
         (_, ["stream"]) => RouteClass::SseConnect,
         (_, ["flags", "snapshot"]) => RouteClass::Sdk,
         (&Method::POST, ["api", "environments", _, "impressions" | "events"]) => RouteClass::Ingest,
-        _ => RouteClass::Api,
+        (_, ["api", ..]) => RouteClass::Api,
+        // Dashboard assets and unknown paths are served from disk by the
+        // fallback and were never limited; charging them to the API budget
+        // would let a page load spend it.
+        _ => RouteClass::Exempt,
     }
 }
 
@@ -211,13 +215,16 @@ impl RateLimiters {
         self.all().map(Limiter::len).sum()
     }
 
-    /// Runs [`Self::evict_idle`] in the background for the life of the process.
-    pub fn spawn_eviction(self: &Arc<Self>) {
+    /// Runs [`Self::evict_idle`] in the background until `cancel` fires.
+    pub fn spawn_eviction(self: &Arc<Self>, cancel: tokio_util::sync::CancellationToken) {
         let limiters = Arc::clone(self);
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(EVICTION_INTERVAL);
             loop {
-                tick.tick().await;
+                tokio::select! {
+                    () = cancel.cancelled() => return,
+                    _ = tick.tick() => {}
+                }
                 limiters.evict_idle();
                 tracing::debug!(
                     tracked_keys = limiters.tracked_keys(),
@@ -328,6 +335,11 @@ mod tests {
             (Method::GET, "/api/environments/e/flags", RouteClass::Api),
             (Method::POST, "/api/projects", RouteClass::Api),
             (Method::GET, "/api/health/connections", RouteClass::Api),
+            (Method::GET, "/health/live", RouteClass::Exempt),
+            (Method::GET, "/health/ready", RouteClass::Exempt),
+            (Method::GET, "/", RouteClass::Exempt),
+            (Method::GET, "/assets/index.js", RouteClass::Exempt),
+            (Method::GET, "/flags", RouteClass::Exempt),
         ];
         for (method, path, want) in cases {
             assert_eq!(classify(&method, path), want, "{method} {path}");

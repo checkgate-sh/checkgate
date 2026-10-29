@@ -214,7 +214,7 @@ endpoint. Defaults (requests per minute, configurable — see
 | SDK | `GET /flags/snapshot` | 600 |
 | SSE connect | opening `GET /stream` (events on an open stream are not counted) | 120 |
 | Ingest | `POST /api/environments/{env_id}/impressions` and `/events` | 600 |
-| — | `GET /health` | never limited |
+| — | `GET /health`, `/health/live`, `/health/ready`, dashboard files | never limited |
 
 A refused request gets `429 Too Many Requests` with a `Retry-After` header
 (seconds) and:
@@ -1820,8 +1820,24 @@ This guarantees consistency even after missed updates during the disconnected pe
 replay cut short by another disconnect never replaces a complete flag set with a partial one.
 
 The server also closes streams itself to force this resync when it may have missed updates:
-after its Redis subscription is re-established, or once Redis is reachable again after a
-failed publish.
+after its Redis subscription is re-established, once Redis is reachable again after a failed
+publish, or when its periodic reconciliation with PostgreSQL finds a committed change that never
+reached it (then only the affected environment's streams). These closes are spread over a few
+seconds (`SSE_RESYNC_SPREAD_MS`) so clients do not reconnect in lockstep. A stream more than 256
+events behind is closed the same way. The server also closes every stream when it shuts down.
+
+### Refusals
+
+`GET /stream` answers `503 Service Unavailable` with a `Retry-After` header (seconds, jittered)
+when the instance is at `SSE_MAX_CONNECTIONS`, when no bootstrap slot frees up in time, or while
+it drains for shutdown:
+
+```json
+{ "error": "Too many open streams on this instance.", "retry_after_seconds": 6 }
+```
+
+Treat it like any failed connection attempt: back off and retry (the official SDKs do, and fall
+back to `/flags/snapshot` after repeated failures).
 
 ---
 
@@ -1854,22 +1870,48 @@ unexpanded — intended for the dashboard UI), this route is keyed by SDK key al
 `/stream`, and returns segment-expanded flags ready to evaluate against directly.
 
 Returns `400` if called with session-cookie auth rather than an SDK key (the dashboard isn't
-scoped to a single environment the way an SDK key is), and `401` for missing/invalid credentials.
+scoped to a single environment the way an SDK key is), `401` for missing/invalid credentials,
+and `503` with `Retry-After` when no read slot frees up in time (it shares
+`SSE_BOOTSTRAP_CONCURRENCY` with stream bootstraps).
 
 ---
 
 ## Health Check
 
+Public endpoints — no authentication, never rate limited.
+
+```http
+GET /health/live
+```
+
+Liveness. `200` `{"status":"alive"}` whenever the process serves requests; never fails because
+PostgreSQL or Redis is down.
+
+```http
+GET /health/ready
+```
+
+Readiness — whether the instance should receive traffic.
+
+```json
+{ "status": "ready", "checks": { "database": "ok", "redis": "ok" } }
+```
+
+| `status` | HTTP | Meaning |
+|---|---|---|
+| `ready` | 200 | PostgreSQL and the Redis subscription are up |
+| `degraded` | 200 | Redis subscription down; serving, with changes from other instances recovered by reconciliation (`503` instead with `READY_REQUIRES_REDIS=true`) |
+| `unavailable` | 503 | PostgreSQL did not answer within 2 s |
+| `draining` | 503 | Shutting down |
+
 ```http
 GET /health
 ```
 
-Public endpoint — no authentication required.
+Legacy check, unchanged: `200`, body `OK`, while the process serves requests.
 
-**Response** `200 OK` — body: `OK`
-
-Use this for load balancer and container health checks.
-It is never rate limited.
+Metrics are not served on this port; see `METRICS_ADDR` in
+[Observability](./operations/observability.md).
 
 ---
 
