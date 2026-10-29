@@ -28,8 +28,8 @@ pub struct ConnectedClient {
     pub environment_id: Option<String>,
     /// Human-readable SDK key name resolved at connect time.
     pub sdk_key_name: Option<String>,
-    /// Stringified client IP address.
-    pub client_ip: String,
+    /// Client address, as resolved by `crate::client_ip`.
+    pub client_ip: std::net::IpAddr,
     /// Unix timestamp (seconds) when the connection was established.
     pub connected_at: i64,
 }
@@ -52,7 +52,8 @@ pub struct AppState {
     pub sdk_keys: Arc<RwLock<Vec<SdkKeyEntry>>>,
     /// Encryption key for `PrivateCookieJar`. Derived from `SESSION_SECRET` env var.
     pub session_key: Key,
-    /// Live SSE connections keyed by connection_id. Per-instance only.
+    /// Live SSE connections keyed by connection_id. Per-instance only: each
+    /// server reports its own clients on the SDK health page.
     pub connected_clients: Arc<DashMap<String, ConnectedClient>>,
     /// Shared HTTP client for outbound webhook delivery.
     pub webhook_client: reqwest::Client,

@@ -45,7 +45,12 @@ export default function SdkHealth() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">SDK Health</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Live SSE connections to this server instance. Refreshes every 10 s.
+            Live SSE connections to this server instance, for the projects you can access.
+            Refreshes every 10 s.
+          </p>
+          <p className="text-gray-400 text-xs mt-1">
+            Each instance tracks its own connections. Client addresses are shown as a network
+            prefix unless you are a workspace admin.
           </p>
         </div>
         <button

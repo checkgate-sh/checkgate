@@ -1869,3 +1869,39 @@ Public endpoint — no authentication required.
 **Response** `200 OK` — body: `OK`
 
 Use this for load balancer and container health checks.
+It is never rate limited.
+
+---
+
+## SDK Connections
+
+```http
+GET /api/health/connections
+```
+
+Lists the SSE connections currently open **on the server instance that answers
+the request** — connections are tracked in that process's memory, so behind a
+load balancer each instance reports only its own clients. Requires a session or
+a personal access token (either scope); SDK keys get `403`.
+
+Visibility follows project membership:
+
+- **Workspace admins** see every connection, with the full client address.
+- **Everyone else** sees only connections of environments in projects they are
+  a member of, with `client_ip` reduced to its network (`/24` for IPv4, `/48`
+  for IPv6). Connections with no environment (dashboard sessions, the legacy
+  `SDK_KEY`) are visible to workspace admins only.
+
+**Response** `200 OK`
+
+```json
+[
+  {
+    "connection_id": "9f2c4e1a7b3d5e60",
+    "environment_id": "a1b2c3d4-…",
+    "sdk_key_name": "Production",
+    "client_ip": "203.0.113.0/24",
+    "connected_at": 1767225600
+  }
+]
+```

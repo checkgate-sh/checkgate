@@ -145,7 +145,7 @@ pub async fn sse_handler(
             connection_id: connection_id.clone(),
             environment_id: environment_id.clone(),
             sdk_key_name: sdk_key_name.clone(),
-            client_ip: client_ip.to_string(),
+            client_ip,
             connected_at,
         },
     );
