@@ -30,8 +30,6 @@ use axum::{
     routing::get,
 };
 use axum_extra::extract::cookie::Key;
-use checkgate_core::evaluator::Flag;
-use checkgate_core::store::FlagStore;
 use dashmap::DashMap;
 use rand::RngExt as _;
 use rate_limit::{RateLimitConfig, RateLimiters};
@@ -269,72 +267,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const BROADCAST_CHANNEL_CAPACITY: usize = 256;
     let (flag_tx, _) = broadcast::channel::<String>(BROADCAST_CHANNEL_CAPACITY);
 
-    // ── Bootstrap flag store from Postgres ────────────────────────────────────
-
-    let store = Arc::new(FlagStore::new());
-
-    // Preload all segments so flags can be expanded inline (no per-flag DB call).
-    let all_segments = api::segments::load_all_segments(&db).await.unwrap_or_else(|e| {
-        warn!(error = %e, "Failed to preload segments — flags with segment rules will be unexpanded");
-        std::collections::HashMap::new()
-    });
-
-    let records = sqlx::query("SELECT data, environment_id::text AS env_id FROM flags")
-        .fetch_all(&db)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to load flags from PostgreSQL on startup");
-            e
-        })?;
-
-    let total_rows = records.len();
-    let mut loaded = 0usize;
-    let mut skipped = 0usize;
-
-    for rec in records {
-        let env_id: String = match rec.try_get("env_id") {
-            Ok(v) => v,
-            Err(_) => {
-                skipped = skipped.saturating_add(1);
-                continue;
-            }
-        };
-        match rec.try_get::<serde_json::Value, _>("data") {
-            Err(e) => {
-                error!(error = %e, "Failed to read 'data' column from flags row");
-                skipped = skipped.saturating_add(1);
-            }
-            Ok(data) => match serde_json::from_value::<Flag>(data) {
-                Ok(flag) => {
-                    // Build a per-env slice of the segment map for this flag.
-                    let env_segments: std::collections::HashMap<String, _> = all_segments
-                        .iter()
-                        .filter(|((eid, _), _)| eid == &env_id)
-                        .map(|((_, key), rules)| (key.clone(), rules.clone()))
-                        .collect();
-                    let expanded = api::segments::expand_flag_with_segments(flag, &env_segments);
-                    store.upsert_flag(expanded);
-                    loaded = loaded.saturating_add(1);
-                }
-                Err(e) => {
-                    warn!(error = %e, "Skipping malformed flag row — schema may be out of sync");
-                    skipped = skipped.saturating_add(1);
-                }
-            },
-        }
-    }
-
-    info!(
-        total_rows,
-        loaded, skipped, "Flag store initialised from PostgreSQL"
-    );
-
     // ── Redis pub/sub subscriber ───────────────────────────────────────────────
 
     {
         let redis_sub = redis_client.clone();
         let tx = flag_tx.clone();
-        let store_ref = Arc::clone(&store);
 
         tokio::spawn(async move {
             let mut first_subscription = true;
@@ -376,45 +313,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
 
-                    match serde_json::from_str::<serde_json::Value>(&payload) {
-                        Err(e) => {
-                            warn!(error = %e, "Redis subscriber: received non-JSON payload");
-                        }
-                        Ok(event) => match event.get("type").and_then(|t| t.as_str()) {
-                            Some("UPSERT") => {
-                                match event
-                                    .get("flag")
-                                    .and_then(|f| serde_json::from_value::<Flag>(f.clone()).ok())
-                                {
-                                    Some(flag) => {
-                                        info!(flag_key = %flag.key, "Redis: applying remote UPSERT");
-                                        store_ref.upsert_flag(flag);
-                                    }
-                                    None => {
-                                        warn!(
-                                            "Redis subscriber: UPSERT event missing valid 'flag' field"
-                                        );
-                                    }
-                                }
-                            }
-                            Some("DELETE") => match event.get("key").and_then(|k| k.as_str()) {
-                                Some(key) => {
-                                    info!(flag_key = key, "Redis: applying remote DELETE");
-                                    store_ref.delete_flag(key);
-                                }
-                                None => {
-                                    warn!("Redis subscriber: DELETE event missing 'key' field");
-                                }
-                            },
-                            Some("RESYNC") => {
-                                info!("Redis: resync requested — SSE clients will reconnect");
-                            }
-                            other => {
-                                warn!(event_type = ?other, "Redis subscriber: unknown event type");
-                            }
-                        },
-                    }
-
+                    // Payloads are forwarded as-is: each SSE handler parses them
+                    // and delivers only events for the environments it serves.
+                    // There is no server-side flag cache to update — SSE
+                    // bootstrap, snapshots and the REST API all read PostgreSQL.
                     if tx.receiver_count() > 0
                         && let Err(e) = tx.send(payload)
                     {
@@ -440,7 +342,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis_client,
         redis_conn,
         resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        store,
         flag_tx,
         sdk_keys,
         session_key,

@@ -110,7 +110,6 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use axum_extra::extract::cookie::Key;
-    use checkgate_core::store::FlagStore;
     use dashmap::DashMap;
     use serde_json::json;
     use std::sync::Arc;
@@ -158,7 +157,6 @@ mod tests {
             redis_conn: redis_client.get_connection_manager().await.unwrap(),
             resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             redis_client,
-            store: Arc::new(FlagStore::new()),
             flag_tx: broadcast::channel(256).0,
             sdk_keys: Arc::new(RwLock::new(vec![])),
             session_key: Key::generate(),

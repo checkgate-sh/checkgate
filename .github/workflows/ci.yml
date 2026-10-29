@@ -147,6 +147,7 @@ jobs:
           cargo test -p server --test rate_limit -- --nocapture
           cargo test -p server --test setup_ownership -- --nocapture
           cargo test -p server --test sdk_health -- --nocapture
+          cargo test -p server --test environment_isolation -- --nocapture
 
   # ---------------------------------------------------------------------------
   # Native SDK e2e — build the real @checkgate/node addon and drive it over a

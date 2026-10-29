@@ -1,6 +1,5 @@
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
-use checkgate_core::store::FlagStore;
 use dashmap::DashMap;
 use redis::aio::ConnectionManager;
 use sqlx::PgPool;
@@ -44,7 +43,6 @@ pub struct AppState {
     /// Set while a publish has failed and a `RESYNC` broadcast is still being
     /// retried (see `flags::publish_update`).
     pub resync_pending: Arc<AtomicBool>,
-    pub store: Arc<FlagStore>,
     /// Broadcast channel: the Redis subscriber pushes payloads here;
     /// each SSE handler subscribes instead of opening its own Redis connection.
     pub flag_tx: broadcast::Sender<String>,

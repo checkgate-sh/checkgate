@@ -30,7 +30,7 @@ const pushPath = (cy) => `M500,190 Q590,${cy} 654,${cy}`
         <rect x="300" y="104" width="200" height="172" rx="16" />
         <text x="400" y="130" class="cg-title">Checkgate Server</text>
         <rect x="318" y="146" width="164" height="30" rx="8" class="cg-pill cg-pill-accent" />
-        <text x="400" y="166" class="cg-pill-text">in-memory FlagStore</text>
+        <text x="400" y="166" class="cg-pill-text">per-environment SSE</text>
         <rect x="318" y="186" width="78" height="28" rx="8" class="cg-pill" />
         <text x="357" y="205" class="cg-pill-text">PostgreSQL</text>
         <rect x="404" y="186" width="78" height="28" rx="8" class="cg-pill" />

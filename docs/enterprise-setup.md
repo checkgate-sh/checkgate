@@ -19,8 +19,8 @@ Checkgate uses PostgreSQL for long-term persistence of flags, user roles, and au
 ### 2. The Real-Time Sync (Redis)
 Checkgate uses Redis for inter-instance communication and real-time updates.
 - **Requirement**: A standard Redis instance (ElastiCache, MemoryStore, or self-hosted).
-- **The Sync Engine**: Checkgate uses the **Redis Pub/Sub** pattern. When a flag is updated on one server instance, it broadcasts a message via Redis. All other instances receive the update and refresh their local memory caches instantly.
-- **Resilience**: If Redis is temporarily unavailable, Checkgate continues to serve flags from its in-memory store; real-time updates will resume as soon as the connection is restored.
+- **The Sync Engine**: Checkgate uses the **Redis Pub/Sub** pattern. When a flag is updated on one server instance, it broadcasts a message via Redis. Every instance receives it and pushes it to its connected SDKs of that environment.
+- **Resilience**: If Redis is temporarily unavailable, flags keep being served from PostgreSQL (SSE bootstrap, snapshot polling, REST) and SDKs keep evaluating their local copies; once Redis is back, SSE clients are told to reconnect and re-bootstrap so no change is missed.
 
 ---
 

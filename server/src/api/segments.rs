@@ -9,7 +9,7 @@ use axum::{
 use checkgate_core::evaluator::{Flag, TargetingRule};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use std::collections::HashMap;
 use tracing::{error, info};
 
@@ -94,30 +94,6 @@ pub(crate) async fn load_env_segments(
             && let Ok(rules) = serde_json::from_value::<Vec<TargetingRule>>(rules_val)
         {
             map.insert(key, rules);
-        }
-    }
-    Ok(map)
-}
-
-/// Load all segments across all environments, keyed by `(env_id, segment_key)`.
-/// Used at startup to expand flags during FlagStore bootstrap.
-pub(crate) async fn load_all_segments(
-    db: &PgPool,
-) -> Result<HashMap<(String, String), Vec<TargetingRule>>, sqlx::Error> {
-    let rows = sqlx::query(
-        "SELECT environment_id::text, key, rules FROM segments ORDER BY environment_id, key",
-    )
-    .fetch_all(db)
-    .await?;
-
-    let mut map = HashMap::new();
-    for row in rows {
-        let env_id: String = row.get("environment_id");
-        let key: String = row.get("key");
-        if let Ok(rules_val) = row.try_get::<Value, _>("rules")
-            && let Ok(rules) = serde_json::from_value::<Vec<TargetingRule>>(rules_val)
-        {
-            map.insert((env_id, key), rules);
         }
     }
     Ok(map)
@@ -514,8 +490,6 @@ async fn rerevision_referencing_flags(
 async fn publish_rebroadcast(state: &AppState, flags: Vec<Rebroadcast>) {
     for item in flags {
         let msg = super::flags::upsert_message(&item.env_id, &item.flag, item.revision);
-        // Also update FlagStore on this instance.
-        state.store.upsert_flag(item.flag);
         super::flags::publish_update(state, &msg, "segment_rebroadcast").await;
     }
 }

@@ -238,7 +238,7 @@ A basic task definition:
 
 ### Load Balancing
 
-Checkgate is stateless — the in-memory flag store is rebuilt from PostgreSQL on startup and kept in sync via Redis pub/sub. Run as many instances as you need behind an ALB.
+Checkgate keeps no flag state in server memory: SSE bootstrap, snapshot polling and the REST API read PostgreSQL, and live changes fan out to every instance through Redis pub/sub. Run as many instances as you need behind an ALB. (The SDK health page is the exception — each instance lists only its own SSE connections.)
 
 **Important**: The SSE stream (`/stream`) requires sticky sessions or a long-lived HTTP/2 connection. Configure your ALB target group with:
 - **Protocol**: HTTP/1.1 (SSE is not compatible with HTTP/2 connection multiplexing on ALB)
