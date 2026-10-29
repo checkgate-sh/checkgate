@@ -12,6 +12,7 @@
 
 mod api;
 mod auth;
+mod client_ip;
 mod integrations;
 mod notify;
 mod rate_limit;
@@ -32,7 +33,7 @@ use checkgate_core::evaluator::Flag;
 use checkgate_core::store::FlagStore;
 use dashmap::DashMap;
 use rand::RngExt as _;
-use rate_limit::new_rate_limiter;
+use rate_limit::{RateLimitConfig, RateLimiters};
 use sqlx::{Row, postgres::PgPoolOptions};
 use state::SdkKeyEntry;
 use std::sync::Arc;
@@ -228,6 +229,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // ── Client identity & rate limits ─────────────────────────────────────────
+
+    let trusted_proxies = client_ip::TrustedProxies::from_env().map_err(|e| {
+        error!(error = %e, "Invalid TRUSTED_PROXIES");
+        e
+    })?;
+    if trusted_proxies.is_empty() {
+        info!("TRUSTED_PROXIES not set — clients are identified by their TCP peer address");
+    } else {
+        info!("TRUSTED_PROXIES set — X-Forwarded-For is honoured from those peers only");
+    }
+    let trusted_proxies = Arc::new(trusted_proxies);
+
+    let rate_limit_config = RateLimitConfig::from_env().map_err(|e| {
+        error!(error = %e, "Invalid rate limit configuration");
+        e
+    })?;
+    info!(config = ?rate_limit_config, "Rate limits per client per minute");
+    let rate_limiters = Arc::new(RateLimiters::new(rate_limit_config));
+    rate_limiters.spawn_eviction();
+
     // ── Broadcast channel ─────────────────────────────────────────────────────
 
     const BROADCAST_CHANNEL_CAPACITY: usize = 256;
@@ -407,7 +429,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store,
         flag_tx,
         sdk_keys,
-        rate_limiter: new_rate_limiter(),
         session_key,
         connected_clients: Arc::new(DashMap::new()),
         webhook_client,
@@ -449,7 +470,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Protected write: additionally requires admin role.
     //
     // Layer execution order for a write request (outermost → innermost):
-    //   cors → rate_limit → csrf → require_auth → require_editor/require_admin → handler
+    //   cors → client_ip → rate_limit → csrf → require_auth → require_editor/require_admin → handler
 
     let auth_routes = api::auth_router();
     let setup_routes = api::setup_router();
@@ -511,8 +532,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(middleware::from_fn(api::security_headers))
         .layer(middleware::from_fn(api::csrf_protection))
         .layer(middleware::from_fn_with_state(
-            app_state.clone(),
+            rate_limiters,
             rate_limit::rate_limit,
+        ))
+        .layer(middleware::from_fn_with_state(
+            trusted_proxies,
+            client_ip::resolve_client_ip,
         ))
         .layer(cors)
         .fallback_service(serve_dashboard)

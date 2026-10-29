@@ -138,6 +138,10 @@ async fn full_api_flow() {
             "test-secret-0123456789-0123456789-0123456789-0123456789-0123456789",
         )
         .env("COOKIE_SECURE", "false")
+        // The test client stands in for a reverse proxy: some scenarios send
+        // X-Forwarded-For to get a rate-limit budget of their own, which the
+        // server honours only from a trusted peer.
+        .env("TRUSTED_PROXIES", "127.0.0.1")
         .env("PUBLIC_DIR", public_dir.to_str().unwrap())
         .env("RUST_LOG", "warn")
         .stdout(Stdio::null())

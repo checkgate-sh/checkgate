@@ -161,7 +161,6 @@ mod tests {
             store: Arc::new(FlagStore::new()),
             flag_tx: broadcast::channel(256).0,
             sdk_keys: Arc::new(RwLock::new(vec![])),
-            rate_limiter: crate::rate_limit::new_rate_limiter(),
             session_key: Key::generate(),
             connected_clients: Arc::new(DashMap::new()),
             webhook_client: reqwest::Client::new(),

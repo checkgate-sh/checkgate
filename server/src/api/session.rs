@@ -4,17 +4,17 @@ use argon2::{
 };
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, State},
+    extract::State,
     http::StatusCode,
     routing::{get, post},
 };
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar, SameSite};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use std::net::SocketAddr;
 use time::Duration;
 use tracing::{error, info, warn};
 
+use crate::client_ip::ClientIp;
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -244,12 +244,12 @@ async fn clear_attempts(state: &AppState, email: &str) {
 )]
 pub async fn login(
     State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    ClientIp(client_ip): ClientIp,
     jar: PrivateCookieJar,
     Json(req): Json<LoginRequest>,
 ) -> Result<(PrivateCookieJar, Json<UserInfo>), (StatusCode, Json<serde_json::Value>)> {
     let email = req.email.trim().to_lowercase();
-    let ip = addr.ip().to_string();
+    let ip = client_ip.to_string();
 
     if email.is_empty() || req.password.is_empty() {
         return Err((

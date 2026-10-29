@@ -1,10 +1,11 @@
 use crate::auth::{AuthContext, get_session_claims};
+use crate::client_ip::ClientIp;
 use crate::state::SdkKeyEntry;
 use crate::state::{AppState, ConnectedClient};
 use axum::http::{HeaderName, HeaderValue};
 use axum::{
     Json,
-    extract::{ConnectInfo, State},
+    extract::State,
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
 };
@@ -13,7 +14,7 @@ use futures_util::stream::Stream;
 use rand::RngExt as _;
 use sqlx::Row;
 use std::collections::HashSet;
-use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Duration};
+use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
@@ -41,13 +42,11 @@ fn random_connection_id() -> String {
     reason = "seconds since the Unix epoch; wrapping i64 would require a clock set beyond the year 292 billion"
 )]
 pub async fn sse_handler(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    ClientIp(client_ip): ClientIp,
     State(state): State<AppState>,
     ctx: AuthContext,
     req: axum::http::Request<axum::body::Body>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    let client_ip = addr.ip();
-
     let sdk_key = req.extensions().get::<SdkKeyEntry>();
     let environment_id = sdk_key.and_then(|key| key.environment_id.clone());
     let sdk_key_name = sdk_key.map(|key| key.name.clone());

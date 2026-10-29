@@ -1,4 +1,3 @@
-use crate::rate_limit::IpRateLimiter;
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
 use checkgate_core::store::FlagStore;
@@ -51,8 +50,6 @@ pub struct AppState {
     pub flag_tx: broadcast::Sender<String>,
     /// Local key-management cache. Authentication always checks PostgreSQL.
     pub sdk_keys: Arc<RwLock<Vec<SdkKeyEntry>>>,
-    /// Per-IP rate limiter applied to all API routes.
-    pub rate_limiter: IpRateLimiter,
     /// Encryption key for `PrivateCookieJar`. Derived from `SESSION_SECRET` env var.
     pub session_key: Key,
     /// Live SSE connections keyed by connection_id. Per-instance only.
