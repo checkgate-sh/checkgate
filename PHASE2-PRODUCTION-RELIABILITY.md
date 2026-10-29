@@ -32,7 +32,7 @@ left unresolved; the remaining risks are listed in §14.
 | | |
 |---|---|
 | Starting commit | `28eb233` (dev, merge of PR #21) |
-| Ending commit | the PR head; this report is the last commit |
+| Ending commit | the PR head (last code commit `aaef95c`; this report is in the commits after it) |
 
 ## 3. Existing architecture assessment
 
@@ -437,4 +437,4 @@ Other findings:
 
 ## 18. Draft PR
 
-See the PR description; URL recorded in the session summary.
+https://github.com/checkgate-sh/checkgate/pull/22 (draft, base `dev`).
