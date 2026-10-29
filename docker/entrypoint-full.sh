@@ -117,7 +117,28 @@ echo "[init] Starting PostgreSQL..."
 # gone. Create it on every start.
 install -d -o postgres -g postgres -m 2775 /var/run/postgresql
 chown postgres:postgres "$PG_DATA"
+# A container that was killed (docker rm -f, OOM, node loss) leaves its
+# postmaster.pid in the volume. In a fresh container the new postmaster can
+# get the same PID, and if it starts within two seconds of the old one,
+# `pg_ctl -w` reads the stale file's "ready" line and reports success before
+# the server has finished crash recovery or created its socket. Nothing else
+# runs PostgreSQL in this container, so a lock file whose PID is not a live
+# postgres process here is stale.
+if [ -f "$PG_DATA/postmaster.pid" ]; then
+  STALE_PID="$(head -n 1 "$PG_DATA/postmaster.pid")"
+  if [ "$(cat "/proc/$STALE_PID/comm" 2>/dev/null)" != "postgres" ]; then
+    echo "[init] Removing stale postmaster.pid left by an unclean shutdown."
+    rm -f "$PG_DATA/postmaster.pid"
+  fi
+fi
 as_user postgres pg_ctl -D "$PG_DATA" -l /var/log/postgresql.log start -w
+# pg_ctl's wait is not proof of a usable socket; wait for one (crash recovery
+# after an unclean shutdown can take a while).
+for _ in $(seq 1 60); do
+  pg_isready -q -h /var/run/postgresql && break
+  sleep 1
+done
+pg_isready -q -h /var/run/postgresql || die "PostgreSQL did not accept connections within 60 s; see /var/log/postgresql.log"
 
 # Ensure database exists (connect to 'postgres' which always exists after initdb)
 DB_EXISTS="$(as_user postgres psql -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$PG_DB'")"
