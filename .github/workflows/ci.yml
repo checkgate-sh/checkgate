@@ -115,9 +115,12 @@ jobs:
   server-integration:
     name: Server integration tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
+      # Pinned by digest so a new upstream image cannot change test behaviour
+      # under an unchanged commit (PostgreSQL 16.15, Redis 7.4.11).
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -130,7 +133,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: redis:7
+        image: redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
         ports:
           - 6379:6379
         options: >-
@@ -138,6 +141,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+    env:
+      CHECKGATE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/checkgate_test
+      CHECKGATE_TEST_REDIS_URL: redis://localhost:6379
+      # Assert the suites actually run here: if the two URLs above ever go
+      # missing, the tests fail loudly instead of skipping and reporting ok.
+      CHECKGATE_REQUIRE_INTEGRATION: "1"
+      # Server logs of every multi-instance test and measured recovery windows.
+      CHECKGATE_TEST_ARTIFACTS: ${{ github.workspace }}/reliability-artifacts
     steps:
       - uses: actions/checkout@v5
 
@@ -148,12 +159,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run server integration + SSE e2e tests
-        env:
-          CHECKGATE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/checkgate_test
-          CHECKGATE_TEST_REDIS_URL: redis://localhost:6379
-          # Assert the suite actually runs here: if the two URLs above ever go
-          # missing, the tests fail loudly instead of skipping and reporting ok.
-          CHECKGATE_REQUIRE_INTEGRATION: "1"
         run: |
           cargo test -p server --test integration -- --nocapture
           cargo test -p server --test e2e_sse -- --nocapture
@@ -161,6 +166,25 @@ jobs:
           cargo test -p server --test setup_ownership -- --nocapture
           cargo test -p server --test sdk_health -- --nocapture
           cargo test -p server --test environment_isolation -- --nocapture
+
+      # Health, readiness, graceful shutdown, metrics and admission control.
+      - name: Lifecycle and metrics tests
+        run: cargo test -p server --test lifecycle -- --nocapture
+
+      # Multi-instance fault injection: several server processes against the
+      # real PostgreSQL and Redis above, faults injected by in-process TCP
+      # proxies. Each test has a bounded convergence deadline.
+      - name: Multi-instance reliability tests
+        run: cargo test -p server --test reliability -- --nocapture
+
+      - name: Upload reliability artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: reliability-artifacts
+          path: reliability-artifacts
+          if-no-files-found: ignore
+          retention-days: 14
 
   # ---------------------------------------------------------------------------
   # Native SDK e2e — build the real @checkgate/node addon and drive it over a

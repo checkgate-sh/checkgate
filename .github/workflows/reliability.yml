@@ -1,0 +1,153 @@
+name: Reliability (extended)
+
+# Heavier checks that do not belong on every pull request: the fault-injection
+# suites repeated to expose flakiness, larger SSE connection profiles, and the
+# evaluation-core benchmarks. Nightly, or on demand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Times to repeat the fault-injection suites"
+        default: "5"
+      connections:
+        description: "SSE connection profiles for the load test (comma-separated)"
+        default: "100,1000"
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fault-injection-soak:
+    name: Fault injection (repeated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: checkgate_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CHECKGATE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/checkgate_test
+      CHECKGATE_TEST_REDIS_URL: redis://localhost:6379
+      CHECKGATE_REQUIRE_INTEGRATION: "1"
+      CHECKGATE_TEST_ARTIFACTS: ${{ github.workspace }}/artifacts
+      REPEAT: ${{ inputs.repeat || '5' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build test binaries
+        run: cargo test -p server --test reliability --test lifecycle --no-run
+      - name: Repeat the suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          for i in $(seq 1 "$REPEAT"); do
+            echo "::group::round $i of $REPEAT"
+            cargo test -p server --test reliability --test lifecycle -- --nocapture 2>&1 | tee -a artifacts/soak.log
+            echo "::endgroup::"
+          done
+      - name: Recovery windows
+        if: always()
+        run: |
+          if [ -f artifacts/recovery.jsonl ]; then
+            python3 - <<'PY'
+          import json, collections
+          by = collections.defaultdict(list)
+          for line in open("artifacts/recovery.jsonl"):
+              r = json.loads(line); by[r["scenario"]].append(r["recovery_ms"])
+          print("| scenario | samples | median ms | max ms |\n|---|---|---|---|")
+          for s, v in sorted(by.items()):
+              v.sort(); print(f"| {s} | {len(v)} | {v[len(v)//2]} | {v[-1]} |")
+          PY
+          fi | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: fault-injection-artifacts
+          path: artifacts
+          retention-days: 30
+
+  load:
+    name: Control-plane load
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: checkgate_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p server --bin server --example loadgen
+      - name: Run load profiles
+        run: |
+          mkdir -p artifacts
+          ulimit -n 65536 || true
+          target/release/examples/loadgen \
+            --server-bin target/release/server \
+            --database-url postgres://postgres:postgres@localhost:5432/postgres \
+            --redis-url redis://localhost:6379 \
+            --connections "${{ inputs.connections || '100,1000' }}" \
+            --out artifacts/loadgen.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: load-results
+          path: artifacts
+          retention-days: 90
+
+  core-bench:
+    name: Evaluation core benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run benchmarks
+        run: |
+          mkdir -p artifacts
+          cargo bench -p checkgate-bench --bench evaluation 2>&1 | tee artifacts/criterion.txt
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: core-benchmarks
+          path: |
+            artifacts
+            target/criterion
+          retention-days: 90
