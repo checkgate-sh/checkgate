@@ -23,10 +23,23 @@ use std::sync::Arc;
 /// Upper bound on the hops examined, so a long header costs bounded work.
 const MAX_HOPS: usize = 32;
 
-/// Proxies whose `X-Forwarded-For` header is believed.
+/// Which forwarding header trusted proxies set. Exactly one is read: a proxy
+/// that writes one header usually passes the other through from the client
+/// untouched, so honouring both would let clients pick their address.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ForwardingHeader {
+    /// `X-Forwarded-For: client, proxy1` (the de-facto standard; default).
+    #[default]
+    XForwardedFor,
+    /// RFC 7239 `Forwarded: for=client;proto=https, for="[2001:db8::1]:443"`.
+    Forwarded,
+}
+
+/// Proxies whose forwarding header is believed.
 #[derive(Clone, Debug, Default)]
 pub struct TrustedProxies {
     nets: Vec<IpNet>,
+    header: ForwardingHeader,
 }
 
 impl TrustedProxies {
@@ -44,12 +57,39 @@ impl TrustedProxies {
                     .map_err(|_| format!("invalid TRUSTED_PROXIES entry {entry:?}"))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { nets })
+        Ok(Self {
+            nets,
+            header: ForwardingHeader::default(),
+        })
     }
 
-    /// Reads `TRUSTED_PROXIES`. Unset or empty means no proxy is trusted.
+    pub fn with_header(mut self, header: ForwardingHeader) -> Self {
+        self.header = header;
+        self
+    }
+
+    /// Reads `TRUSTED_PROXIES` (unset or empty: no proxy is trusted) and
+    /// `TRUSTED_PROXY_HEADER` (`x-forwarded-for`, the default, or `forwarded`).
     pub fn from_env() -> Result<Self, String> {
-        Self::parse(&std::env::var("TRUSTED_PROXIES").unwrap_or_default())
+        let header = match std::env::var("TRUSTED_PROXY_HEADER")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "" | "x-forwarded-for" => ForwardingHeader::XForwardedFor,
+            "forwarded" => ForwardingHeader::Forwarded,
+            other => {
+                return Err(format!(
+                    "TRUSTED_PROXY_HEADER must be x-forwarded-for or forwarded, got {other:?}"
+                ));
+            }
+        };
+        Ok(Self::parse(&std::env::var("TRUSTED_PROXIES").unwrap_or_default())?.with_header(header))
+    }
+
+    pub fn header(&self) -> ForwardingHeader {
+        self.header
     }
 
     pub fn is_empty(&self) -> bool {
@@ -67,14 +107,21 @@ impl TrustedProxies {
         if !self.is_trusted(peer) {
             return peer;
         }
+        let name = match self.header {
+            ForwardingHeader::XForwardedFor => "x-forwarded-for",
+            ForwardingHeader::Forwarded => "forwarded",
+        };
         let mut hops = Vec::new();
-        for value in headers.get_all("x-forwarded-for") {
+        for value in headers.get_all(name) {
             // A header that is not visible ASCII cannot be a list of addresses;
             // ignore the whole chain rather than guess which part is genuine.
             let Ok(value) = value.to_str() else {
                 return peer;
             };
-            hops.extend(value.split(',').map(str::trim));
+            hops.extend(value.split(',').map(|element| match self.header {
+                ForwardingHeader::XForwardedFor => element.trim(),
+                ForwardingHeader::Forwarded => forwarded_for(element),
+            }));
         }
         let mut client = peer;
         for hop in hops.iter().rev().take(MAX_HOPS) {
@@ -94,7 +141,27 @@ impl TrustedProxies {
     }
 }
 
-/// Parses one `X-Forwarded-For` entry: a bare address, or an address with a
+/// The `for=` value of one RFC 7239 `Forwarded` element, unquoted; empty when
+/// absent. Obfuscated identifiers (`_hidden`) and `unknown` are returned as
+/// they are and then fail to parse as an address, which ends the walk at the
+/// nearest trusted proxy — as does a comma inside a quoted value, which
+/// splitting the list breaks into malformed elements.
+fn forwarded_for(element: &str) -> &str {
+    element
+        .split(';')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(name, _)| name.trim().eq_ignore_ascii_case("for"))
+        .map(|(_, value)| {
+            let value = value.trim();
+            value
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .unwrap_or(value)
+        })
+        .unwrap_or("")
+}
+
+/// Parses one `X-Forwarded-For` entry (or `Forwarded` `for=` value): a bare address, or an address with a
 /// port (`203.0.113.7:4711`, `[2001:db8::1]:443`), which some proxies emit.
 fn parse_hop(hop: &str) -> Option<IpAddr> {
     let ip = hop
@@ -284,6 +351,65 @@ mod tests {
             trusted.resolve(ip("::ffff:10.0.0.1"), &headers),
             ip("198.51.100.1")
         );
+    }
+
+    fn fwd(values: &[&str]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for v in values {
+            headers.append("forwarded", HeaderValue::from_str(v).unwrap());
+        }
+        headers
+    }
+
+    #[test]
+    fn rfc7239_forwarded_is_read_only_when_selected() {
+        let proxies = TrustedProxies::parse("10.0.0.0/8").unwrap();
+        let rfc = proxies.clone().with_header(ForwardingHeader::Forwarded);
+        let h = fwd(&["for=198.51.100.7;proto=https, for=10.0.0.2"]);
+        assert_eq!(rfc.resolve(ip("10.0.0.1"), &h), ip("198.51.100.7"));
+        // Default mode ignores Forwarded entirely.
+        assert_eq!(proxies.resolve(ip("10.0.0.1"), &h), ip("10.0.0.1"));
+        // Forwarded mode ignores X-Forwarded-For, which a proxy may pass through.
+        assert_eq!(
+            rfc.resolve(ip("10.0.0.1"), &xff(&["203.0.113.9"])),
+            ip("10.0.0.1")
+        );
+    }
+
+    #[test]
+    fn rfc7239_forms_parse() {
+        let rfc = TrustedProxies::parse("10.0.0.0/8")
+            .unwrap()
+            .with_header(ForwardingHeader::Forwarded);
+        for (header, want) in [
+            (r#"For="[2001:db8:cafe::17]:4711""#, "2001:db8:cafe::17"),
+            ("for=192.0.2.60;proto=http;by=203.0.113.43", "192.0.2.60"),
+            (r#"proto=https; for="198.51.100.1:8443""#, "198.51.100.1"),
+            ("for=203.0.113.5, for=10.1.1.1", "203.0.113.5"),
+        ] {
+            assert_eq!(
+                rfc.resolve(ip("10.0.0.1"), &fwd(&[header])),
+                ip(want),
+                "{header}"
+            );
+        }
+        // Spoofed entries left of an untrusted hop are never used.
+        let h = fwd(&["for=1.1.1.1, for=203.0.113.5, for=10.1.1.1"]);
+        assert_eq!(rfc.resolve(ip("10.0.0.1"), &h), ip("203.0.113.5"));
+        // Obfuscated, unknown, missing or broken values stop at the nearest
+        // trusted proxy instead of handing out a fresh identity.
+        for header in [
+            "for=_hidden, for=10.1.1.1",
+            "for=unknown, for=10.1.1.1",
+            "proto=https, for=10.1.1.1",
+            r#"for="[2001:db8::1,]", for=10.1.1.1"#,
+        ] {
+            assert_eq!(
+                rfc.resolve(ip("10.0.0.1"), &fwd(&[header])),
+                ip("10.1.1.1"),
+                "{header}"
+            );
+        }
     }
 
     #[test]
