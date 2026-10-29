@@ -116,6 +116,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0 — © 2026 ThinkGrid Labs
+Apache License 2.0 — © 2025
 
 

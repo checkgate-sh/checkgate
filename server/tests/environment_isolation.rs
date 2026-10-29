@@ -366,10 +366,10 @@ async fn identical_flag_keys_stay_isolated_per_environment() {
     )
     .await;
     assert_eq!(sdks[0].until(KEY).await, vec![KEY]);
-    for i in 1..3 {
+    for (i, sdk) in sdks.iter_mut().enumerate().skip(1) {
         f.marker(&server, i, 1).await;
         assert_eq!(
-            sdks[i].until("marker").await,
+            sdk.until("marker").await,
             vec!["marker"],
             "env {i} saw no foreign update"
         );
