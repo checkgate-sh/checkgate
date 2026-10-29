@@ -14,12 +14,15 @@ mod api;
 mod auth;
 mod client_ip;
 mod integrations;
+mod lifecycle;
+mod metrics;
 mod notify;
 mod rate_limit;
 mod scheduler;
 mod setup;
 mod state;
 mod stream;
+mod sync;
 mod webhook_fire;
 
 use axum::{
@@ -37,8 +40,7 @@ use sqlx::{Row, postgres::PgPoolOptions};
 use state::SdkKeyEntry;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, broadcast};
-use tokio_stream::StreamExt;
+use tokio::sync::{Notify, RwLock, broadcast};
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnFailure, DefaultOnResponse, TraceLayer};
@@ -77,10 +79,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(10);
 
+    // Read every setting before touching a dependency, so a typo stops the
+    // process at once with a message naming it.
+    let sync_config = sync::SyncConfig::from_env().map_err(|e| {
+        error!(error = %e, "Invalid synchronization setting");
+        e
+    })?;
+    let lifecycle_config = lifecycle::LifecycleConfig::from_env().map_err(|e| {
+        error!(error = %e, "Invalid shutdown/readiness setting");
+        e
+    })?;
+    let sse_limits = Arc::new(stream::SseLimits::from_env(max_conns).map_err(|e| {
+        error!(error = %e, "Invalid SSE limit");
+        e
+    })?);
+    // A peer that stops reading leaves the SSE stream unpolled (its socket is
+    // full), so no application timer can fire for it; the kernel can. With
+    // TCP_USER_TIMEOUT, a connection whose sent data stays unacknowledged —
+    // including behind a zero receive window — this long is aborted.
+    let tcp_user_timeout = match std::env::var("TCP_USER_TIMEOUT_SECS") {
+        Ok(v) if !v.trim().is_empty() => v.trim().parse::<u64>().map_err(|_| {
+            error!(value = %v, "TCP_USER_TIMEOUT_SECS must be a non-negative integer");
+            format!("invalid TCP_USER_TIMEOUT_SECS {v:?}")
+        })?,
+        _ => 60,
+    };
+    let tcp_user_timeout = (tcp_user_timeout > 0).then(|| Duration::from_secs(tcp_user_timeout));
+
+    let metrics_addr = match std::env::var("METRICS_ADDR") {
+        Ok(v) if !v.trim().is_empty() => {
+            Some(v.trim().parse::<std::net::SocketAddr>().map_err(|_| {
+                error!(value = %v, "METRICS_ADDR must be host:port, e.g. 0.0.0.0:9464");
+                format!("invalid METRICS_ADDR {v:?}")
+            })?)
+        }
+        _ => None,
+    };
+    info!(
+        reconcile_interval = ?sync_config.reconcile_interval,
+        reconcile_grace = ?sync_config.reconcile_grace,
+        redis_channel = sync::updates_channel(),
+        "Synchronization settings"
+    );
+
     info!(max_connections = max_conns, "Connecting to PostgreSQL");
 
     let db = PgPoolOptions::new()
         .max_connections(max_conns)
+        // Fail a request that cannot get a connection, rather than holding it
+        // for sqlx's default 30 s while the pool is exhausted.
+        .acquire_timeout(Duration::from_secs(10))
         .connect(&db_url)
         .await
         .map_err(|e| {
@@ -251,7 +299,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if trusted_proxies.is_empty() {
         info!("TRUSTED_PROXIES not set — clients are identified by their TCP peer address");
     } else {
-        info!("TRUSTED_PROXIES set — X-Forwarded-For is honoured from those peers only");
+        info!(
+            header = ?trusted_proxies.header(),
+            "TRUSTED_PROXIES set — the forwarding header is honoured from those peers only"
+        );
     }
     let trusted_proxies = Arc::new(trusted_proxies);
 
@@ -261,74 +312,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     info!(config = ?rate_limit_config, "Rate limits per client per minute");
     let rate_limiters = Arc::new(RateLimiters::new(rate_limit_config));
-    rate_limiters.spawn_eviction();
 
     // ── Broadcast channel ─────────────────────────────────────────────────────
 
+    // Per-instance fan-out to SSE connections. A connection that falls this
+    // many events behind is closed and reconnects (see `stream.rs`).
     const BROADCAST_CHANNEL_CAPACITY: usize = 256;
-    let (flag_tx, _) = broadcast::channel::<String>(BROADCAST_CHANNEL_CAPACITY);
-
-    // ── Redis pub/sub subscriber ───────────────────────────────────────────────
-
-    {
-        let redis_sub = redis_client.clone();
-        let tx = flag_tx.clone();
-
-        tokio::spawn(async move {
-            let mut first_subscription = true;
-            loop {
-                let mut con = match redis_sub.get_async_pubsub().await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!(error = %e, "Redis subscriber: connection failed — retrying in 2s");
-                        tokio::time::sleep(Duration::from_secs(2)).await;
-                        continue;
-                    }
-                };
-
-                if let Err(e) = con.subscribe("checkgate_updates").await {
-                    error!(error = %e, "Redis subscriber: subscribe failed — retrying in 2s");
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    continue;
-                }
-
-                info!("Redis subscriber: listening on channel 'checkgate_updates'");
-
-                // Anything published while the subscription was down never
-                // reached this instance, so make every local SSE client
-                // reconnect and re-bootstrap from PostgreSQL.
-                if !first_subscription {
-                    warn!("Redis subscriber: resubscribed — resyncing local SSE clients");
-                    let _ = tx.send(api::flags::RESYNC_MESSAGE.to_string());
-                }
-                first_subscription = false;
-
-                let mut msg_stream = con.into_on_message();
-
-                while let Some(msg) = msg_stream.next().await {
-                    let payload = match msg.get_payload::<String>() {
-                        Ok(p) => p,
-                        Err(e) => {
-                            warn!(error = %e, "Redis subscriber: failed to decode message payload");
-                            continue;
-                        }
-                    };
-
-                    // Payloads are forwarded as-is: each SSE handler parses them
-                    // and delivers only events for the environments it serves.
-                    // There is no server-side flag cache to update — SSE
-                    // bootstrap, snapshots and the REST API all read PostgreSQL.
-                    if tx.receiver_count() > 0
-                        && let Err(e) = tx.send(payload)
-                    {
-                        warn!(error = %e, "Broadcast send failed — no active SSE receivers");
-                    }
-                }
-
-                warn!("Redis subscriber: connection dropped — reconnecting");
-            }
-        });
-    }
+    let (flag_tx, _) = broadcast::channel::<Arc<sync::SyncEvent>>(BROADCAST_CHANNEL_CAPACITY);
 
     // ── App state ─────────────────────────────────────────────────────────────
 
@@ -338,9 +328,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap_or_default();
 
+    let metrics = metrics::Metrics::new(max_conns);
+    let lifecycle = Arc::new(lifecycle::Lifecycle::new(lifecycle_config));
     let app_state = state::AppState {
         db: db.clone(),
-        redis_client,
+        redis_client: redis_client.clone(),
         redis_conn,
         resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         flag_tx,
@@ -349,7 +341,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         connected_clients: Arc::new(DashMap::new()),
         webhook_client,
         setup_token,
+        sync: sync::SyncState::new(sync_config),
+        metrics: Arc::clone(&metrics),
+        lifecycle: Arc::clone(&lifecycle),
+        sse_limits,
     };
+    let shutdown = lifecycle.shutdown.clone();
+    rate_limiters.spawn_eviction(shutdown.clone());
+
+    // ── Redis subscriber and reconciliation ──────────────────────────────────
+    //
+    // Order matters for the reconciliation index: subscribe first, then seed
+    // the index from PostgreSQL, then accept connections. A change committed
+    // after the seed either arrives on the subscription or is caught by the
+    // next reconciliation pass.
+
+    let subscribed = Arc::new(Notify::new());
+    let subscriber = tokio::spawn(sync::run_subscriber(
+        app_state.clone(),
+        redis_client,
+        shutdown.clone(),
+        Arc::clone(&subscribed),
+    ));
+    if tokio::time::timeout(Duration::from_secs(5), subscribed.notified())
+        .await
+        .is_err()
+    {
+        warn!("Redis subscription not established yet — continuing; clients resync once it is");
+    }
+    if app_state.sync.config.reconcile_interval.is_some()
+        && let Err(e) = sync::reconcile_once(&app_state).await
+    {
+        warn!(error = %e, "Initial sync index seed failed — the reconciler will retry");
+    }
+    let reconciler = tokio::spawn(sync::run_reconciler(app_state.clone(), shutdown.clone()));
 
     // ── Middleware stack ───────────────────────────────────────────────────────
 
@@ -393,10 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let setup_routes = api::setup_router();
 
     // Spawn scheduled-change executor (checks every 60 s, multi-instance safe).
-    {
-        let sched_state = app_state.clone();
-        tokio::spawn(async move { scheduler::run(sched_state).await });
-    }
+    let scheduler = tokio::spawn(scheduler::run(app_state.clone(), shutdown.clone()));
 
     // Flag write routes: editors and admins can create/edit/delete flags.
     let editor_write_api = api::editor_write_router()
@@ -440,11 +462,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             auth::require_auth,
         ));
 
+    // The dashboard fallback is added before the layers: `Router::layer` only
+    // wraps what the router already has, and static files need the security
+    // headers too.
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
+        .route("/health/live", get(lifecycle::live))
+        .route("/health/ready", get(lifecycle::ready))
         .nest("/api/auth", auth_routes)
         .nest("/api", setup_routes)
         .merge(protected)
+        .fallback_service(serve_dashboard)
         .layer(trace_layer)
         .layer(middleware::from_fn(api::security_headers))
         .layer(middleware::from_fn(api::csrf_protection))
@@ -456,9 +484,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             trusted_proxies,
             client_ip::resolve_client_ip,
         ))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&metrics),
+            metrics::track_http,
+        ))
         .layer(cors)
-        .fallback_service(serve_dashboard)
-        .with_state(app_state);
+        .with_state(app_state.clone());
 
     // ── Listen ────────────────────────────────────────────────────────────────
 
@@ -471,16 +502,126 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             e
         })?;
 
-    info!(addr = %listener.local_addr()?, "Server listening");
+    info!(addr = %listener.local_addr()?, tcp_user_timeout = ?tcp_user_timeout, "Server listening");
+    let listener = {
+        use axum::serve::ListenerExt as _;
+        listener.tap_io(move |tcp| {
+            #[cfg(any(target_os = "linux", target_os = "android", target_os = "fuchsia"))]
+            if let Some(timeout) = tcp_user_timeout
+                && let Err(e) = socket2::SockRef::from(&*tcp).set_tcp_user_timeout(Some(timeout))
+            {
+                tracing::debug!(error = %e, "Could not set TCP_USER_TIMEOUT");
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "fuchsia")))]
+            let _ = (tcp, tcp_user_timeout);
+        })
+    };
 
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    // ── Metrics listener ─────────────────────────────────────────────────────
+    //
+    // Separate from the public port so `/metrics` is only reachable where the
+    // operator binds it (a private interface, or a port that is not
+    // published). Off unless METRICS_ADDR is set.
+    let metrics_server = match metrics_addr {
+        Some(addr) => {
+            let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+                error!(error = %e, %addr, "Failed to bind metrics listener");
+                e
+            })?;
+            info!(addr = %listener.local_addr()?, "Metrics listening on /metrics");
+            let router = Router::new()
+                .route("/metrics", get(metrics::metrics_handler))
+                .with_state(app_state.clone());
+            let token = shutdown.clone();
+            Some(tokio::spawn(async move {
+                axum::serve(listener, router)
+                    .with_graceful_shutdown(token.cancelled_owned())
+                    .await
+            }))
+        }
+        None => {
+            info!("METRICS_ADDR not set — /metrics is disabled");
+            None
+        }
+    };
 
-    info!("Server shut down gracefully");
+    metrics.ready.set(1);
+    let mut server = tokio::spawn(
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown.clone().cancelled_owned())
+        .into_future(),
+    );
+
+    // ── Shutdown ─────────────────────────────────────────────────────────────
+
+    tokio::select! {
+        () = lifecycle::shutdown_signal() => {}
+        result = &mut server => {
+            error!("HTTP server stopped unexpectedly");
+            result??;
+            return Err("HTTP server stopped".into());
+        }
+    }
+    let config = lifecycle.config.clone();
+    let signalled = tokio::time::Instant::now();
+    lifecycle.begin_drain();
+    metrics.ready.set(0);
+    info!(
+        drain_delay = ?config.drain_delay,
+        grace_period = ?config.grace_period,
+        open_streams = app_state.connected_clients.len(),
+        "Draining: readiness now fails; streams close after the drain delay"
+    );
+    tokio::time::sleep(config.drain_delay).await;
+    // Stops accepting connections, ends every SSE stream, and stops the
+    // subscriber, reconciler, scheduler, resync retries and limiter eviction.
+    shutdown.cancel();
+
+    let deadline = signalled
+        .checked_add(config.grace_period)
+        .unwrap_or(signalled);
+    match tokio::time::timeout_at(deadline, &mut server).await {
+        Ok(Ok(Ok(()))) => info!("HTTP server drained"),
+        Ok(Ok(Err(e))) => error!(error = %e, "HTTP server failed while draining"),
+        Ok(Err(e)) => error!(error = %e, "HTTP server task failed"),
+        Err(_) => {
+            warn!(
+                open_streams = app_state.connected_clients.len(),
+                "Grace period elapsed with requests still in flight — exiting anyway"
+            );
+            server.abort();
+        }
+    }
+    for (name, task) in [
+        ("subscriber", subscriber),
+        ("reconciler", reconciler),
+        ("scheduler", scheduler),
+    ] {
+        // Each was cancelled above and stops at its next await point.
+        if tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .is_err()
+        {
+            warn!(task = name, "Background task did not stop in time");
+        }
+    }
+    if let Some(task) = metrics_server {
+        task.abort();
+    }
+    if tokio::time::timeout(Duration::from_secs(5), db.close())
+        .await
+        .is_err()
+    {
+        warn!("PostgreSQL pool did not close within 5s");
+    }
+
+    info!(
+        elapsed_ms = u64::try_from(signalled.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "Server shut down gracefully"
+    );
     Ok(())
 }
 
@@ -502,33 +643,5 @@ fn connection_url(name: &str, dev_default: &str) -> Result<String, String> {
             error!(variable = name, "Required connection setting is not set");
             Err(format!("{name} is not set"))
         }
-    }
-}
-
-#[allow(
-    clippy::expect_used,
-    reason = "process startup: a kernel that will not install a signal handler is a fatal, non-recoverable condition and there is no request in flight to fail"
-)]
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => { info!("Received Ctrl+C — initiating graceful shutdown"); },
-        _ = terminate => { info!("Received SIGTERM — initiating graceful shutdown"); },
     }
 }
