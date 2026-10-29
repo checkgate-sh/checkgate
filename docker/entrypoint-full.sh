@@ -8,6 +8,13 @@
 #   external    Start only the server, using DATABASE_URL and REDIS_URL as
 #               given. The bundled PostgreSQL and Redis are never started.
 #
+# No long-running process runs as root: the server runs as `checkgate`, and
+# the bundled PostgreSQL and Redis as `postgres` and `redis`. Started as root
+# (the default), the entrypoint prepares the volumes for those users and drops
+# privileges before starting each one. Started as a non-root user (e.g.
+# `--user 10001:10001`), external mode runs the server directly; all-in-one
+# mode needs root to start, because it owns the bundled services' volumes.
+#
 # When CHECKGATE_MODE is unset, the mode is external if DATABASE_URL or
 # REDIS_URL is set, and all-in-one otherwise. Connection variables are never
 # overwritten, and a half-specified configuration stops the container instead
@@ -23,6 +30,22 @@ die() {
 # whole query string (libpq-style URLs may carry ?password=…).
 redact() {
   printf '%s' "$1" | sed -E 's#(://)[^@/]*@#\1***@#; s#\?.*#?***#'
+}
+
+# Runs the server, as `checkgate` when started as root.
+run_server() {
+  if [ "$(id -u)" = "0" ]; then
+    exec setpriv --reuid=checkgate --regid=checkgate --init-groups --inh-caps=-all checkgate-server
+  fi
+  exec checkgate-server
+}
+
+# Runs a command as another user without a login shell, so arguments are
+# passed as-is rather than through `su -c` string interpolation.
+as_user() {
+  local user="$1"
+  shift
+  setpriv --reuid="$user" --regid="$user" --init-groups --inh-caps=-all "$@"
 }
 
 MODE="${CHECKGATE_MODE:-}"
@@ -42,12 +65,13 @@ case "$MODE" in
     echo "[init] PostgreSQL: $(redact "$DATABASE_URL")"
     echo "[init] Redis:      $(redact "$REDIS_URL")"
     export PUBLIC_DIR="${PUBLIC_DIR:-/app/public}"
-    exec checkgate-server
+    run_server
     ;;
   all-in-one)
     if [ -n "${DATABASE_URL:-}" ] || [ -n "${REDIS_URL:-}" ]; then
       die "CHECKGATE_MODE=all-in-one runs the bundled PostgreSQL and Redis, but DATABASE_URL or REDIS_URL is set. Unset them, or use CHECKGATE_MODE=external."
     fi
+    [ "$(id -u)" = "0" ] || die "all-in-one mode starts the bundled PostgreSQL and Redis under their own users and must start as root (processes still drop privileges). To run the whole container as a non-root user, use CHECKGATE_MODE=external with DATABASE_URL and REDIS_URL."
     echo "[init] Mode: all-in-one — starting bundled PostgreSQL and Redis."
     ;;
   *)
@@ -79,7 +103,7 @@ if [ ! -f "$PG_DATA/PG_VERSION" ]; then
   PGPASS_FILE=$(mktemp)
   printf '%s' "$PG_PASSWORD" > "$PGPASS_FILE"
   chown postgres:postgres "$PGPASS_FILE"
-  su -s /bin/sh postgres -c "initdb -D '$PG_DATA' --username='$PG_USER' --pwfile='$PGPASS_FILE' --auth-host=md5 --auth-local=trust"
+  as_user postgres initdb -D "$PG_DATA" --username="$PG_USER" --pwfile="$PGPASS_FILE" --auth-host=md5 --auth-local=trust
   rm -f "$PGPASS_FILE"
   echo "[init] PostgreSQL initialised."
 fi
@@ -88,10 +112,18 @@ fi
 # 2. Start PostgreSQL
 # ---------------------------------------------------------------------------
 echo "[init] Starting PostgreSQL..."
-su -s /bin/sh postgres -c "pg_ctl -D '$PG_DATA' -l /var/log/postgresql.log start -w"
+# The socket directory lives under /run, which is a fresh tmpfs on some
+# runtimes and builders: whatever the package created at build time may be
+# gone. Create it on every start.
+install -d -o postgres -g postgres -m 2775 /var/run/postgresql
+chown postgres:postgres "$PG_DATA"
+as_user postgres pg_ctl -D "$PG_DATA" -l /var/log/postgresql.log start -w
 
 # Ensure database exists (connect to 'postgres' which always exists after initdb)
-su -s /bin/sh postgres -c "psql -U '$PG_USER' -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='$PG_DB'\" | grep -q 1 || psql -U '$PG_USER' -d postgres -c \"CREATE DATABASE \\\"$PG_DB\\\";\""
+DB_EXISTS="$(as_user postgres psql -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$PG_DB'")"
+if [ "$DB_EXISTS" != "1" ]; then
+  as_user postgres psql -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$PG_DB\";"
+fi
 echo "[init] PostgreSQL ready."
 
 # ---------------------------------------------------------------------------
@@ -105,8 +137,11 @@ if [ -n "${REDIS_PASSWORD:-}" ]; then
 else
   echo "[warn] REDIS_PASSWORD is not set. Redis is running without authentication."
 fi
+REDIS_ARGS="${REDIS_ARGS} --pidfile /var/lib/redis/redis.pid"
+# Volumes written by earlier images may be owned by root.
+chown -R redis:redis /var/lib/redis /var/log/redis.log
 # shellcheck disable=SC2086
-redis-server ${REDIS_ARGS}
+as_user redis redis-server ${REDIS_ARGS}
 echo "[init] Redis ready."
 
 # ---------------------------------------------------------------------------
@@ -121,4 +156,4 @@ fi
 export PUBLIC_DIR="${PUBLIC_DIR:-/app/public}"
 
 echo "[init] Starting Checkgate server..."
-exec checkgate-server
+run_server
