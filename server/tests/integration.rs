@@ -64,6 +64,9 @@ impl Drop for ServerGuard {
     }
 }
 
+/// First-run setup token the spawned server is configured with.
+const SETUP_TOKEN: &str = "integration-setup-token-0123456789";
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -138,6 +141,11 @@ async fn full_api_flow() {
             "test-secret-0123456789-0123456789-0123456789-0123456789-0123456789",
         )
         .env("COOKIE_SECURE", "false")
+        .env("SETUP_TOKEN", SETUP_TOKEN)
+        // The test client stands in for a reverse proxy: some scenarios send
+        // X-Forwarded-For to get a rate-limit budget of their own, which the
+        // server honours only from a trusted peer.
+        .env("TRUSTED_PROXIES", "127.0.0.1")
         .env("PUBLIC_DIR", public_dir.to_str().unwrap())
         .env("RUST_LOG", "warn")
         .stdout(Stdio::null())
@@ -184,6 +192,7 @@ async fn setup_and_keys(ctx: &Ctx) -> (String, String, String) {
     let r = ctx
         .anon
         .get(ctx.url("/api/setup/key"))
+        .header("X-Checkgate-Setup-Token", SETUP_TOKEN)
         .send()
         .await
         .unwrap();
@@ -198,6 +207,7 @@ async fn setup_and_keys(ctx: &Ctx) -> (String, String, String) {
         .sess
         .post(ctx.url("/api/setup/complete"))
         .header("X-Checkgate-Request", "true")
+        .header("X-Checkgate-Setup-Token", SETUP_TOKEN)
         .json(&json!({
             "workspace_name": "Acme",
             "project_name": "Web",
@@ -223,6 +233,7 @@ async fn setup_and_keys(ctx: &Ctx) -> (String, String, String) {
         .sess
         .post(ctx.url("/api/setup/complete"))
         .header("X-Checkgate-Request", "true")
+        .header("X-Checkgate-Setup-Token", SETUP_TOKEN)
         .json(&json!({ "workspace_name": "x", "name": "x", "email": "x@x.t", "password": "supersecret1" }))
         .send()
         .await

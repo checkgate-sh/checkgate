@@ -396,7 +396,6 @@ async fn create_flag(
         .await
         .unwrap_or_default();
     let expanded = super::segments::expand_flag_with_segments(payload.clone(), &segment_map);
-    state.store.upsert_flag(expanded.clone());
     let msg = upsert_message(&env_id, &expanded, revision);
     publish_update(&state, &msg, "create_flag").await;
 
@@ -703,7 +702,6 @@ pub(crate) async fn emit_patch(
         .unwrap_or_default();
     let expanded =
         super::segments::expand_flag_with_segments(applied.result.flag.clone(), &segment_map);
-    state.store.upsert_flag(expanded.clone());
     let msg = upsert_message(env_id, &expanded, applied.revision);
     publish_update(state, &msg, "patch_flag").await;
 
@@ -887,7 +885,6 @@ async fn promote_flag(
         .await
         .unwrap_or_default();
     let expanded = super::segments::expand_flag_with_segments(flag.clone(), &segment_map);
-    state.store.upsert_flag(expanded.clone());
     let msg = upsert_message(&target_env_id, &expanded, revision);
     publish_update(&state, &msg, "promote_flag").await;
 

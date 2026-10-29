@@ -17,6 +17,7 @@ constant_time_eq = "0.4.2"
 cookie = { version = "0.18", features = ["private", "key-expansion"] }
 futures-util = "0.3.32"
 governor = "0.10.4"
+ipnet = "2.12"
 redis = { version = "1.0.4", features = ["tokio-comp", "connection-manager"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -34,6 +35,9 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 # Integration + e2e tests drive the spawned server over HTTP. `cookies` is for
 # the dashboard session flow; `stream` is for consuming the live SSE stream.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies", "stream"] }
+# Drives routers in-process (`ServiceExt::oneshot`) for middleware unit tests.
+# Already in the build graph through axum.
+tower = { version = "0.5", features = ["util"] }
 
 [lints]
 workspace = true

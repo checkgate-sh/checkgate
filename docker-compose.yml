@@ -4,6 +4,9 @@
 # React dashboard bundled inside. Ideal for demos, CI smoke tests, or
 # single-node self-hosted deployments.
 #
+# To use your own PostgreSQL and Redis instead, set DATABASE_URL and REDIS_URL
+# (the image then runs in external mode) — see docs/self-hosting.md.
+#
 # Usage:
 #   docker compose up -d
 #
@@ -24,6 +27,9 @@ services:
       POSTGRES_DB: checkgate
       SDK_KEY: ${SDK_KEY:-}
       SESSION_SECRET: ${SESSION_SECRET:-}
+      # One-time token for the setup wizard. Leave empty to have the server
+      # generate one: docker exec checkgate cat /var/lib/checkgate/setup-token
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - checkgate_pgdata:/var/lib/postgresql/data

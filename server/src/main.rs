@@ -12,10 +12,12 @@
 
 mod api;
 mod auth;
+mod client_ip;
 mod integrations;
 mod notify;
 mod rate_limit;
 mod scheduler;
+mod setup;
 mod state;
 mod stream;
 mod webhook_fire;
@@ -28,11 +30,9 @@ use axum::{
     routing::get,
 };
 use axum_extra::extract::cookie::Key;
-use checkgate_core::evaluator::Flag;
-use checkgate_core::store::FlagStore;
 use dashmap::DashMap;
 use rand::RngExt as _;
-use rate_limit::new_rate_limiter;
+use rate_limit::{RateLimitConfig, RateLimiters};
 use sqlx::{Row, postgres::PgPoolOptions};
 use state::SdkKeyEntry;
 use std::sync::Arc;
@@ -67,8 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── PostgreSQL ────────────────────────────────────────────────────────────
 
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://checkgate:password@localhost/checkgate".to_string());
+    let db_url = connection_url(
+        "DATABASE_URL",
+        "postgres://checkgate:password@localhost/checkgate",
+    )?;
 
     let max_conns = std::env::var("DB_MAX_CONNECTIONS")
         .ok()
@@ -95,10 +97,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Migrations complete — schema ready");
 
+    // ── First-run setup token ─────────────────────────────────────────────────
+
+    let setup_token = setup::configured_token().map_err(|e| {
+        error!(error = %e, "Invalid SETUP_TOKEN");
+        e
+    })?;
+    setup::prepare(&db, setup_token.as_deref())
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to prepare first-run setup");
+            e
+        })?;
+
     // ── Redis ─────────────────────────────────────────────────────────────────
 
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    let redis_url = connection_url("REDIS_URL", "redis://localhost:6379")?;
 
     info!("Connecting to Redis");
 
@@ -228,77 +242,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // ── Client identity & rate limits ─────────────────────────────────────────
+
+    let trusted_proxies = client_ip::TrustedProxies::from_env().map_err(|e| {
+        error!(error = %e, "Invalid TRUSTED_PROXIES");
+        e
+    })?;
+    if trusted_proxies.is_empty() {
+        info!("TRUSTED_PROXIES not set — clients are identified by their TCP peer address");
+    } else {
+        info!("TRUSTED_PROXIES set — X-Forwarded-For is honoured from those peers only");
+    }
+    let trusted_proxies = Arc::new(trusted_proxies);
+
+    let rate_limit_config = RateLimitConfig::from_env().map_err(|e| {
+        error!(error = %e, "Invalid rate limit configuration");
+        e
+    })?;
+    info!(config = ?rate_limit_config, "Rate limits per client per minute");
+    let rate_limiters = Arc::new(RateLimiters::new(rate_limit_config));
+    rate_limiters.spawn_eviction();
+
     // ── Broadcast channel ─────────────────────────────────────────────────────
 
     const BROADCAST_CHANNEL_CAPACITY: usize = 256;
     let (flag_tx, _) = broadcast::channel::<String>(BROADCAST_CHANNEL_CAPACITY);
-
-    // ── Bootstrap flag store from Postgres ────────────────────────────────────
-
-    let store = Arc::new(FlagStore::new());
-
-    // Preload all segments so flags can be expanded inline (no per-flag DB call).
-    let all_segments = api::segments::load_all_segments(&db).await.unwrap_or_else(|e| {
-        warn!(error = %e, "Failed to preload segments — flags with segment rules will be unexpanded");
-        std::collections::HashMap::new()
-    });
-
-    let records = sqlx::query("SELECT data, environment_id::text AS env_id FROM flags")
-        .fetch_all(&db)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to load flags from PostgreSQL on startup");
-            e
-        })?;
-
-    let total_rows = records.len();
-    let mut loaded = 0usize;
-    let mut skipped = 0usize;
-
-    for rec in records {
-        let env_id: String = match rec.try_get("env_id") {
-            Ok(v) => v,
-            Err(_) => {
-                skipped = skipped.saturating_add(1);
-                continue;
-            }
-        };
-        match rec.try_get::<serde_json::Value, _>("data") {
-            Err(e) => {
-                error!(error = %e, "Failed to read 'data' column from flags row");
-                skipped = skipped.saturating_add(1);
-            }
-            Ok(data) => match serde_json::from_value::<Flag>(data) {
-                Ok(flag) => {
-                    // Build a per-env slice of the segment map for this flag.
-                    let env_segments: std::collections::HashMap<String, _> = all_segments
-                        .iter()
-                        .filter(|((eid, _), _)| eid == &env_id)
-                        .map(|((_, key), rules)| (key.clone(), rules.clone()))
-                        .collect();
-                    let expanded = api::segments::expand_flag_with_segments(flag, &env_segments);
-                    store.upsert_flag(expanded);
-                    loaded = loaded.saturating_add(1);
-                }
-                Err(e) => {
-                    warn!(error = %e, "Skipping malformed flag row — schema may be out of sync");
-                    skipped = skipped.saturating_add(1);
-                }
-            },
-        }
-    }
-
-    info!(
-        total_rows,
-        loaded, skipped, "Flag store initialised from PostgreSQL"
-    );
 
     // ── Redis pub/sub subscriber ───────────────────────────────────────────────
 
     {
         let redis_sub = redis_client.clone();
         let tx = flag_tx.clone();
-        let store_ref = Arc::clone(&store);
 
         tokio::spawn(async move {
             let mut first_subscription = true;
@@ -340,45 +314,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
 
-                    match serde_json::from_str::<serde_json::Value>(&payload) {
-                        Err(e) => {
-                            warn!(error = %e, "Redis subscriber: received non-JSON payload");
-                        }
-                        Ok(event) => match event.get("type").and_then(|t| t.as_str()) {
-                            Some("UPSERT") => {
-                                match event
-                                    .get("flag")
-                                    .and_then(|f| serde_json::from_value::<Flag>(f.clone()).ok())
-                                {
-                                    Some(flag) => {
-                                        info!(flag_key = %flag.key, "Redis: applying remote UPSERT");
-                                        store_ref.upsert_flag(flag);
-                                    }
-                                    None => {
-                                        warn!(
-                                            "Redis subscriber: UPSERT event missing valid 'flag' field"
-                                        );
-                                    }
-                                }
-                            }
-                            Some("DELETE") => match event.get("key").and_then(|k| k.as_str()) {
-                                Some(key) => {
-                                    info!(flag_key = key, "Redis: applying remote DELETE");
-                                    store_ref.delete_flag(key);
-                                }
-                                None => {
-                                    warn!("Redis subscriber: DELETE event missing 'key' field");
-                                }
-                            },
-                            Some("RESYNC") => {
-                                info!("Redis: resync requested — SSE clients will reconnect");
-                            }
-                            other => {
-                                warn!(event_type = ?other, "Redis subscriber: unknown event type");
-                            }
-                        },
-                    }
-
+                    // Payloads are forwarded as-is: each SSE handler parses them
+                    // and delivers only events for the environments it serves.
+                    // There is no server-side flag cache to update — SSE
+                    // bootstrap, snapshots and the REST API all read PostgreSQL.
                     if tx.receiver_count() > 0
                         && let Err(e) = tx.send(payload)
                     {
@@ -404,13 +343,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis_client,
         redis_conn,
         resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        store,
         flag_tx,
         sdk_keys,
-        rate_limiter: new_rate_limiter(),
         session_key,
         connected_clients: Arc::new(DashMap::new()),
         webhook_client,
+        setup_token,
     };
 
     // ── Middleware stack ───────────────────────────────────────────────────────
@@ -449,7 +387,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Protected write: additionally requires admin role.
     //
     // Layer execution order for a write request (outermost → innermost):
-    //   cors → rate_limit → csrf → require_auth → require_editor/require_admin → handler
+    //   cors → client_ip → rate_limit → csrf → require_auth → require_editor/require_admin → handler
 
     let auth_routes = api::auth_router();
     let setup_routes = api::setup_router();
@@ -511,8 +449,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(middleware::from_fn(api::security_headers))
         .layer(middleware::from_fn(api::csrf_protection))
         .layer(middleware::from_fn_with_state(
-            app_state.clone(),
+            rate_limiters,
             rate_limit::rate_limit,
+        ))
+        .layer(middleware::from_fn_with_state(
+            trusted_proxies,
+            client_ip::resolve_client_ip,
         ))
         .layer(cors)
         .fallback_service(serve_dashboard)
@@ -540,6 +482,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Server shut down gracefully");
     Ok(())
+}
+
+/// Reads a required connection string. Release builds refuse to start without
+/// it rather than quietly connecting to a local default — in a container that
+/// could be a different database than the operator intended. Debug builds keep
+/// the localhost default for `cargo run`.
+fn connection_url(name: &str, dev_default: &str) -> Result<String, String> {
+    match std::env::var(name) {
+        Ok(url) if !url.trim().is_empty() => Ok(url),
+        _ if cfg!(debug_assertions) => {
+            warn!(
+                variable = name,
+                "Not set — using the local development default"
+            );
+            Ok(dev_default.to_string())
+        }
+        _ => {
+            error!(variable = name, "Required connection setting is not set");
+            Err(format!("{name} is not set"))
+        }
+    }
 }
 
 #[allow(

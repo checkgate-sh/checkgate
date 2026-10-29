@@ -12,20 +12,23 @@
 //   - A server is running at CHECKGATE_URL with a FRESH (un-set-up) database.
 //
 // Env: CHECKGATE_URL (default http://127.0.0.1:3000)
+//      CHECKGATE_SETUP_TOKEN — the server's SETUP_TOKEN, required for first-run setup
 
 const assert = require('node:assert')
 const { CheckgateClient } = require('../index.js')
 
 const BASE = process.env.CHECKGATE_URL || 'http://127.0.0.1:3000'
+const SETUP_TOKEN = process.env.CHECKGATE_SETUP_TOKEN || ''
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function api(method, path, { token, cookie, body } = {}) {
+async function api(method, path, { token, cookie, body, setupToken } = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
       'X-Checkgate-Request': 'true',
+      ...(setupToken ? { 'X-Checkgate-Setup-Token': setupToken } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(cookie ? { Cookie: cookie } : {}),
     },
@@ -46,11 +49,12 @@ async function waitFor(label, predicate, timeoutMs = 8000) {
 
 async function main() {
   // 1. First-run setup: grab the seeded SDK key + environment, create the admin.
-  const keyRes = await api('GET', '/api/setup/key')
+  const keyRes = await api('GET', '/api/setup/key', { setupToken: SETUP_TOKEN })
   assert.equal(keyRes.status, 200, 'GET /api/setup/key')
   const { key: sdkKey, environment_id: env } = await keyRes.json()
 
   const setupRes = await api('POST', '/api/setup/complete', {
+    setupToken: SETUP_TOKEN,
     body: { workspace_name: 'E2E', project_name: 'P', name: 'A', email: 'a@e.test', password: 'supersecret1' },
   })
   assert.equal(setupRes.status, 200, 'POST /api/setup/complete')

@@ -110,7 +110,6 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use axum_extra::extract::cookie::Key;
-    use checkgate_core::store::FlagStore;
     use dashmap::DashMap;
     use serde_json::json;
     use std::sync::Arc;
@@ -158,13 +157,12 @@ mod tests {
             redis_conn: redis_client.get_connection_manager().await.unwrap(),
             resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             redis_client,
-            store: Arc::new(FlagStore::new()),
             flag_tx: broadcast::channel(256).0,
             sdk_keys: Arc::new(RwLock::new(vec![])),
-            rate_limiter: crate::rate_limit::new_rate_limiter(),
             session_key: Key::generate(),
             connected_clients: Arc::new(DashMap::new()),
             webhook_client: reqwest::Client::new(),
+            setup_token: None,
         };
         tokio::time::timeout(Duration::from_secs(5), execute_due(&state))
             .await

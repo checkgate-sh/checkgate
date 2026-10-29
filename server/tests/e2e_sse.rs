@@ -63,6 +63,9 @@ impl Drop for ServerGuard {
     }
 }
 
+/// First-run setup token the spawned server is configured with.
+const SETUP_TOKEN: &str = "e2e-setup-token-0123456789";
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -254,6 +257,7 @@ async fn sse_live_push_and_local_eval() {
             "e2e-secret-0123456789-0123456789-0123456789-0123456789",
         )
         .env("COOKIE_SECURE", "false")
+        .env("SETUP_TOKEN", SETUP_TOKEN)
         .env("PUBLIC_DIR", public_dir.to_str().unwrap())
         .env("RUST_LOG", "warn")
         .stdout(Stdio::null())
@@ -272,6 +276,7 @@ async fn sse_live_push_and_local_eval() {
     // Grab the seeded SDK key + env, complete setup.
     let key_body: Value = anon
         .get(format!("{base}/api/setup/key"))
+        .header("X-Checkgate-Setup-Token", SETUP_TOKEN)
         .send()
         .await
         .unwrap()
@@ -282,6 +287,7 @@ async fn sse_live_push_and_local_eval() {
     let env = key_body["environment_id"].as_str().unwrap().to_string();
     session.post(format!("{base}/api/setup/complete"))
         .header("X-Checkgate-Request", "true")
+        .header("X-Checkgate-Setup-Token", SETUP_TOKEN)
         .json(&json!({ "workspace_name": "E2E", "project_name": "P", "name": "A", "email": "a@e.test", "password": "supersecret1" }))
         .send().await.unwrap();
     // SDK keys can't manage flags, so the "dashboard" side uses an admin PAT.

@@ -16,6 +16,19 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Repository hygiene — dependencies, build output and tool caches must not be
+  # committed; every job below installs and builds what it needs itself.
+  # ---------------------------------------------------------------------------
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: No generated or machine-specific files are tracked
+        run: scripts/check-tracked-artifacts.sh
+
+  # ---------------------------------------------------------------------------
   # Rust — test the whole workspace
   # ---------------------------------------------------------------------------
   rust:
@@ -144,6 +157,10 @@ jobs:
         run: |
           cargo test -p server --test integration -- --nocapture
           cargo test -p server --test e2e_sse -- --nocapture
+          cargo test -p server --test rate_limit -- --nocapture
+          cargo test -p server --test setup_ownership -- --nocapture
+          cargo test -p server --test sdk_health -- --nocapture
+          cargo test -p server --test environment_isolation -- --nocapture
 
   # ---------------------------------------------------------------------------
   # Native SDK e2e — build the real @checkgate/node addon and drive it over a
@@ -203,16 +220,47 @@ jobs:
           REDIS_URL: redis://localhost:6379
         run: |
           PORT=3111
+          SETUP_TOKEN="ci-setup-token-$(openssl rand -hex 16)"
           SESSION_SECRET=ci-secret-0123456789-0123456789-0123456789-0123456789 \
+            SETUP_TOKEN="$SETUP_TOKEN" \
             COOKIE_SECURE=false PORT=$PORT PUBLIC_DIR="$(mktemp -d)" RUST_LOG=warn \
             ./target/debug/server > server.log 2>&1 &
           SRV=$!
           for i in $(seq 1 60); do curl -sf "http://127.0.0.1:$PORT/health" >/dev/null && break; sleep 1; done
-          CHECKGATE_URL="http://127.0.0.1:$PORT" node sdks/nodejs/e2e/e2e.cjs
+          CHECKGATE_URL="http://127.0.0.1:$PORT" CHECKGATE_SETUP_TOKEN="$SETUP_TOKEN" \
+            node sdks/nodejs/e2e/e2e.cjs
           RC=$?
           kill $SRV 2>/dev/null || true
           if [ $RC -ne 0 ]; then echo "=== server log ==="; cat server.log; fi
           exit $RC
+
+  # ---------------------------------------------------------------------------
+  # Docker image — build it and smoke-test both deployment modes (all-in-one
+  # and external PostgreSQL/Redis), restarts, persistence and refusal of
+  # half-specified configuration.
+  # ---------------------------------------------------------------------------
+  docker-smoke:
+    name: Docker image smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: checkgate:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test deployment modes
+        run: scripts/docker-smoke.sh checkgate:smoke
 
   # ---------------------------------------------------------------------------
   # Dashboard — TypeScript build check

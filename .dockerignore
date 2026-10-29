@@ -15,3 +15,6 @@ target/
 Thumbs.db
 .idea/
 .vscode/
+
+# A local server's one-time setup token must never reach an image.
+checkgate-setup-token
