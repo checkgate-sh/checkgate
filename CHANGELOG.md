@@ -5,6 +5,71 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **A change committed by a server that died before publishing it now reaches every client.**
+  Redis Pub/Sub delivers at most once, and no server held the lost event, so clients of the
+  other servers stayed on the old configuration until they reconnected for another reason.
+  Each server now reconciles the revisions it has relayed against PostgreSQL every
+  `SYNC_RECONCILE_INTERVAL_SECS` (default 30, jittered) and re-bootstraps only the clients of
+  an environment whose changes were lost. This also repairs changes made directly in SQL.
+- A Redis subscription that stays open but stops delivering (lost NAT or load-balancer state) is
+  now detected by a ping every `REDIS_PING_INTERVAL_SECS` (default 10) and reconnected, with a
+  resync. Previously the server stopped relaying changes indefinitely without noticing.
+- Graceful shutdown no longer hangs while SSE streams are open. SIGTERM now fails readiness,
+  waits `SHUTDOWN_DRAIN_DELAY_SECS`, closes every stream, stops background tasks and exits within
+  `SHUTDOWN_GRACE_PERIOD_SECS` (default 20); previously every shutdown with a connected SDK ended
+  in SIGKILL.
+- A client that stops reading its stream no longer holds the connection and its resources
+  forever: connections whose data stays unacknowledged for `TCP_USER_TIMEOUT_SECS` (default 60,
+  Linux) are aborted.
+- Dashboard files now carry the security headers (CSP, `X-Frame-Options`, `nosniff`, …); they
+  were served outside the middleware stack. The dashboard's CSP allows its web fonts.
+- Archiving or unarchiving a flag no longer assigns it a new revision (it changes nothing SDKs
+  evaluate and publishes no event).
+- The bundled PostgreSQL starts when the container's `/run` is a fresh tmpfs (some runtimes and
+  BuildKit builders), which broke all-in-one mode in CI.
+
+### Added
+
+- Prometheus/OpenMetrics metrics on a separate listener (`METRICS_ADDR`, off by default):
+  propagation, publish failures, Redis subscription state, resyncs, reconciliation, SSE
+  connections and rejections, bootstrap and snapshot latency, database pool and readiness.
+  See `docs/operations/observability.md`.
+- `GET /health/live` (never fails on a dependency outage) and `GET /health/ready` (PostgreSQL
+  required; Redis optional via `READY_REQUIRES_REDIS`; fails while draining). `GET /health` is
+  unchanged. The image's `HEALTHCHECK` uses `/health/live`.
+- Admission control for SSE: `SSE_MAX_CONNECTIONS` per instance (default 10 000) and
+  `SSE_BOOTSTRAP_CONCURRENCY` database slots shared by bootstraps and snapshot polls; refusals
+  answer `503` with a jittered `Retry-After`. Resynced streams close over
+  `SSE_RESYNC_SPREAD_MS` (default 5 s) instead of all at once, and only the affected
+  environment's streams are resynced after reconciliation.
+- `TRUSTED_PROXY_HEADER=forwarded` reads the RFC 7239 `Forwarded` header from trusted proxies
+  instead of `X-Forwarded-For` (never both).
+- `REDIS_CHANNEL` selects the Pub/Sub channel, so separate deployments can share a Redis.
+- Multi-instance fault-injection suite (`server/tests/reliability.rs`) and lifecycle suite
+  (`server/tests/lifecycle.rs`), run in CI; a nightly/on-demand workflow repeats them and runs
+  load tests and benchmarks. Criterion benchmarks for the evaluation core and a control-plane
+  load generator (`server/examples/loadgen.rs`); methodology and baseline in `docs/performance/`.
+
+### Changed
+
+- The Docker image runs no process as root. The server runs as `checkgate` (UID 10001); in
+  all-in-one mode the bundled PostgreSQL and Redis run as their own users, and the entrypoint
+  only starts as root to prepare their volumes. External mode supports `--user 10001:10001` /
+  Kubernetes `runAsNonRoot`. Running all-in-one mode as a non-root user is refused with a clear
+  message.
+- Dashboard files and unknown paths are no longer charged to the API rate-limit budget; they
+  were previously served outside rate limiting entirely, which this preserves.
+- The PostgreSQL pool waits at most 10 s for a connection (was sqlx's 30 s default).
+
+### Dependencies
+
+- rustls-webpki 0.103.16 (RUSTSEC-2026-0382), webpki-roots 1.0.11 (RUSTSEC-2026-0381),
+  tokio 1.54.1 (RUSTSEC-2026-0386).
+
 ## [0.1.25] - Unreleased
 
 ### Security
