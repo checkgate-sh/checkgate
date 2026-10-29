@@ -222,6 +222,34 @@ jobs:
           exit $RC
 
   # ---------------------------------------------------------------------------
+  # Docker image — build it and smoke-test both deployment modes (all-in-one
+  # and external PostgreSQL/Redis), restarts, persistence and refusal of
+  # half-specified configuration.
+  # ---------------------------------------------------------------------------
+  docker-smoke:
+    name: Docker image smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: checkgate:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test deployment modes
+        run: scripts/docker-smoke.sh checkgate:smoke
+
+  # ---------------------------------------------------------------------------
   # Dashboard — TypeScript build check
   # ---------------------------------------------------------------------------
   dashboard:

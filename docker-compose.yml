@@ -4,6 +4,9 @@
 # React dashboard bundled inside. Ideal for demos, CI smoke tests, or
 # single-node self-hosted deployments.
 #
+# To use your own PostgreSQL and Redis instead, set DATABASE_URL and REDIS_URL
+# (the image then runs in external mode) — see docs/self-hosting.md.
+#
 # Usage:
 #   docker compose up -d
 #

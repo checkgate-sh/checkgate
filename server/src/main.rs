@@ -492,7 +492,10 @@ fn connection_url(name: &str, dev_default: &str) -> Result<String, String> {
     match std::env::var(name) {
         Ok(url) if !url.trim().is_empty() => Ok(url),
         _ if cfg!(debug_assertions) => {
-            warn!(variable = name, "Not set — using the local development default");
+            warn!(
+                variable = name,
+                "Not set — using the local development default"
+            );
             Ok(dev_default.to_string())
         }
         _ => {

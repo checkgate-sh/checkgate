@@ -1,17 +1,43 @@
 ---
 title: "Self-Hosting Checkgate — Docker & AWS Deployment Guide"
-description: "Deploy Checkgate on your own infrastructure using Docker Compose, AWS EC2, or ECS Fargate. Your flag data stays on your servers. Includes environment variable reference, load balancing tips, and upgrade instructions."
+description: "Deploy Checkgate on your own infrastructure: the all-in-one Docker image, or the same image against your own PostgreSQL and Redis. Covers local development, Docker Compose, production configuration, health checks, rate limits, reverse proxies and upgrades."
 ---
 
 # Self-Hosting
 
-Checkgate is designed to be self-hosted. The all-in-one Docker image bundles PostgreSQL, Redis, the server, and the dashboard into a single container — no external services required.
+Checkgate is designed to be self-hosted. One Docker image covers two deployment
+modes:
 
-## Docker Compose (Recommended)
+| Mode | What runs in the container | Use it for |
+|------|----------------------------|------------|
+| **All-in-one** (default) | PostgreSQL + Redis + server + dashboard | Local evaluation, demos, staging, single-node installs |
+| **External services** | Server + dashboard only, using your `DATABASE_URL` and `REDIS_URL` | Managed databases (RDS, Cloud SQL, ElastiCache…), several replicas, production |
+
+The image picks the mode from `CHECKGATE_MODE` (`all-in-one` or `external`).
+When that is unset, it runs **external** if `DATABASE_URL` or `REDIS_URL` is set
+and **all-in-one** otherwise. It never overrides connection strings you pass,
+and it refuses to start on a half-specified configuration — for example
+`DATABASE_URL` without `REDIS_URL` — rather than quietly using the bundled
+services.
+
+## Docker Compose (all-in-one)
 
 Run the published release image with Docker Compose. No repository clone or local build is needed.
 
-Create a deployment directory and save the following as `compose.yml`:
+Create a deployment directory with a `.env` file (the server refuses to start
+without `SESSION_SECRET`):
+
+```bash
+SESSION_SECRET=$(openssl rand -hex 32)      # Required
+POSTGRES_PASSWORD=strong-db-password        # Replaces default "checkgate"
+SETUP_TOKEN=$(openssl rand -hex 32)         # One-time token for the setup wizard
+COOKIE_SECURE=false                         # true once served over HTTPS
+```
+
+Write the values themselves into the file (run the `openssl` commands and
+paste their output); Compose does not execute `$(…)` in `.env` files.
+
+Save the following as `compose.yml`:
 
 ```yaml
 services:
@@ -23,6 +49,7 @@ services:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
       SESSION_SECRET: ${SESSION_SECRET:-}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - checkgate_pgdata:/var/lib/postgresql/data
@@ -42,26 +69,96 @@ docker compose up -d
 ```
 
 This starts a single container that includes:
-- **PostgreSQL** — persistent flag and user storage
-- **Redis** — pub/sub for real-time multi-instance sync
+- **PostgreSQL** — persistent flag and user storage, in the `checkgate_pgdata` volume
+- **Redis** — pub/sub for real-time sync
 - **Checkgate server** — REST API + SSE stream on port `3000`
 - **React dashboard** — served at `http://localhost:3000`
 
-### Configuration
+Open the dashboard and enter the setup token (see [First-run setup](#first-run-setup)).
+Keep the `checkgate_pgdata` volume: it holds all of your data and survives
+container restarts, re-creation and image upgrades.
 
-Create a `.env` file in the deployment directory, alongside `compose.yml`:
+## External PostgreSQL and Redis
 
-```bash
-SESSION_SECRET=your-random-64-char-secret   # Required in production
-POSTGRES_PASSWORD=strong-db-password        # Replaces default "checkgate"
-COOKIE_SECURE=true                          # Set false only for local HTTP development
-```
-
-Then run:
+Pass both connection strings; the container then starts only the server and
+dashboard:
 
 ```bash
-docker compose up -d
+docker run -d --name checkgate -p 3000:3000 \
+  -e DATABASE_URL="postgres://checkgate:password@your-postgres:5432/checkgate" \
+  -e REDIS_URL="redis://your-redis:6379" \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
+  -e SETUP_TOKEN="$(openssl rand -hex 32)" \
+  -e COOKIE_SECURE=true \
+  ghcr.io/checkgate-sh/checkgate:<version>
 ```
+
+Or with Compose:
+
+```yaml
+services:
+  checkgate:
+    image: ghcr.io/checkgate-sh/checkgate:<version>
+    ports:
+      - "3000:3000"
+    environment:
+      CHECKGATE_MODE: external          # optional — implied by the URLs below
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      SETUP_TOKEN: ${SETUP_TOKEN}
+      COOKIE_SECURE: "true"
+    restart: unless-stopped
+```
+
+Requirements and behaviour:
+
+- **Both** `DATABASE_URL` and `REDIS_URL` are required. If either is missing,
+  the container exits with an error naming it. It never falls back to the
+  bundled services or to `localhost`.
+- The database must already exist; Checkgate creates and migrates its tables on
+  startup, so the role needs permission to create tables in it. Tested with
+  PostgreSQL 15 (bundled in the image) and 16 (CI).
+- The container logs the target it connects to with credentials removed
+  (`postgres://***@your-postgres:5432/checkgate`). If the database is
+  unreachable the container exits instead of running half-configured.
+- Setting `CHECKGATE_MODE=all-in-one` together with either URL is a
+  configuration error and is refused.
+
+## Local development
+
+Run PostgreSQL and Redis in containers and the server from source:
+
+```bash
+docker run -d --name cg-dev-pg -e POSTGRES_USER=checkgate -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=checkgate -p 5432:5432 postgres:16
+docker run -d --name cg-dev-redis -p 6379:6379 redis:7
+
+cargo run -p server            # http://localhost:3000
+cd dashboard && bun install && bun run dev
+```
+
+Debug builds default `DATABASE_URL` to `postgres://checkgate:password@localhost/checkgate`,
+`REDIS_URL` to `redis://localhost:6379` and `SESSION_SECRET` to an insecure
+development key, and log a warning for each. **Release builds — including the
+Docker image — have no such defaults** and refuse to start without them. With
+`SETUP_TOKEN` unset, the first start writes the setup token to
+`./checkgate-setup-token` (git-ignored); or export `SETUP_TOKEN` yourself.
+
+## Production configuration
+
+- Pin a version tag instead of `:latest`.
+- Set `SESSION_SECRET` (≥ 32 random characters) and `SETUP_TOKEN`, and keep
+  them in your secret store rather than in the image or compose file.
+- Serve Checkgate over HTTPS and set `COOKIE_SECURE=true`.
+- Behind a reverse proxy or load balancer, set `TRUSTED_PROXIES` to its
+  addresses (see [Behind a reverse proxy](#behind-a-reverse-proxy-or-load-balancer)),
+  or every client is rate-limited as the proxy.
+- For several replicas, use external mode: all replicas must share one
+  PostgreSQL database, one Redis, the same `SESSION_SECRET` and the same
+  `SETUP_TOKEN`.
+- Size `DB_MAX_CONNECTIONS` × replicas below your database's connection limit.
+- Back up PostgreSQL (see [Backup](#backup)); Redis holds no durable state.
 
 ## Docker Images
 
@@ -69,7 +166,7 @@ One image is published per release:
 
 | Image | Description |
 |-------|-------------|
-| `ghcr.io/checkgate-sh/checkgate:latest` | All-in-one: PostgreSQL + Redis + server + dashboard |
+| `ghcr.io/checkgate-sh/checkgate:latest` | All-in-one or external mode (see above) |
 | `ghcr.io/checkgate-sh/checkgate:<version>` | Pinned release version (use the version tag without its leading `v`) |
 
 The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects the matching architecture automatically. For production, replace `:latest` in `compose.yml` with a published version tag to control upgrades.
@@ -78,13 +175,23 @@ The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SESSION_SECRET` | _(insecure dev key)_ | Secret for encrypting session cookies. Use a random ≥32-char string in production. |
-| `DATABASE_URL` | `postgres://checkgate:password@localhost/checkgate` | PostgreSQL connection string (used when not using bundled PG) |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string (used when not using bundled Redis) |
-| `POSTGRES_PASSWORD` | `checkgate` | Password for the bundled PostgreSQL instance |
-| `POSTGRES_USER` | `checkgate` | Username for the bundled PostgreSQL instance |
-| `POSTGRES_DB` | `checkgate` | Database name for the bundled PostgreSQL instance |
+| `CHECKGATE_MODE` | _(auto)_ | Image only: `all-in-one` or `external`. Unset: external if `DATABASE_URL` or `REDIS_URL` is set. |
+| `SESSION_SECRET` | _(none — required)_ | Secret for encrypting session cookies. A random ≥32-char string. Release builds refuse to start without it. |
+| `SETUP_TOKEN` | _(generated)_ | One-time token for the setup wizard, ≥16 chars. Unset: each instance generates one (see [First-run setup](#first-run-setup)). |
+| `SETUP_TOKEN_FILE` | `checkgate-setup-token` (image: `/var/lib/checkgate/setup-token`) | Where a generated setup token is written. |
+| `DATABASE_URL` | _(none — required)_ | PostgreSQL connection string. Set by the image in all-in-one mode; required in external mode and for the bare binary. |
+| `REDIS_URL` | _(none — required)_ | Redis connection string. Same rules as `DATABASE_URL`. |
+| `POSTGRES_PASSWORD` | `checkgate` | All-in-one only: password for the bundled PostgreSQL |
+| `POSTGRES_USER` | `checkgate` | All-in-one only: username for the bundled PostgreSQL |
+| `POSTGRES_DB` | `checkgate` | All-in-one only: database name for the bundled PostgreSQL |
+| `REDIS_PASSWORD` | _(unset)_ | All-in-one only: password for the bundled Redis |
 | `COOKIE_SECURE` | `true` | Set `false` for local HTTP development. Controls the `Secure` cookie flag. |
+| `TRUSTED_PROXIES` | _(none)_ | IPs/CIDRs whose `X-Forwarded-For` is believed (see [Rate limits](#rate-limits)) |
+| `RATE_LIMIT_AUTH_PER_MINUTE` | `20` | Per-client login/setup budget; `0` disables |
+| `RATE_LIMIT_API_PER_MINUTE` | `300` | Per-client REST API budget; `0` disables |
+| `RATE_LIMIT_SDK_PER_MINUTE` | `600` | Per-client `/flags/snapshot` budget; `0` disables |
+| `RATE_LIMIT_SSE_PER_MINUTE` | `120` | Per-client SSE connection budget; `0` disables |
+| `RATE_LIMIT_INGEST_PER_MINUTE` | `600` | Per-client impression/event budget; `0` disables |
 | `SDK_KEY` | _(unset)_ | Legacy env var: adds an extra accepted SDK key without a DB entry |
 | `PUBLIC_DIR` | `public` | Directory to serve dashboard static files from |
 | `PORT` | `3000` | Port the server listens on |
@@ -93,7 +200,8 @@ The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects
 
 ### Security
 
-Always set `SESSION_SECRET` in production. Without it, session cookies use a hardcoded dev key that is public knowledge — anyone can forge sessions.
+Always set `SESSION_SECRET` in production — it is what keeps session cookies
+from being forged. Release builds refuse to start without it.
 
 ```bash
 # Generate a secure session secret
@@ -173,18 +281,6 @@ stops the server at startup. Only trust addresses that your proxies actually
 use — a trusted range that untrusted clients can connect from lets them spoof
 any address.
 
-## External PostgreSQL and Redis
-
-To use your own PostgreSQL and Redis instead of the bundled ones, run the image directly and pass the connection strings:
-
-```bash
-docker run -d -p 3000:3000 \
-  -e DATABASE_URL="postgres://user:password@your-postgres:5432/checkgate" \
-  -e REDIS_URL="redis://your-redis:6379" \
-  -e SESSION_SECRET="your-secret" \
-  ghcr.io/checkgate-sh/checkgate:latest
-```
-
 ## AWS
 
 ### EC2 Deployment
@@ -195,23 +291,26 @@ docker run -d -p 3000:3000 \
    sudo yum update -y && sudo yum install -y docker
    sudo systemctl start docker
    ```
-3. Set up RDS PostgreSQL and ElastiCache Redis (optional — use the bundled versions for simpler setups)
+3. Either use the bundled services (all-in-one — just follow [Docker Compose](#docker-compose-all-in-one)),
+   or set up RDS PostgreSQL and ElastiCache Redis and continue below.
 4. Create a `.env` file:
    ```bash
    DATABASE_URL=postgres://user:pass@rds-endpoint:5432/checkgate
    REDIS_URL=redis://elasticache-endpoint:6379
    SESSION_SECRET=your-random-secret
+   SETUP_TOKEN=your-random-setup-token
    COOKIE_SECURE=true
    ```
 5. Run:
    ```bash
    docker run -d --env-file .env -p 3000:3000 \
-     ghcr.io/checkgate-sh/checkgate:latest
+     ghcr.io/checkgate-sh/checkgate:<version>
    ```
 
 ### ECS (Fargate)
 
-A basic task definition:
+A basic task definition (keep the secrets in Secrets Manager or SSM and
+reference them with `secrets` in production):
 
 ```json
 {
@@ -223,18 +322,26 @@ A basic task definition:
   "containerDefinitions": [
     {
       "name": "checkgate",
-      "image": "ghcr.io/checkgate-sh/checkgate:latest",
+      "image": "ghcr.io/checkgate-sh/checkgate:<version>",
       "portMappings": [{"containerPort": 3000}],
       "environment": [
         {"name": "DATABASE_URL", "value": "postgres://..."},
         {"name": "REDIS_URL", "value": "redis://..."},
         {"name": "SESSION_SECRET", "value": "your-random-secret"},
+        {"name": "SETUP_TOKEN", "value": "your-random-setup-token"},
+        {"name": "TRUSTED_PROXIES", "value": "10.0.0.0/16"},
         {"name": "COOKIE_SECURE", "value": "true"}
-      ]
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"],
+        "interval": 30, "timeout": 10, "retries": 3, "startPeriod": 30
+      }
     }
   ]
 }
 ```
+
+Set `TRUSTED_PROXIES` to the subnets your load balancer connects from.
 
 ### Load Balancing
 
@@ -254,7 +361,23 @@ The server exposes a health check endpoint:
 GET /health
 ```
 
-Returns `200 OK` with body `OK`. Use this for load balancer and container health checks (as configured in the Dockerfile's `HEALTHCHECK` instruction).
+Returns `200 OK` with body `OK` once the server is listening — that is, after it
+has connected to PostgreSQL and Redis and applied migrations. It is never rate
+limited. It is a liveness check: it does not re-check PostgreSQL or Redis on
+each call.
+
+The image declares a `HEALTHCHECK` (`curl -f http://localhost:3000/health`,
+every 30 s), so `docker ps` shows the container as `healthy`. On Kubernetes:
+
+```yaml
+readinessProbe:
+  httpGet: { path: /health, port: 3000 }
+  periodSeconds: 10
+livenessProbe:
+  httpGet: { path: /health, port: 3000 }
+  initialDelaySeconds: 30
+  periodSeconds: 30
+```
 
 ## Upgrading
 
@@ -266,6 +389,29 @@ docker compose up -d checkgate
 ```
 
 The server applies any new migrations before accepting traffic. Existing data is preserved.
+
+### Upgrading to the release with deployment modes and setup tokens
+
+- **You ran the image with `DATABASE_URL`/`REDIS_URL` set.** Earlier images
+  ignored both and always used the bundled PostgreSQL inside the container, so
+  your data is there — in the `/var/lib/postgresql/data` volume, if you mounted
+  one. The new image connects to the URLs you pass, which will look like a fresh
+  install. Before upgrading, dump the bundled database
+  (`docker exec <container> pg_dump -U checkgate checkgate > checkgate.sql`)
+  and restore it into your external database — or, to keep using the bundled
+  database, remove `DATABASE_URL` and `REDIS_URL` from the container's
+  environment.
+- **Setup tokens.** Installations that already completed setup are unaffected.
+  A never-set-up installation now needs the setup token
+  ([First-run setup](#first-run-setup)).
+- **Reverse proxies.** `X-Forwarded-For` is now honoured only from
+  `TRUSTED_PROXIES`. Behind a proxy, set it — otherwise all clients share the
+  proxy's rate-limit budget and are logged under its address.
+- **Rate limits.** The single 60 requests/minute limit is replaced by the
+  per-class budgets in [Rate limits](#rate-limits), which are higher for every
+  class except login/setup (20/minute).
+- **Missing connection settings.** The bare binary (outside the image) no longer
+  defaults `DATABASE_URL`/`REDIS_URL` to `localhost` in release builds.
 
 ## Backup
 

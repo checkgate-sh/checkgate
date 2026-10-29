@@ -1,8 +1,14 @@
 # =============================================================================
-# Checkgate — all-in-one image
+# Checkgate image
 #
-# Bundles: PostgreSQL 16 + Redis 7 + Checkgate server + React dashboard.
-# Perfect for demos, staging, or single-node self-hosted deployments.
+# Bundles: PostgreSQL + Redis + Checkgate server + React dashboard.
+#
+# One image, two modes (see docker/entrypoint-full.sh, CHECKGATE_MODE):
+#   all-in-one  (default) starts the bundled PostgreSQL and Redis — demos,
+#               staging, single-node self-hosting.
+#   external    uses DATABASE_URL and REDIS_URL and starts neither bundled
+#               service — managed databases, multiple replicas. Chosen
+#               automatically when either URL is set.
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -77,7 +83,7 @@ COPY --from=dashboard-builder /app/server/public ./public
 COPY docker/entrypoint-full.sh /entrypoint.sh
 
 RUN sed -i 's/\r//' /entrypoint.sh && chmod +x /entrypoint.sh && \
-    mkdir -p /var/lib/postgresql/data /var/log /var/lib/checkgate && \
+    mkdir -p /var/lib/postgresql/data /var/log /var/lib/checkgate /var/lib/redis && \
     chmod 700 /var/lib/checkgate && \
     chown -R postgres:postgres /var/lib/postgresql && \
     touch /var/log/postgresql.log /var/log/redis.log && \

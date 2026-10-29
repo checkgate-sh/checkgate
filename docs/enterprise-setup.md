@@ -34,9 +34,18 @@ docker run -d -p 3000:3000 \
   -e DATABASE_URL="postgres://user:pass@your-rds-endpoint:5432/checkgate" \
   -e REDIS_URL="redis://your-elasticache-endpoint:6379" \
   -e SESSION_SECRET="$(openssl rand -hex 32)" \
+  -e SETUP_TOKEN="$(openssl rand -hex 32)" \
+  -e TRUSTED_PROXIES="10.0.0.0/16" \
   -e COOKIE_SECURE="true" \
-  ghcr.io/checkgate-sh/checkgate:latest
+  ghcr.io/checkgate-sh/checkgate:<version>
 ```
+
+Passing `DATABASE_URL` and `REDIS_URL` runs the image in **external mode**: it
+starts only the server and dashboard, never the bundled PostgreSQL or Redis, and
+exits with a clear error if either URL is missing. Every replica must share the
+same database, Redis, `SESSION_SECRET` and `SETUP_TOKEN`. Set `TRUSTED_PROXIES`
+to the addresses your load balancer connects from so rate limits apply per
+client. See [Self-Hosting](./self-hosting.md) for every option.
 
 ---
 
@@ -44,6 +53,8 @@ docker run -d -p 3000:3000 \
 
 Once your Control Plane is accessible (e.g., at `https://flags.internal.com`), you will be redirected to the setup wizard at `/setup` on first visit:
 
+0. **Setup token** — the `SETUP_TOKEN` value you deployed with. It proves you
+   operate this installation, so nobody else can claim it first.
 1. **Workspace name** — your company or team name, shown on the login page.
 2. **Admin account** — your name, work email, and a password (minimum 8 characters).
 3. **SDK key** — auto-generated on first boot; copy it now for use in your applications.
