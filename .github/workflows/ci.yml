@@ -16,6 +16,19 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Repository hygiene — dependencies, build output and tool caches must not be
+  # committed; every job below installs and builds what it needs itself.
+  # ---------------------------------------------------------------------------
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: No generated or machine-specific files are tracked
+        run: scripts/check-tracked-artifacts.sh
+
+  # ---------------------------------------------------------------------------
   # Rust — test the whole workspace
   # ---------------------------------------------------------------------------
   rust:
