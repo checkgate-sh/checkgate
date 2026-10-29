@@ -176,6 +176,23 @@ wait_healthy "$AIO"
 rm -f "$WORK/cookies-$AIO"
 expect 200 "$(api "$AIO" POST /api/auth/login "$LOGIN")" "login after re-create"
 expect 200 "$(api "$AIO" GET "/api/environments/$ENV_ID/flags/smoke-flag" '')" "flag after re-create"
+# Boots after the first follow the same process sequence, so the postmaster
+# gets the same PID each time; remember it before killing the container.
+PM_PID="$(docker exec "$AIO" head -n 1 /var/lib/postgresql/data/postmaster.pid)"
+docker rm -f "$AIO" >/dev/null
+
+# A killed container leaves postmaster.pid behind. If the next postmaster gets
+# the same PID and the lock's start time looks recent, `pg_ctl -w` trusts the
+# stale "ready" line and returns before the server accepts connections. Plant
+# exactly that lock (start time in the future, so the timing always matches)
+# and check the next container still starts.
+log "all-in-one: stale postmaster.pid from a killed container"
+docker run --rm -v "$PGVOL:/data" -e PM_PID="$PM_PID" --entrypoint sh "$IMAGE" -c \
+  'printf "%s\n/var/lib/postgresql/data\n%s\n5432\n/var/run/postgresql\n*\n  0  0\nready   \n" "$PM_PID" "$(($(date +%s) + 3600))" > /data/postmaster.pid && chown postgres:postgres /data/postmaster.pid'
+run_aio
+wait_healthy "$AIO"
+rm -f "$WORK/cookies-$AIO"
+expect 200 "$(api "$AIO" POST /api/auth/login "$LOGIN")" "login after stale lock file"
 docker rm -f "$AIO" >/dev/null
 
 # ---------------------------------------------------------------------------
