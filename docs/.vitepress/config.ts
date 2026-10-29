@@ -96,6 +96,10 @@ export default defineConfig({
         items: [
           { text: "Docker", link: "/self-hosting" },
           { text: "Enterprise Setup", link: "/enterprise-setup" },
+          { text: "Deployment & Recovery", link: "/operations/failure-recovery" },
+          { text: "Reliability & Sync", link: "/operations/reliability" },
+          { text: "Observability", link: "/operations/observability" },
+          { text: "Performance", link: "/performance/baseline" },
           { text: "AWS & Cloud", link: "/self-hosting#aws" },
           {
             text: "Environment Variables",

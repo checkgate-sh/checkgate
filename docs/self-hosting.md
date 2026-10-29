@@ -158,6 +158,15 @@ Docker image — have no such defaults** and refuse to start without them. With
   PostgreSQL database, one Redis, the same `SESSION_SECRET` and the same
   `SETUP_TOKEN`.
 - Size `DB_MAX_CONNECTIONS` × replicas below your database's connection limit.
+- Probe `/health/live` for liveness and `/health/ready` for readiness, and set
+  `SHUTDOWN_DRAIN_DELAY_SECS` / `SHUTDOWN_GRACE_PERIOD_SECS` below your
+  orchestrator's termination grace period (see
+  [Deployment, failure and recovery](./operations/failure-recovery.md)).
+- Enable `METRICS_ADDR` on a private interface and scrape it
+  (see [Observability](./operations/observability.md)).
+- In external mode, run the container as `--user 10001:10001` (Kubernetes:
+  `runAsNonRoot`). All-in-one mode starts as root only to prepare its volumes
+  and runs every process unprivileged.
 - Back up PostgreSQL (see [Backup](#backup)); Redis holds no durable state.
 
 ## Docker Images
@@ -186,7 +195,8 @@ The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects
 | `POSTGRES_DB` | `checkgate` | All-in-one only: database name for the bundled PostgreSQL |
 | `REDIS_PASSWORD` | _(unset)_ | All-in-one only: password for the bundled Redis |
 | `COOKIE_SECURE` | `true` | Set `false` for local HTTP development. Controls the `Secure` cookie flag. |
-| `TRUSTED_PROXIES` | _(none)_ | IPs/CIDRs whose `X-Forwarded-For` is believed (see [Rate limits](#rate-limits)) |
+| `TRUSTED_PROXIES` | _(none)_ | IPs/CIDRs whose forwarding header is believed (see [Rate limits](#rate-limits)) |
+| `TRUSTED_PROXY_HEADER` | `x-forwarded-for` | Header trusted proxies set: `x-forwarded-for`, or `forwarded` (RFC 7239). Only one is ever read. |
 | `RATE_LIMIT_AUTH_PER_MINUTE` | `20` | Per-client login/setup budget; `0` disables |
 | `RATE_LIMIT_API_PER_MINUTE` | `300` | Per-client REST API budget; `0` disables |
 | `RATE_LIMIT_SDK_PER_MINUTE` | `600` | Per-client `/flags/snapshot` budget; `0` disables |
@@ -197,6 +207,19 @@ The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects
 | `PORT` | `3000` | Port the server listens on |
 | `DB_MAX_CONNECTIONS` | `10` | PostgreSQL connection pool size |
 | `RUST_LOG` | `info` | Log level (`error`, `warn`, `info`, `debug`, `trace`) |
+| `METRICS_ADDR` | _(unset: off)_ | Address for the Prometheus `/metrics` listener, e.g. `0.0.0.0:9464`. Never on `PORT`. See [Observability](./operations/observability.md). |
+| `SHUTDOWN_DRAIN_DELAY_SECS` | `0` | After SIGTERM: readiness fails, streams stay open this long for load balancers to react |
+| `SHUTDOWN_GRACE_PERIOD_SECS` | `20` | After SIGTERM: hard limit before the process exits |
+| `READY_REQUIRES_REDIS` | `false` | Fail `/health/ready` while the Redis subscription is down |
+| `SSE_MAX_CONNECTIONS` | `10000` | Open SSE streams per instance; `0` = unlimited. Beyond it: `503` + `Retry-After` |
+| `SSE_BOOTSTRAP_CONCURRENCY` | `DB_MAX_CONNECTIONS / 2` | Concurrent SSE bootstraps and snapshot reads |
+| `SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS` | `10` | Wait for a bootstrap slot before `503` |
+| `SSE_RESYNC_SPREAD_MS` | `5000` | Window over which resynced streams are closed |
+| `TCP_USER_TIMEOUT_SECS` | `60` | Linux: abort connections whose data stays unacknowledged this long; `0` disables |
+| `REDIS_CHANNEL` | `checkgate_updates` | Redis Pub/Sub channel for change events |
+| `REDIS_PING_INTERVAL_SECS` | `10` | Liveness ping on the Redis subscription |
+| `SYNC_RECONCILE_INTERVAL_SECS` | `30` | Reconciliation against PostgreSQL; `0` disables (see [Reliability](./operations/reliability.md)) |
+| `SYNC_RECONCILE_GRACE_SECS` | `10` | How long a change may stay unrelayed before it is repaired |
 
 ### Security
 
@@ -244,8 +267,8 @@ existing `settings` table.
 
 Requests are limited per client IP, with an independent budget per class of
 endpoint, so SDK traffic cannot lock operators out of the dashboard and a
-password-guessing run cannot exhaust the SDK budget. `/health` is never
-limited. Opening an SSE stream counts once; events delivered on an open stream
+password-guessing run cannot exhaust the SDK budget. `/health`, `/health/live`
+and `/health/ready` are never limited, nor are dashboard files. Opening an SSE stream counts once; events delivered on an open stream
 are never counted.
 
 | Variable | Default (per minute) | Applies to |
@@ -280,6 +303,18 @@ is attributed to the nearest trusted proxy. An invalid `TRUSTED_PROXIES` value
 stops the server at startup. Only trust addresses that your proxies actually
 use — a trusted range that untrusted clients can connect from lets them spoof
 any address.
+
+If your proxy sends the RFC 7239 `Forwarded` header instead, set
+`TRUSTED_PROXY_HEADER=forwarded`; its `for=` parameters are read with the same
+right-to-left rules, and `X-Forwarded-For` is then ignored (a proxy usually
+passes the header it does not set through from the client). Obfuscated
+identifiers (`for=_hidden`, `for=unknown`) attribute the request to the nearest
+trusted proxy.
+
+Rate limits are kept per instance: with *N* replicas behind a balancer that
+spreads one client's requests, that client can make up to *N* times the
+configured budget. Divide the limits by your replica count if you need a
+cluster-wide figure.
 
 ## AWS
 
@@ -347,37 +382,42 @@ Set `TRUSTED_PROXIES` to the subnets your load balancer connects from.
 
 Checkgate keeps no flag state in server memory: SSE bootstrap, snapshot polling and the REST API read PostgreSQL, and live changes fan out to every instance through Redis pub/sub. Run as many instances as you need behind an ALB. (The SDK health page is the exception — each instance lists only its own SSE connections.)
 
-**Important**: The SSE stream (`/stream`) requires sticky sessions or a long-lived HTTP/2 connection. Configure your ALB target group with:
-- **Protocol**: HTTP/1.1 (SSE is not compatible with HTTP/2 connection multiplexing on ALB)
-- **Stickiness**: Enabled (duration-based, any duration)
-
-Or rely on **Redis pub/sub fan-out** (built-in): all instances subscribe to Redis and will forward updates to their connected SDK clients regardless of which instance received the API write.
+No sticky sessions are needed: every instance relays every change to its own
+SSE clients, and a reconnecting client may land on any instance. Keep the idle
+timeout above 30 s (keep-alives are sent every 15 s), health-check
+`/health/ready`, and set the deregistration delay to about
+`SHUTDOWN_DRAIN_DELAY_SECS`. See
+[Deployment, failure and recovery](./operations/failure-recovery.md#load-balancers).
 
 ## Health Checks
 
-The server exposes a health check endpoint:
+| Endpoint | Use for | Fails when |
+|---|---|---|
+| `GET /health/live` | Liveness | Never while the process serves requests — a dependency outage must not cause restarts |
+| `GET /health/ready` | Readiness / load-balancer health | Draining for shutdown, or PostgreSQL unreachable (and Redis down, if `READY_REQUIRES_REDIS=true`) |
+| `GET /health` | Unchanged legacy check (`OK`) | Same as liveness |
 
-```http
-GET /health
-```
+None of them is rate limited. `/health/ready` returns
+`{"status": "ready" | "degraded" | "unavailable" | "draining", "checks": {...}}`;
+`degraded` (Redis down, still serving) answers 200.
 
-Returns `200 OK` with body `OK` once the server is listening — that is, after it
-has connected to PostgreSQL and Redis and applied migrations. It is never rate
-limited. It is a liveness check: it does not re-check PostgreSQL or Redis on
-each call.
-
-The image declares a `HEALTHCHECK` (`curl -f http://localhost:3000/health`,
-every 30 s), so `docker ps` shows the container as `healthy`. On Kubernetes:
+The image declares a `HEALTHCHECK` on `/health/live` (every 30 s), so
+`docker ps` shows the container as `healthy`. On Kubernetes:
 
 ```yaml
+terminationGracePeriodSeconds: 30
 readinessProbe:
-  httpGet: { path: /health, port: 3000 }
-  periodSeconds: 10
+  httpGet: { path: /health/ready, port: 3000 }
+  periodSeconds: 5
 livenessProbe:
-  httpGet: { path: /health, port: 3000 }
-  initialDelaySeconds: 30
-  periodSeconds: 30
+  httpGet: { path: /health/live, port: 3000 }
+  periodSeconds: 10
 ```
+
+with `SHUTDOWN_DRAIN_DELAY_SECS=5` and `SHUTDOWN_GRACE_PERIOD_SECS=25`. The
+full probe, shutdown and capacity guidance is in
+[Deployment, failure and recovery](./operations/failure-recovery.md); metrics
+and logs in [Observability](./operations/observability.md).
 
 ## Upgrading
 

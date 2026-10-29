@@ -12,6 +12,10 @@
     reason = "each test binary compiles this module and uses a different subset of it"
 )]
 
+pub mod chaos;
+pub mod cluster;
+pub mod sdk;
+
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -139,8 +143,68 @@ impl Server {
         Self::spawn_in(&dir, port, db_url, redis_url, extra_env).await
     }
 
+    pub fn port(&self) -> u16 {
+        self.base.rsplit(':').next().unwrap().parse().unwrap()
+    }
+
+    /// Sends SIGTERM (graceful shutdown) without waiting.
+    pub fn terminate(&self) {
+        let status = Command::new("kill")
+            .args(["-TERM", &self.child.id().to_string()])
+            .status()
+            .expect("run kill");
+        assert!(status.success(), "kill -TERM failed");
+    }
+
+    /// Waits up to `within` for the process to exit and returns its status.
+    pub async fn wait_exit(&mut self, within: Duration) -> Option<std::process::ExitStatus> {
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return Some(status);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
     pub fn log(&self) -> String {
         std::fs::read_to_string(self.dir.join("server.log")).unwrap_or_default()
+    }
+
+    /// Like [`Server::spawn_in`], but returns `None` if the process exits
+    /// before it is healthy (e.g. its port was taken between `free_port` and
+    /// the bind), so the caller can retry elsewhere.
+    pub async fn try_spawn_in(
+        dir: &Path,
+        port: u16,
+        db_url: &str,
+        redis_url: &str,
+        extra_env: &[(&str, Option<&str>)],
+    ) -> Option<Self> {
+        let child = command(dir, port, db_url, redis_url, extra_env)
+            .spawn()
+            .expect("spawn server binary");
+        let mut server = Server {
+            base: format!("http://127.0.0.1:{port}"),
+            dir: dir.to_path_buf(),
+            child,
+        };
+        let client = reqwest::Client::new();
+        for _ in 0..240 {
+            if server.child.try_wait().unwrap().is_some() {
+                return None;
+            }
+            if let Ok(resp) = client.get(format!("{}/health", server.base)).send().await
+                && resp.status().is_success()
+            {
+                return Some(server);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        panic!("server did not become healthy at {}", server.base);
     }
 
     pub async fn wait_healthy(&self) {
@@ -174,7 +238,11 @@ fn command(
         .append(true)
         .open(dir.join("server.log"))
         .unwrap();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_server"));
+    // CHECKGATE_TEST_SERVER_BIN runs the suites against another build, e.g.
+    // a baseline binary when reproducing a failure an older commit had.
+    let bin = std::env::var("CHECKGATE_TEST_SERVER_BIN")
+        .unwrap_or_else(|_| env!("CARGO_BIN_EXE_server").to_string());
+    let mut cmd = Command::new(bin);
     cmd.env("DATABASE_URL", db_url)
         .env("REDIS_URL", redis_url)
         .env("PORT", port.to_string())

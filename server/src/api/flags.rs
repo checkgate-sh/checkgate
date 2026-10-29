@@ -994,11 +994,7 @@ pub(crate) fn delete_message(env_id: &str, key: &str, revision: i64) -> String {
     json!({"type": "DELETE", "env_id": env_id, "key": key, "revision": revision}).to_string()
 }
 
-/// Payload telling every SSE handler to drop its clients so they reconnect and
-/// re-bootstrap the full flag set from PostgreSQL.
-pub(crate) const RESYNC_MESSAGE: &str = r#"{"type":"RESYNC"}"#;
-
-const UPDATES_CHANNEL: &str = "checkgate_updates";
+use crate::sync::RESYNC_MESSAGE;
 
 /// Publish a flag change event to every instance through Redis.
 ///
@@ -1006,8 +1002,11 @@ const UPDATES_CHANNEL: &str = "checkgate_updates";
 /// request. Instead the event is handed straight to this instance's SSE
 /// clients, and a `RESYNC` broadcast is retried in the background until Redis
 /// is back, so clients of the other instances re-bootstrap the state they
-/// missed.
+/// missed. Should this instance die first, the other instances' reconciliation
+/// (`crate::sync`) still finds the unrelayed commit.
 pub(crate) async fn publish_update(state: &AppState, msg: &str, op: &str) {
+    let started = std::time::Instant::now();
+    state.metrics.flag_updates.inc();
     let mut result = publish_once(state, msg).await;
     if result.is_err() {
         // The connection manager reconnects after a failure; one quick retry
@@ -1015,13 +1014,18 @@ pub(crate) async fn publish_update(state: &AppState, msg: &str, op: &str) {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         result = publish_once(state, msg).await;
     }
+    state
+        .metrics
+        .flag_publish_duration
+        .observe(started.elapsed().as_secs_f64());
     let Err(e) = result else { return };
+    state.metrics.flag_update_publish_failures.inc();
     warn!(
         error = %e,
         operation = op,
         "Redis publish failed — delivered locally, other instances will resync"
     );
-    let _ = state.flag_tx.send(msg.to_string());
+    crate::sync::relay(state, crate::sync::SyncEvent::parse(msg.to_string()));
     schedule_resync(state);
 }
 
@@ -1031,7 +1035,7 @@ async fn publish_once(state: &AppState, msg: &str) -> Result<(), String> {
     let mut conn = state.redis_conn.clone();
     match tokio::time::timeout(
         std::time::Duration::from_millis(1500),
-        conn.publish::<_, _, ()>(UPDATES_CHANNEL, msg),
+        conn.publish::<_, _, ()>(crate::sync::updates_channel(), msg),
     )
     .await
     {
@@ -1041,35 +1045,44 @@ async fn publish_once(state: &AppState, msg: &str) -> Result<(), String> {
     }
 }
 
-/// Retries a `RESYNC` broadcast until Redis accepts it. At most one retry loop
-/// runs per instance.
+/// Retries a `RESYNC` broadcast until Redis accepts it or the server shuts
+/// down. At most one retry loop runs per instance; each attempt is bounded.
 fn schedule_resync(state: &AppState) {
     use std::sync::atomic::Ordering;
     if state.resync_pending.swap(true, Ordering::AcqRel) {
         return;
     }
+    state.metrics.resync_pending.set(1);
     let mut conn = state.redis_conn.clone();
     let pending = std::sync::Arc::clone(&state.resync_pending);
+    let metrics = std::sync::Arc::clone(&state.metrics);
+    let cancel = state.lifecycle.shutdown.clone();
     tokio::spawn(async move {
         let mut delay = std::time::Duration::from_secs(1);
         loop {
-            tokio::time::sleep(delay).await;
-            match conn
-                .publish::<_, _, ()>(UPDATES_CHANNEL, RESYNC_MESSAGE)
-                .await
-            {
-                Ok(()) => {
-                    info!("Redis reachable again — resync broadcast sent");
-                    pending.store(false, Ordering::Release);
-                    return;
-                }
-                Err(e) => {
-                    warn!(error = %e, "Resync broadcast failed — retrying");
-                    delay = delay
-                        .saturating_mul(2)
-                        .min(std::time::Duration::from_secs(30));
-                }
+            if crate::sync::sleep_or_cancel(delay, &cancel).await {
+                info!("Shutdown — abandoning pending resync broadcast");
+                break;
             }
+            let attempt = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                conn.publish::<_, _, ()>(crate::sync::updates_channel(), RESYNC_MESSAGE),
+            )
+            .await;
+            match attempt {
+                Ok(Ok(())) => {
+                    info!("Redis reachable again — resync broadcast sent");
+                    break;
+                }
+                Ok(Err(e)) => warn!(error = %e, "Resync broadcast failed — retrying"),
+                Err(_) => warn!("Resync broadcast timed out — retrying"),
+            }
+            metrics.resync_broadcast_failures.inc();
+            delay = delay
+                .saturating_mul(2)
+                .min(std::time::Duration::from_secs(30));
         }
+        pending.store(false, Ordering::Release);
+        metrics.resync_pending.set(0);
     });
 }
