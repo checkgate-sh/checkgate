@@ -36,6 +36,7 @@ WORKDIR /app
 # Cache dependency layer
 COPY Cargo.toml Cargo.lock ./
 COPY core/Cargo.toml core/Cargo.toml
+COPY bench/ bench/
 COPY server/Cargo.toml server/Cargo.toml
 COPY sdks/nodejs/Cargo.toml sdks/nodejs/Cargo.toml
 COPY sdks/web/Cargo.toml sdks/web/Cargo.toml

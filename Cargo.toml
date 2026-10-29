@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "core",
+    "bench",
     "server",
     "sdks/nodejs",
     "sdks/web",
