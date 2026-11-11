@@ -1,0 +1,139 @@
+{
+  "config": {
+    "db_max_connections": 10,
+    "flags": 101,
+    "instances": 2,
+    "server_bin": "/home/dennispaler/Documents/OpenSource/checkgate/target/release/server",
+    "updates_per_profile": 100
+  },
+  "connection_profiles": [
+    {
+      "connections": 100,
+      "held_idle": [
+        {
+          "cpu_seconds_since_ramp_start": 0.05,
+          "rss_bytes": 17596416
+        },
+        {
+          "cpu_seconds_since_ramp_start": 0.05,
+          "rss_bytes": 16957440
+        }
+      ],
+      "instances": 2,
+      "propagation": {
+        "fanout_spread_first_to_last": {
+          "max_ms": 3.714,
+          "mean_ms": 1.502,
+          "p50_ms": 1.438,
+          "p95_ms": 2.453,
+          "p99_ms": 2.607,
+          "samples": 100
+        },
+        "interval_ms": 50,
+        "missed_deliveries": 0,
+        "server_cpu_cores_during_propagation": [
+          0.07,
+          0.021
+        ],
+        "updates": 100,
+        "visible_after_http_response": {
+          "max_ms": 3.552,
+          "mean_ms": 0.231,
+          "p50_ms": 0.0,
+          "p95_ms": 1.104,
+          "p99_ms": 2.267,
+          "samples": 10000
+        },
+        "write_to_visible": {
+          "max_ms": 26.469,
+          "mean_ms": 14.162,
+          "p50_ms": 13.956,
+          "p95_ms": 21.284,
+          "p99_ms": 24.782,
+          "samples": 10000
+        }
+      },
+      "ramp": {
+        "failures": {},
+        "handshakes_in_flight": 200,
+        "seconds": 0.073,
+        "time_to_ready": {
+          "max_ms": 65.25,
+          "mean_ms": 45.093,
+          "p50_ms": 45.6,
+          "p95_ms": 60.844,
+          "p99_ms": 61.688,
+          "samples": 100
+        }
+      }
+    }
+  ],
+  "generated_by": "server/examples/loadgen.rs",
+  "rest_latency": {
+    "list_flags": {
+      "max_ms": 2.188,
+      "mean_ms": 1.097,
+      "p50_ms": 1.069,
+      "p95_ms": 1.248,
+      "p99_ms": 1.633,
+      "samples": 200
+    },
+    "patch_flag": {
+      "max_ms": 3.748,
+      "mean_ms": 1.998,
+      "p50_ms": 1.938,
+      "p95_ms": 2.584,
+      "p99_ms": 2.685,
+      "samples": 200
+    }
+  },
+  "server_metrics": [
+    {
+      "db_pool_connections": 10.0,
+      "db_pool_max_connections": 10.0,
+      "patch_handling_mean_ms": 5.334,
+      "publish_failures": 0.0,
+      "redis_publish_mean_ms": 0.336,
+      "snapshot_query_mean_ms": 7.953,
+      "sse_bootstrap_mean_ms": 32.531,
+      "sse_lagged_messages": 0.0,
+      "sse_rejections": [
+        "checkgate_sse_rejections_total{reason=\"bootstrap_busy\"} 0",
+        "checkgate_sse_rejections_total{reason=\"bootstrap_error\"} 0",
+        "checkgate_sse_rejections_total{reason=\"draining\"} 0",
+        "checkgate_sse_rejections_total{reason=\"capacity\"} 0"
+      ]
+    },
+    {
+      "db_pool_connections": 10.0,
+      "db_pool_max_connections": 10.0,
+      "patch_handling_mean_ms": null,
+      "publish_failures": 0.0,
+      "redis_publish_mean_ms": null,
+      "snapshot_query_mean_ms": 7.916,
+      "sse_bootstrap_mean_ms": 29.858,
+      "sse_lagged_messages": 0.0,
+      "sse_rejections": [
+        "checkgate_sse_rejections_total{reason=\"bootstrap_error\"} 0",
+        "checkgate_sse_rejections_total{reason=\"draining\"} 0",
+        "checkgate_sse_rejections_total{reason=\"capacity\"} 0",
+        "checkgate_sse_rejections_total{reason=\"bootstrap_busy\"} 0"
+      ]
+    }
+  ],
+  "snapshot": {
+    "concurrency": 32,
+    "duration_s": 2,
+    "errors": 0,
+    "latency": {
+      "max_ms": 34.487,
+      "mean_ms": 10.091,
+      "p50_ms": 9.911,
+      "p95_ms": 12.89,
+      "p99_ms": 14.949,
+      "samples": 6354
+    },
+    "requests": 6354,
+    "requests_per_s": 3177.0
+  }
+}

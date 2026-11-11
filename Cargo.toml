@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "core",
+    "bench",
     "server",
     "sdks/nodejs",
     "sdks/web",
@@ -10,7 +11,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.25"
+version = "0.1.30"
 license = "Apache-2.0"
 
 # ---------------------------------------------------------------------------

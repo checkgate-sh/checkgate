@@ -1,13 +1,16 @@
-use crate::rate_limit::IpRateLimiter;
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
-use checkgate_core::store::FlagStore;
 use dashmap::DashMap;
 use redis::aio::ConnectionManager;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::{RwLock, broadcast};
+
+use crate::lifecycle::Lifecycle;
+use crate::metrics::Metrics;
+use crate::stream::SseLimits;
+use crate::sync::{SyncEvent, SyncState};
 
 /// A single SDK key row loaded from the database.
 #[derive(Clone, Debug)]
@@ -29,8 +32,8 @@ pub struct ConnectedClient {
     pub environment_id: Option<String>,
     /// Human-readable SDK key name resolved at connect time.
     pub sdk_key_name: Option<String>,
-    /// Stringified client IP address.
-    pub client_ip: String,
+    /// Client address, as resolved by `crate::client_ip`.
+    pub client_ip: std::net::IpAddr,
     /// Unix timestamp (seconds) when the connection was established.
     pub connected_at: i64,
 }
@@ -45,20 +48,29 @@ pub struct AppState {
     /// Set while a publish has failed and a `RESYNC` broadcast is still being
     /// retried (see `flags::publish_update`).
     pub resync_pending: Arc<AtomicBool>,
-    pub store: Arc<FlagStore>,
-    /// Broadcast channel: the Redis subscriber pushes payloads here;
+    /// Broadcast channel: change events relayed by `sync::relay` (from the
+    /// Redis subscriber, or locally after a failed publish or a resync);
     /// each SSE handler subscribes instead of opening its own Redis connection.
-    pub flag_tx: broadcast::Sender<String>,
+    pub flag_tx: broadcast::Sender<Arc<SyncEvent>>,
+    /// Relay index and reconciliation settings (see `crate::sync`).
+    pub sync: Arc<SyncState>,
+    pub metrics: Arc<Metrics>,
+    /// Readiness, draining and the shutdown signal for streams and tasks.
+    pub lifecycle: Arc<Lifecycle>,
+    /// SSE connection cap and bootstrap concurrency.
+    pub sse_limits: Arc<SseLimits>,
     /// Local key-management cache. Authentication always checks PostgreSQL.
     pub sdk_keys: Arc<RwLock<Vec<SdkKeyEntry>>>,
-    /// Per-IP rate limiter applied to all API routes.
-    pub rate_limiter: IpRateLimiter,
     /// Encryption key for `PrivateCookieJar`. Derived from `SESSION_SECRET` env var.
     pub session_key: Key,
-    /// Live SSE connections keyed by connection_id. Per-instance only.
+    /// Live SSE connections keyed by connection_id. Per-instance only: each
+    /// server reports its own clients on the SDK health page.
     pub connected_clients: Arc<DashMap<String, ConnectedClient>>,
     /// Shared HTTP client for outbound webhook delivery.
     pub webhook_client: reqwest::Client,
+    /// Operator-configured `SETUP_TOKEN`; `None` means per-instance generated
+    /// tokens, verified by hash against `settings` (see `crate::setup`).
+    pub setup_token: Option<Arc<str>>,
 }
 
 /// Allows `PrivateCookieJar` extractors to pull the key out of `AppState` automatically.

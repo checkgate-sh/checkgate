@@ -4,12 +4,20 @@ use std::time::Duration;
 use tracing::{error, info};
 
 /// Claim each due job and apply its flag patch in the same transaction.
-pub async fn run(state: AppState) {
+/// Stops between runs once `cancel` fires; a run in progress is not cut
+/// short (each job is its own transaction, so being killed mid-run is safe
+/// too, and a lost change event is recovered by reconciliation).
+pub async fn run(state: AppState, cancel: tokio_util::sync::CancellationToken) {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        interval.tick().await;
-        execute_due(&state).await;
+        tokio::select! {
+            () = cancel.cancelled() => {
+                info!("Scheduler stopped");
+                return;
+            }
+            _ = interval.tick() => execute_due(&state).await,
+        }
     }
 }
 
@@ -110,7 +118,6 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use axum_extra::extract::cookie::Key;
-    use checkgate_core::store::FlagStore;
     use dashmap::DashMap;
     use serde_json::json;
     use std::sync::Arc;
@@ -158,13 +165,18 @@ mod tests {
             redis_conn: redis_client.get_connection_manager().await.unwrap(),
             resync_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             redis_client,
-            store: Arc::new(FlagStore::new()),
             flag_tx: broadcast::channel(256).0,
             sdk_keys: Arc::new(RwLock::new(vec![])),
-            rate_limiter: crate::rate_limit::new_rate_limiter(),
             session_key: Key::generate(),
             connected_clients: Arc::new(DashMap::new()),
             webhook_client: reqwest::Client::new(),
+            setup_token: None,
+            sync: crate::sync::SyncState::new(crate::sync::SyncConfig::from_env().unwrap()),
+            metrics: crate::metrics::Metrics::new(5),
+            lifecycle: Arc::new(crate::lifecycle::Lifecycle::new(
+                crate::lifecycle::LifecycleConfig::from_env().unwrap(),
+            )),
+            sse_limits: Arc::new(crate::stream::SseLimits::from_env(5).unwrap()),
         };
         tokio::time::timeout(Duration::from_secs(5), execute_due(&state))
             .await

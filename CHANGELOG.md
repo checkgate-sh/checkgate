@@ -5,6 +5,138 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.30] - 2026-11-11
+
+Versions 0.1.26–0.1.29 were skipped; 0.1.30 directly follows 0.1.25.
+
+### Upgrading from 0.1.25
+
+Nothing needs to change for most deployments. Check these before upgrading:
+
+- **CLI scripts that test for exit code `1` exactly.** Usage errors now exit `2`, and `--check`
+  drift exits `3` (see Changed). Checks for non-zero are unaffected.
+- **More than 10 000 SSE connections on one instance.** `SSE_MAX_CONNECTIONS` now caps
+  connections per instance (default 10 000; there was no limit). Further connections get `503`
+  with `Retry-After`. Raise the limit or add instances.
+- **Running the image with a fixed user.** The server runs as UID 10001. External mode accepts
+  `--user 10001:10001` / `runAsNonRoot`. All-in-one mode must start as root (its entrypoint drops
+  privileges) and refuses to run as any other user.
+- **Slow database connections.** The PostgreSQL pool now waits at most 10 s for a connection
+  (was 30 s).
+- **Shutdown timing.** SIGTERM drains and exits within `SHUTDOWN_GRACE_PERIOD_SECS` (default 20).
+  Keep your orchestrator's kill timeout above that (Kubernetes' default is 30 s).
+
+No server API, SSE wire format or SDK API changed incompatibly. One migration
+(`20261029000028_archive_keeps_revision`) runs automatically at startup. It only replaces the
+`flags_bump_revision()` trigger function, with no table rewrite. Running 0.1.25 servers keep
+working during a rolling upgrade. However, a 0.1.25 server that **starts** against a migrated
+database refuses to boot, because it does not know the newer migration. This affects rollback
+and any old instance restarted mid-rollout. 0.1.25's own migration behaved the same way.
+
+### Fixed
+
+- **CLI: generated code that did not compile.** A string default containing a carriage return
+  broke the Rust output (bare CR is illegal in a raw string) and the Dart output (raw CR in a
+  one-line string); a flag keyed `self` became the Rust keyword `Self`; Dart flags named
+  `values`, `index`, `hashCode`, `toString`, `runtimeType`, `noSuchMethod`, `dynamic`, `bool`,
+  `int` or `key` clashed with reserved or generated names; de-duplicated Rust variants (`AB_2`)
+  failed crates built with `-D warnings`. CI now compiles the generated code with `rustc`,
+  `tsc --strict` and `dart analyze` instead of only generating it.
+- **CLI: a flag default that does not match its type is an error naming the flag**, instead of
+  silently producing code that does not compile (a string on an integer flag), `NaN`, or a
+  constant that differs from the server's value (an integer beyond ±2^53, a fraction truncated).
+  A `null` default on a non-`json` flag counts as no default.
+- **CLI: a server that never answers no longer hangs the run.** Requests time out after
+  `--timeout` seconds (default 30, `CHECKGATE_TIMEOUT`).
+- **CLI: credentials in `--url` were printed to the terminal.** `fetch` refuses such URLs and its
+  error repeated the URL, so `https://user:password@host` landed in CI logs. Such a URL is now
+  refused up front without echoing it (use `--token`).
+- CLI: `--version` printed `0.1.20` regardless of the installed version; it now reads
+  `package.json`.
+- CLI: an HTML response (dashboard URL, proxy or SSO page) is reported as such instead of
+  `Unexpected token '<'`, and a server error includes the server's message.
+- CLI: output files are written atomically (temp file + rename), so Ctrl+C or a kill never leaves
+  a truncated file; an identical file is not rewritten (its mtime does not change).
+- **A change committed by a server that died before publishing it now reaches every client.**
+  Redis Pub/Sub delivers at most once, and no server held the lost event, so clients of the
+  other servers stayed on the old configuration until they reconnected for another reason.
+  Each server now reconciles the revisions it has relayed against PostgreSQL every
+  `SYNC_RECONCILE_INTERVAL_SECS` (default 30, jittered) and re-bootstraps only the clients of
+  an environment whose changes were lost. This also repairs changes made directly in SQL.
+- A Redis subscription that stays open but stops delivering (lost NAT or load-balancer state) is
+  now detected by a ping every `REDIS_PING_INTERVAL_SECS` (default 10) and reconnected, with a
+  resync. Previously the server stopped relaying changes indefinitely without noticing.
+- Graceful shutdown no longer hangs while SSE streams are open. SIGTERM now fails readiness,
+  waits `SHUTDOWN_DRAIN_DELAY_SECS`, closes every stream, stops background tasks and exits within
+  `SHUTDOWN_GRACE_PERIOD_SECS` (default 20); previously every shutdown with a connected SDK ended
+  in SIGKILL.
+- A client that stops reading its stream no longer holds the connection and its resources
+  forever: connections whose data stays unacknowledged for `TCP_USER_TIMEOUT_SECS` (default 60,
+  Linux) are aborted.
+- Dashboard files now carry the security headers (CSP, `X-Frame-Options`, `nosniff`, …); they
+  were served outside the middleware stack. The dashboard's CSP allows its web fonts.
+- Archiving or unarchiving a flag no longer assigns it a new revision (it changes nothing SDKs
+  evaluate and publishes no event).
+- The bundled PostgreSQL starts when the container's `/run` is a fresh tmpfs (some runtimes and
+  BuildKit builders), which broke all-in-one mode in CI.
+
+### Added
+
+- CLI `--check`: compares generated output with the files on disk, writes nothing, and exits `3`
+  when a file is missing or stale. The `// Source:` header is ignored, so output generated from
+  the server checks clean against an export of the same flags.
+- CLI `--json`: one machine-readable result object on stdout (`schema_version: 1`): status, exit
+  code, per-file status, findings with an `action`, and a classified `error.code`. See
+  `docs/ecosystem/cli.md` for the schema, a GitHub Actions example and the agent contract.
+- CLI `--timeout` / `CHECKGATE_TIMEOUT`.
+- Prometheus/OpenMetrics metrics on a separate listener (`METRICS_ADDR`, off by default):
+  propagation, publish failures, Redis subscription state, resyncs, reconciliation, SSE
+  connections and rejections, bootstrap and snapshot latency, database pool and readiness.
+  See `docs/operations/observability.md`.
+- `GET /health/live` (never fails on a dependency outage) and `GET /health/ready` (PostgreSQL
+  required; Redis optional via `READY_REQUIRES_REDIS`; fails while draining). `GET /health` is
+  unchanged. The image's `HEALTHCHECK` uses `/health/live`.
+- Admission control for SSE: `SSE_MAX_CONNECTIONS` per instance (default 10 000) and
+  `SSE_BOOTSTRAP_CONCURRENCY` database slots shared by bootstraps and snapshot polls; refusals
+  answer `503` with a jittered `Retry-After`. Resynced streams close over
+  `SSE_RESYNC_SPREAD_MS` (default 5 s) instead of all at once, and only the affected
+  environment's streams are resynced after reconciliation.
+- `TRUSTED_PROXY_HEADER=forwarded` reads the RFC 7239 `Forwarded` header from trusted proxies
+  instead of `X-Forwarded-For` (never both).
+- `REDIS_CHANNEL` selects the Pub/Sub channel, so separate deployments can share a Redis.
+- Multi-instance fault-injection suite (`server/tests/reliability.rs`) and lifecycle suite
+  (`server/tests/lifecycle.rs`), run in CI; a nightly/on-demand workflow repeats them and runs
+  load tests and benchmarks. Criterion benchmarks for the evaluation core and a control-plane
+  load generator (`server/examples/loadgen.rs`); methodology and baseline in `docs/performance/`.
+
+### Changed
+
+- **CLI exit codes:** usage errors (unknown, missing or conflicting options) now exit `2` instead
+  of `1`; `--check` drift exits `3`; operational failures stay `1`; Ctrl+C / SIGTERM exit `130` /
+  `143`. Running `checkgate` with no command prints help to stderr and exits `2` (was stdout,
+  `1`). Scripts that only test for non-zero are unaffected.
+- **CLI: unknown options are rejected** (with a "did you mean"), as are `--out` together with
+  `--out-dir`, `--input` together with `--url`/`--env`, and an option missing its value.
+  Previously a typo such as `--out-dirr` was ignored and the code went to stdout with exit `0`.
+- **Faster rollout and multivariate evaluation in every SDK built on `checkgate-core`**: the bucketing
+  hash is now computed over the key parts directly instead of a `format!`ed string. Same bytes,
+  same buckets (tested over every split of inputs up to 40 bytes); allocations per evaluation 2 → 0
+  (rollout) and 4 → 1 (multivariate); Criterion time −57 % and −59 % on the same machine.
+- CI workflow runs with `permissions: contents: read`.
+- The Docker image runs no process as root. The server runs as `checkgate` (UID 10001); in
+  all-in-one mode the bundled PostgreSQL and Redis run as their own users, and the entrypoint
+  only starts as root to prepare their volumes. External mode supports `--user 10001:10001` /
+  Kubernetes `runAsNonRoot`. Running all-in-one mode as a non-root user is refused with a clear
+  message.
+- Dashboard files and unknown paths are no longer charged to the API rate-limit budget; they
+  were previously served outside rate limiting entirely, which this preserves.
+- The PostgreSQL pool waits at most 10 s for a connection (was sqlx's 30 s default).
+
+### Dependencies
+
+- rustls-webpki 0.103.16 (RUSTSEC-2026-0382), webpki-roots 1.0.11 (RUSTSEC-2026-0381),
+  tokio 1.54.1 (RUSTSEC-2026-0386).
+
 ## [0.1.25] - 2026-10-19
 
 ### Security

@@ -21,18 +21,20 @@ lookup — no network on the evaluation path. The detailed view:
 │                                                                  │
 │  Projects → Environments → Flags/Keys/Impressions                │
 │                                                                  │
-│  ┌──────────────────────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │  REST API                │  │ In-Memory│  │  SSE Stream   │  │
-│  │  /api/projects/{id}/     │─▶│ FlagStore│─▶│  /stream      │  │
-│  │    environments/{id}/    │  └──────────┘  └───────────────┘  │
-│  │      flags               │       ▲          (per-env, scoped  │
-│  └──────────────────────────┘       │           by SDK key)      │
-│           │                         │ Redis subscriber           │
-│           ▼                         │ applies updates            │
-│  ┌──────────────┐  ┌──────────┐     │                            │
-│  │  PostgreSQL  │─▶│  Redis   │─────┘                            │
-│  │  (durable)   │  │ (pub/sub)│                                  │
-│  └──────────────┘  └──────────┘                                  │
+│  ┌──────────────────────────┐         ┌────────────────────────┐ │
+│  │  REST API                │         │  SSE Stream  /stream   │ │
+│  │  /api/projects/{id}/     │         │  per environment,      │ │
+│  │    environments/{id}/    │         │  scoped by SDK key     │ │
+│  │      flags               │         └────────────────────────┘ │
+│  └──────────────────────────┘          ▲ bootstrap    ▲ deltas   │
+│           │                            │              │          │
+│           ▼                            │              │          │
+│  ┌──────────────┐                      │              │          │
+│  │  PostgreSQL  │──────────────────────┘              │          │
+│  │  (durable)   │──▶┌──────────┐                      │          │
+│  └──────────────┘   │  Redis   │──────────────────────┘          │
+│                     │ (pub/sub)│                                 │
+│                     └──────────┘                                 │
 └──────────────────────────────────────────────────────────────────┘
            SSE (push on change, per-environment)
                     │
@@ -67,7 +69,8 @@ An SDK key is tied to one environment. When a client authenticates, the server u
 The server is a single Rust binary built with **Axum**. It is responsible for:
 
 - Storing projects, environments, flags, and users durably in **PostgreSQL**
-- Maintaining an in-memory `FlagStore` for fast SSE bootstrap
+- Serving each SDK's SSE bootstrap and poll snapshot straight from **PostgreSQL**,
+  per environment (the server keeps no flag cache of its own)
 - Exposing a **REST API** for CRUD operations (project- and environment-scoped)
 - Broadcasting flag changes to connected SDKs via **SSE** (`/stream`), scoped per environment
 - Publishing change events to **Redis** pub/sub for multi-instance deployments
@@ -79,10 +82,14 @@ When a flag is created or updated:
 
 1. The REST API handler writes the flag to **PostgreSQL**
 2. It publishes an `UPSERT` event (with `env_id`) to the `checkgate_updates` **Redis** channel
-3. The server's own Redis subscriber receives the event and updates the local in-memory `FlagStore`
+3. Every instance's Redis subscriber (including the writer's own) hands the event to its SSE connections
 4. Connected SSE clients whose SDK key matches the flag's `environment_id` receive the event
 
-> The in-memory store is updated via the Redis subscriber loop, not directly by the write handler. This ensures the same code path runs for both local writes and cross-instance propagation.
+> Flags are identified by environment *and* key — two environments may hold the same key with
+> different values. The server never caches flags in memory: a new SSE connection's bootstrap and
+> `/flags/snapshot` read the environment's rows from PostgreSQL, so there is no shared cache that
+> one environment's write could overwrite for another. Each SDK holds its own environment's flags
+> in its local `FlagStore`.
 
 ### Multi-Instance Deployments
 
@@ -135,7 +142,7 @@ POST /api/environments/{env_id}/impressions
 
 The core is a Rust library (`core/`) compiled into each SDK:
 
-- **`FlagStore`** — thread-safe `DashMap` holding the in-memory flag cache
+- **`FlagStore`** — thread-safe `DashMap` holding an SDK's in-memory flags (one environment per SDK instance)
 - **`evaluate(flag, user_context)`** — pure function, no I/O, no allocations on the hot path
 
 ### Evaluation Logic

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Flag, ArrowRight, CheckCircle2, Shield, Zap, Globe, Copy, Check, AlertCircle, Eye, EyeOff, Building2 } from 'lucide-react'
+import { Flag, ArrowRight, CheckCircle2, Shield, Zap, Globe, Copy, Check, AlertCircle, Eye, EyeOff, Building2, KeyRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 const STEPS = ['Welcome', 'Workspace', 'Your account', 'SDK key', 'Done'] as const
@@ -15,6 +15,12 @@ export default function Setup() {
   const { completeSetup } = useAuth()
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
+
+  // Step 0: one-time setup token. Kept in memory only — never stored or put
+  // in a URL. The server prints where to find it on first boot.
+  const [setupToken, setSetupToken] = useState('')
+  const [tokenChecking, setTokenChecking] = useState(false)
+  const [tokenError, setTokenError] = useState('')
 
   // Step 1: Workspace + first project
   const [workspaceName, setWorkspaceName] = useState('')
@@ -38,12 +44,50 @@ export default function Setup() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Fetch the generated key when the user reaches step 3.
+  function fetchSetupKey(token: string): Promise<Response> {
+    return fetch('/api/setup/key', {
+      credentials: 'same-origin',
+      headers: { 'X-Checkgate-Setup-Token': token },
+    })
+  }
+
+  // Verify the token up front (the SDK key endpoint requires it) so a wrong
+  // token is caught before the user fills in the rest of the wizard.
+  async function handleVerifyToken() {
+    const token = setupToken.trim()
+    if (!token) return
+    setTokenError('')
+    setTokenChecking(true)
+    try {
+      const res = await fetchSetupKey(token)
+      if (res.status === 401) {
+        setTokenError('That setup token is not valid.')
+        return
+      }
+      if (res.status === 404) {
+        setTokenError('Setup is already complete. Please sign in instead.')
+        return
+      }
+      if (!res.ok) {
+        setTokenError(`Server returned ${res.status}.`)
+        return
+      }
+      const data = await res.json() as { key: string }
+      setSdkKey(data.key)
+      setStep(1)
+    } catch {
+      setTokenError('Could not reach the server.')
+    } finally {
+      setTokenChecking(false)
+    }
+  }
+
+  // Fetch the generated key when the user reaches step 3, if not already loaded.
   useEffect(() => {
     if (step !== 3 || sdkKey) return
     setKeyLoading(true)
     setKeyError('')
-    fetch('/api/setup/key', { credentials: 'same-origin' })
+    fetchSetupKey(setupToken.trim())
       .then(async res => {
         if (!res.ok) throw new Error(`Server returned ${res.status}`)
         const data = await res.json() as { key: string }
@@ -51,7 +95,7 @@ export default function Setup() {
       })
       .catch(() => setKeyError('Could not load the SDK key. Is the server running?'))
       .finally(() => setKeyLoading(false))
-  }, [step, sdkKey])
+  }, [step, sdkKey, setupToken])
 
   async function handleCopy() {
     await navigator.clipboard.writeText(sdkKey)
@@ -62,7 +106,7 @@ export default function Setup() {
   async function handleFinish() {
     setError('')
     setLoading(true)
-    const result = await completeSetup(workspaceName.trim(), projectName.trim() || 'My App', name.trim(), email.trim(), password)
+    const result = await completeSetup(workspaceName.trim(), projectName.trim() || 'My App', name.trim(), email.trim(), password, setupToken.trim())
     setLoading(false)
     if (!result.ok) {
       setError(result.error ?? 'Setup failed.')
@@ -142,15 +186,47 @@ export default function Setup() {
                 <Flag className="w-7 h-7 text-brand-600" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome to Checkgate</h2>
-              <p className="text-gray-500 mb-8">
+              <p className="text-gray-500 mb-6">
                 Let's set up your control plane in under a minute. You'll configure your workspace, create an admin account, and get your SDK key.
               </p>
-              <button
-                onClick={() => setStep(1)}
-                className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5"
+              <form
+                className="text-left mb-6"
+                onSubmit={e => { e.preventDefault(); void handleVerifyToken() }}
               >
-                Get started <ArrowRight className="w-4 h-4" />
-              </button>
+                <label htmlFor="setup-token" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Setup token
+                </label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    id="setup-token"
+                    autoFocus
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={setupToken}
+                    onChange={e => { setSetupToken(e.target.value); setTokenError('') }}
+                    placeholder="Paste the one-time setup token"
+                    className="w-full bg-white border border-gray-100 rounded-xl pl-9 pr-4 py-2.5 text-gray-900 placeholder-gray-400 text-sm font-mono focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
+                  />
+                </div>
+                <p className="mt-1.5 text-xs text-gray-400">
+                  The value of <code>SETUP_TOKEN</code>, or the token the server wrote to its{' '}
+                  <code>checkgate-setup-token</code> file on first start (see the server log for the path).
+                </p>
+                {tokenError && (
+                  <p role="alert" className="mt-2 text-sm text-rose-500">{tokenError}</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={!setupToken.trim() || tokenChecking}
+                  className="mt-6 w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-brand-200 hover:shadow-brand-300 hover:-translate-y-0.5"
+                >
+                  {tokenChecking
+                    ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <>Get started <ArrowRight className="w-4 h-4" /></>}
+                </button>
+              </form>
               <p className="mt-6 text-sm text-gray-500">
                 Already set up?{' '}
                 <Link to="/login" className="text-brand-600 hover:text-brand-700 font-medium transition-colors">

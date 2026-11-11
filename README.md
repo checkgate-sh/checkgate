@@ -48,6 +48,20 @@ It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), brows
 
 ---
 
+## Performance
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/performance-dark.svg">
+    <img src="assets/benchmarks/performance-light.svg" width="100%" alt="Checkgate v0.1.30 benchmarks: 295 ns evaluation latency in the Rust core (7.1 µs through the Node.js SDK); 504 snapshot requests per second from one server limited to 1 vCPU and 512 MiB; 90 ms p99 from a flag change to the new value in 1,000 connected SDK clients, with none missed.">
+  </picture>
+</p>
+
+Measured on v0.1.30 on a 4-core Intel laptop. The server ran in Docker with a 1 vCPU / 512 MiB limit; every number is the result of 3 runs.
+Methodology, every run and the raw data: [Public benchmarks](docs/performance/benchmarks.md).
+
+---
+
 ## Screenshots
 
 *Indigo dashboard with the Checkgate gate logo, shown with example data for Vantage Robotics and administrator Juan Dela Cruz. [Explore the dashboard guide](docs/guide/dashboard.md).*
@@ -116,6 +130,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0 — © 2026 ThinkGrid Labs
+Apache License 2.0 — © 2025
 
 

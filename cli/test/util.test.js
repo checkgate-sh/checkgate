@@ -72,3 +72,47 @@ test('literal emitters', () => {
   assert.equal(rustLiteral('blue', 'str'), 'r#"blue"#')
   assert.equal(rustLiteral({ a: 1 }, 'json'), 'r#"{"a":1}"#')
 })
+
+// --- Regression tests: generated code that did not compile -------------------
+
+test('dartLiteral escapes CR and other control characters (a raw CR broke the Dart string)', () => {
+  assert.equal(dartLiteral('a\r\nb'), "'a\\r\\nb'")
+  assert.equal(dartLiteral('t\tn\u0000b\u0007d\u007f'), "'t\\tn\\u{0}b\\u{7}d\\u{7f}'")
+})
+
+test('rustLiteral uses an escaped literal when the text has a CR (bare CR is illegal in raw strings)', () => {
+  assert.equal(rustLiteral('a\r\nb"\\', 'str'), '"a\\r\\nb\\"\\\\"')
+  assert.equal(rustLiteral('blue', 'str'), 'r#"blue"#') // unchanged otherwise
+})
+
+test('safeDartIdent suffixes names Dart reserves or the generated file shadows', () => {
+  for (const n of ['values', 'index', 'hashCode', 'toString', 'runtimeType', 'noSuchMethod', 'dynamic', 'bool', 'int', 'key']) {
+    assert.equal(safeDartIdent(n), `${n}Flag`)
+  }
+  assert.equal(safeDartIdent('name'), 'name')
+})
+
+test('normalizeFlags rejects defaults that do not match the flag type, naming each flag', () => {
+  assert.throws(
+    () => normalizeFlags([
+      { key: 'n', flag_type: 'integer', default_value: 1.5 },
+      { key: 'big', flag_type: 'integer', default_value: 2 ** 53 },
+      { key: 's', flag_type: 'string', default_value: 3 },
+      { key: 'ok', flag_type: 'json', default_value: 'anything' },
+    ]),
+    err => {
+      assert.equal(err.code, 'invalid_input')
+      assert.deepEqual(err.findings.map(f => f.flag), ['big', 'n', 's'])
+      return true
+    },
+  )
+})
+
+test('normalizeFlags treats a null default on a non-json flag as unset', () => {
+  const [b, j] = normalizeFlags([
+    { key: 'b', flag_type: 'boolean', default_value: null },
+    { key: 'j', flag_type: 'json', default_value: null },
+  ])
+  assert.equal(b.default, undefined)
+  assert.equal(j.default, null)
+})

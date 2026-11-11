@@ -1,4 +1,4 @@
-use crate::hashing::murmurhash3_x86_32;
+use crate::hashing::murmurhash3_x86_32_concat;
 use crate::store::FlagStore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -222,8 +222,12 @@ fn pick_weighted_variant(
             .unwrap_or(FlagValue::Null);
     };
 
-    let hash_key = format!("{}:{}:variant", flag_key, user_key);
-    let hash_val = u64::from(murmurhash3_x86_32(hash_key.as_bytes(), 0));
+    // Hashes the bytes of `"{flag_key}:{user_key}:variant"` without building
+    // that string (see `murmurhash3_x86_32_concat`).
+    let hash_val = u64::from(murmurhash3_x86_32_concat(
+        &[flag_key.as_bytes(), b":", user_key.as_bytes(), b":variant"],
+        0,
+    ));
     let bucket = if total <= u64::from(u32::MAX) {
         hash_val % total_weight
     } else {
@@ -295,8 +299,12 @@ fn evaluate_variant_at_depth(
             return disabled_result(flag);
         }
         if percentage < 100 {
-            let hash_key = format!("{}:{}", flag.key, user_context.key);
-            let hash_val = murmurhash3_x86_32(hash_key.as_bytes(), 0);
+            // Hashes the bytes of `"{flag.key}:{user_context.key}"` without
+            // building that string.
+            let hash_val = murmurhash3_x86_32_concat(
+                &[flag.key.as_bytes(), b":", user_context.key.as_bytes()],
+                0,
+            );
             if hash_val % 100 >= percentage {
                 return disabled_result(flag);
             }

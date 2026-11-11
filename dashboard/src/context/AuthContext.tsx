@@ -41,6 +41,7 @@ interface AuthContextValue {
     name: string,
     email: string,
     password: string,
+    setupToken: string,
   ) => Promise<{ ok: boolean; error?: string }>
 }
 
@@ -167,12 +168,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const completeSetup = useCallback(
-    async (workspaceName: string, projectName: string, name: string, email: string, password: string) => {
+    async (workspaceName: string, projectName: string, name: string, email: string, password: string, setupToken: string) => {
       try {
         const res = await fetch('/api/setup/complete', {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'X-Checkgate-Request': 'true' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Checkgate-Request': 'true',
+            'X-Checkgate-Setup-Token': setupToken,
+          },
           body: JSON.stringify({
             workspace_name: workspaceName.trim(),
             project_name: projectName.trim() || 'My App',
@@ -184,6 +189,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (res.status === 404) {
           return { ok: false, error: 'Setup already complete. Please log in.' }
+        }
+        if (res.status === 401) {
+          return { ok: false, error: 'The setup token is not valid. Go back to the first step and re-enter it.' }
+        }
+        if (res.status === 409) {
+          return { ok: false, error: 'An account with this email already exists. Use a different email.' }
         }
         if (res.status === 422) {
           return { ok: false, error: 'Password must be at least 8 characters.' }

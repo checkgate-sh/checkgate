@@ -13,4 +13,5 @@ services:
       - "127.0.0.1:3100:3000"
     environment:
       SESSION_SECRET: checkgate-screenshot-demo-session-secret
+      SETUP_TOKEN: checkgate-screenshot-demo-setup-token
       COOKIE_SECURE: "false"

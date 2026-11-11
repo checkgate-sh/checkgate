@@ -1,0 +1,131 @@
+{
+  "generated_by": "bench/public/sdk/eval.mjs",
+  "sdk": "@checkgate/node public API (index.js → N-API → checkgate-core), reportImpressions=false",
+  "store_flags": 1009,
+  "user": {
+    "key": "user-8f14e45f-ceea-467f-a0e6-5e7d1c2b9a31",
+    "attributes": 5
+  },
+  "method": "warm-up, then batches of calls timed with process.hrtime.bigint(); each sample is a batch mean",
+  "warmup_calls": 200000,
+  "node": "v22.23.4",
+  "v8": "12.4.254.21-node.57",
+  "platform": "darwin x64",
+  "cpu": "Intel(R) Core(TM) i5-8259U CPU @ 2.30GHz",
+  "checks": {
+    "boolean": true,
+    "targeting_1_rule": true,
+    "targeting_10_rules": true,
+    "percentage_rollout": true,
+    "weighted_multivariate": "a",
+    "prerequisite_chain_5": true,
+    "rollout_split_of_10000": 4898,
+    "absent_flag": false,
+    "network_calls_during_timing": 0
+  },
+  "cases": {
+    "boolean": {
+      "api": "isEnabled",
+      "samples": 100,
+      "calls_per_sample": 20000,
+      "median_ns": 6871.388,
+      "mean_ns": 6908.519,
+      "mean_ci95_ns": [
+        6877.519,
+        6939.52
+      ],
+      "p95_ns": 7163.519,
+      "p99_ns": 7404.472,
+      "min_ns": 6715.438,
+      "max_ns": 7941.276,
+      "stddev_ns": 158.165,
+      "ops_per_s": 145531
+    },
+    "targeting_1_rule": {
+      "api": "isEnabled",
+      "samples": 100,
+      "calls_per_sample": 20000,
+      "median_ns": 6962.387,
+      "mean_ns": 6986.261,
+      "mean_ci95_ns": [
+        6960.013,
+        7012.509
+      ],
+      "p95_ns": 7110.847,
+      "p99_ns": 7655.509,
+      "min_ns": 6843.668,
+      "max_ns": 7864.446,
+      "stddev_ns": 133.919,
+      "ops_per_s": 143629
+    },
+    "targeting_10_rules": {
+      "api": "isEnabled",
+      "samples": 100,
+      "calls_per_sample": 20000,
+      "median_ns": 7361.816,
+      "mean_ns": 7376.89,
+      "mean_ci95_ns": [
+        7356.906,
+        7396.875
+      ],
+      "p95_ns": 7591.009,
+      "p99_ns": 7644.491,
+      "min_ns": 7214.996,
+      "max_ns": 7886.907,
+      "stddev_ns": 101.961,
+      "ops_per_s": 135836
+    },
+    "percentage_rollout": {
+      "api": "isEnabled",
+      "samples": 100,
+      "calls_per_sample": 20000,
+      "median_ns": 7147.621,
+      "mean_ns": 7405.215,
+      "mean_ci95_ns": [
+        7211.679,
+        7598.751
+      ],
+      "p95_ns": 8482.415,
+      "p99_ns": 11143.183,
+      "min_ns": 6993.764,
+      "max_ns": 15461.251,
+      "stddev_ns": 987.428,
+      "ops_per_s": 139907
+    },
+    "weighted_multivariate": {
+      "api": "getValue",
+      "samples": 100,
+      "calls_per_sample": 20000,
+      "median_ns": 8663.312,
+      "mean_ns": 8742.151,
+      "mean_ci95_ns": [
+        8633.912,
+        8850.39
+      ],
+      "p95_ns": 8886.232,
+      "p99_ns": 9977.252,
+      "min_ns": 8493.572,
+      "max_ns": 13962.48,
+      "stddev_ns": 552.239,
+      "ops_per_s": 115429
+    },
+    "prerequisite_chain_5": {
+      "api": "isEnabled",
+      "samples": 100,
+      "calls_per_sample": 20000,
+      "median_ns": 7241.78,
+      "mean_ns": 7263.609,
+      "mean_ci95_ns": [
+        7233.78,
+        7293.438
+      ],
+      "p95_ns": 7392.342,
+      "p99_ns": 7591.561,
+      "min_ns": 7120.487,
+      "max_ns": 8516.261,
+      "stddev_ns": 152.188,
+      "ops_per_s": 138088
+    }
+  },
+  "sink": 13200000
+}

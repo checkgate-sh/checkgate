@@ -135,7 +135,95 @@ Public endpoint — no auth required. Returns the workspace name for the login p
 **Response** `200 OK`
 
 ```json
-{ "workspace_name": "Acme Corp" }
+{ "workspace_name": "Acme Corp", "is_setup_complete": true }
+```
+
+---
+
+## First-Run Setup
+
+These endpoints exist only until the first admin has been created; afterwards
+both return `404`. They require the installation's one-time **setup token** in
+a header (never a query parameter):
+
+```http
+X-Checkgate-Setup-Token: <token>
+```
+
+The token is the server's `SETUP_TOKEN` value, or — when that is unset — a
+random token each instance writes to its `SETUP_TOKEN_FILE` on boot (see
+[Self-Hosting → First-run setup](./self-hosting.md#first-run-setup)). A missing
+or wrong token returns `401`.
+
+### Get the Seeded SDK Key
+
+```http
+GET /api/setup/key
+X-Checkgate-Setup-Token: <token>
+```
+
+**Response** `200 OK` — the SDK key generated on first boot, in the same shape
+as [Create SDK Key](#sdk-keys) (`id`, `name`, `key`, `prefix`, `environment_id`,
+`environment_name`, `created_at`).
+
+### Complete Setup
+
+```http
+POST /api/setup/complete
+Content-Type: application/json
+X-Checkgate-Request: true
+X-Checkgate-Setup-Token: <token>
+```
+
+```json
+{
+  "workspace_name": "Acme Corp",
+  "project_name": "My App",
+  "name": "Juan Dela Cruz",
+  "email": "admin@example.com",
+  "password": "at-least-8-characters"
+}
+```
+
+**Response** `200 OK` — the new admin (same shape as [Login](#login)), with a
+session cookie set.
+
+| Status | Meaning |
+|--------|---------|
+| `401` | Missing or invalid setup token |
+| `404` | Setup is already complete |
+| `409` | An account with this email already has a password |
+| `422` | Missing field or password shorter than 8 characters |
+
+Setup is atomic: it runs in one transaction under a PostgreSQL advisory lock
+and re-checks completion while holding it, so if several requests race — on
+one instance or many — exactly one creates the admin and the others get `404`.
+
+---
+
+## Rate Limits
+
+Requests are limited per client IP, with a separate budget per kind of
+endpoint. Defaults (requests per minute, configurable — see
+[Self-Hosting → Rate limits](./self-hosting.md#rate-limits)):
+
+| Class | Endpoints | Default |
+|-------|-----------|---------|
+| Auth | `POST /api/auth/login`, `/api/setup/*` | 20 |
+| API | every other `/api/*` route | 300 |
+| SDK | `GET /flags/snapshot` | 600 |
+| SSE connect | opening `GET /stream` (events on an open stream are not counted) | 120 |
+| Ingest | `POST /api/environments/{env_id}/impressions` and `/events` | 600 |
+| — | `GET /health`, `/health/live`, `/health/ready`, dashboard files | never limited |
+
+A refused request gets `429 Too Many Requests` with a `Retry-After` header
+(seconds) and:
+
+```json
+{
+  "error": "Too many requests. Please slow down and try again shortly.",
+  "retry_after_seconds": 3
+}
 ```
 
 ---
@@ -1732,8 +1820,24 @@ This guarantees consistency even after missed updates during the disconnected pe
 replay cut short by another disconnect never replaces a complete flag set with a partial one.
 
 The server also closes streams itself to force this resync when it may have missed updates:
-after its Redis subscription is re-established, or once Redis is reachable again after a
-failed publish.
+after its Redis subscription is re-established, once Redis is reachable again after a failed
+publish, or when its periodic reconciliation with PostgreSQL finds a committed change that never
+reached it (then only the affected environment's streams). These closes are spread over a few
+seconds (`SSE_RESYNC_SPREAD_MS`) so clients do not reconnect in lockstep. A stream more than 256
+events behind is closed the same way. The server also closes every stream when it shuts down.
+
+### Refusals
+
+`GET /stream` answers `503 Service Unavailable` with a `Retry-After` header (seconds, jittered)
+when the instance is at `SSE_MAX_CONNECTIONS`, when no bootstrap slot frees up in time, or while
+it drains for shutdown:
+
+```json
+{ "error": "Too many open streams on this instance.", "retry_after_seconds": 6 }
+```
+
+Treat it like any failed connection attempt: back off and retry (the official SDKs do, and fall
+back to `/flags/snapshot` after repeated failures).
 
 ---
 
@@ -1766,18 +1870,80 @@ unexpanded — intended for the dashboard UI), this route is keyed by SDK key al
 `/stream`, and returns segment-expanded flags ready to evaluate against directly.
 
 Returns `400` if called with session-cookie auth rather than an SDK key (the dashboard isn't
-scoped to a single environment the way an SDK key is), and `401` for missing/invalid credentials.
+scoped to a single environment the way an SDK key is), `401` for missing/invalid credentials,
+and `503` with `Retry-After` when no read slot frees up in time (it shares
+`SSE_BOOTSTRAP_CONCURRENCY` with stream bootstraps).
 
 ---
 
 ## Health Check
 
+Public endpoints — no authentication, never rate limited.
+
+```http
+GET /health/live
+```
+
+Liveness. `200` `{"status":"alive"}` whenever the process serves requests; never fails because
+PostgreSQL or Redis is down.
+
+```http
+GET /health/ready
+```
+
+Readiness — whether the instance should receive traffic.
+
+```json
+{ "status": "ready", "checks": { "database": "ok", "redis": "ok" } }
+```
+
+| `status` | HTTP | Meaning |
+|---|---|---|
+| `ready` | 200 | PostgreSQL and the Redis subscription are up |
+| `degraded` | 200 | Redis subscription down; serving, with changes from other instances recovered by reconciliation (`503` instead with `READY_REQUIRES_REDIS=true`) |
+| `unavailable` | 503 | PostgreSQL did not answer within 2 s |
+| `draining` | 503 | Shutting down |
+
 ```http
 GET /health
 ```
 
-Public endpoint — no authentication required.
+Legacy check, unchanged: `200`, body `OK`, while the process serves requests.
 
-**Response** `200 OK` — body: `OK`
+Metrics are not served on this port; see `METRICS_ADDR` in
+[Observability](./operations/observability.md).
 
-Use this for load balancer and container health checks.
+---
+
+## SDK Connections
+
+```http
+GET /api/health/connections
+```
+
+Lists the SSE connections currently open **on the server instance that answers
+the request** — connections are tracked in that process's memory, so behind a
+load balancer each instance reports only its own clients. Requires a session or
+a personal access token (either scope); SDK keys get `403`.
+
+Visibility follows project membership:
+
+- **Workspace admins** see every connection, with the full client address.
+- **Everyone else** sees only connections of environments in projects they are
+  a member of, with `client_ip` reduced to its network (`/24` for IPv4, `/48`
+  for IPv6). Connections with no environment (dashboard sessions, the legacy
+  `SDK_KEY`) are visible to workspace admins only.
+
+**Response** `200 OK`
+
+```json
+[
+  {
+    "connection_id": "9f2c4e1a7b3d5e60",
+    "environment_id": "a1b2c3d4-…",
+    "sdk_key_name": "Production",
+    "client_ip": "203.0.113.0/24",
+    "connected_at": 1767225600
+  }
+]
+```

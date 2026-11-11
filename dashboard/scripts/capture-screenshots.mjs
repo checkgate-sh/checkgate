@@ -8,6 +8,7 @@ const baseURL = process.env.CHECKGATE_SCREENSHOT_BASE_URL ?? 'http://127.0.0.1:3
 const output = (process.env.CHECKGATE_SCREENSHOT_OUTPUT
   ?? fileURLToPath(new URL('../../assets/screenshots/', import.meta.url))).replace(/\/$/, '')
 const staging = `${output}.capture`
+const setupToken = process.env.CHECKGATE_SCREENSHOT_SETUP_TOKEN ?? 'checkgate-screenshot-demo-setup-token'
 const workspaceName = 'Vantage Robotics'
 const projectName = 'Vantage Mobile'
 const password = 'checkgate-screenshot-demo-password'
@@ -44,10 +45,10 @@ try {
     extraHTTPHeaders: { 'X-Checkgate-Request': 'true' },
   })
 
-  async function api(path, method = 'GET', data, request = context.request) {
-    // Respect the server's 60-request-per-minute API quota while seeding.
+  async function api(path, method = 'GET', data, request = context.request, headers = {}) {
+    // Stay well inside the server's per-client API quota while seeding.
     await new Promise(resolve => setTimeout(resolve, 1050))
-    const response = await request.fetch(path, { method, data })
+    const response = await request.fetch(path, { method, data, headers })
     if (!response.ok()) throw new Error(`${method} ${path}: ${response.status()} ${await response.text()}`)
     return response.status() === 204 ? undefined : response.json()
   }
@@ -56,7 +57,7 @@ try {
   if (!workspace.is_setup_complete) {
     await api('/api/setup/complete', 'POST', {
       workspace_name: workspaceName, project_name: projectName, ...admin,
-    })
+    }, context.request, { 'X-Checkgate-Setup-Token': setupToken })
   } else {
     assert.equal(workspace.workspace_name, workspaceName, 'Expected the disposable screenshot workspace')
     await api('/api/auth/login', 'POST', admin)

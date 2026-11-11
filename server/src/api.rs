@@ -34,6 +34,7 @@ use tracing::warn;
 /// - `Referrer-Policy` — limits referrer leakage to same origin on cross-origin requests.
 /// - `Permissions-Policy` — opts out of browser features the app doesn't use.
 pub async fn security_headers(req: Request<Body>, next: Next) -> Response {
+    let dashboard = is_dashboard_path(req.uri().path());
     let mut response = next.run(req).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -54,16 +55,38 @@ pub async fn security_headers(req: Request<Body>, next: Next) -> Response {
     );
     headers.insert(
         header::HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static(
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-             img-src 'self' data:; connect-src 'self'",
-        ),
+        if dashboard {
+            HeaderValue::from_static(DASHBOARD_CSP)
+        } else {
+            HeaderValue::from_static(
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+                 img-src 'self' data:; connect-src 'self'",
+            )
+        },
     );
     headers.insert(
         header::HeaderName::from_static("strict-transport-security"),
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     );
     response
+}
+
+/// The dashboard's policy: the API policy plus the web fonts its
+/// `index.html` loads, and no framing or foreign form targets.
+const DASHBOARD_CSP: &str = "default-src 'self'; script-src 'self'; \
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
+    font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; \
+    frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+
+/// Paths served by the dashboard fallback rather than an API route. The
+/// dashboard has client-side routes such as `/flags`, so only the exact API
+/// paths are excluded.
+fn is_dashboard_path(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    !matches!(
+        segments.as_slice(),
+        ["api", ..] | ["stream"] | ["flags", "snapshot"] | ["health", ..]
+    )
 }
 
 /// CSRF defence-in-depth for the dashboard SPA.
@@ -184,4 +207,30 @@ pub fn auth_router() -> Router<AppState> {
 /// Public setup routes — mounted under `/api` WITHOUT auth middleware.
 pub fn setup_router() -> Router<AppState> {
     keys::setup_router().merge(session::setup_router())
+}
+
+#[cfg(test)]
+mod dashboard_path_tests {
+    #[test]
+    fn api_paths_are_not_dashboard() {
+        for p in [
+            "/api/flags",
+            "/stream",
+            "/flags/snapshot",
+            "/health",
+            "/health/ready",
+        ] {
+            assert!(!super::is_dashboard_path(p), "{p}");
+        }
+        for p in [
+            "/",
+            "/flags",
+            "/flags/new",
+            "/assets/index.js",
+            "/login",
+            "/streams",
+        ] {
+            assert!(super::is_dashboard_path(p), "{p}");
+        }
+    }
 }

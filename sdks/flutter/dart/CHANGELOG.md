@@ -1,4 +1,10 @@
-## 0.1.25 (Unreleased)
+## 0.1.30 (2026-11-11)
+
+- Faster rollout and multivariate evaluation: the shared Rust core hashes
+  bucketing keys without allocating. Every user gets the same bucket as
+  before. No Dart API changes.
+
+## 0.1.25 (2026-10-19)
 
 - Reconnects keep evaluating the last complete flag set until the server's
   replay is finished; a replay cut short is discarded.
