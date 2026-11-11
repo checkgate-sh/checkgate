@@ -277,10 +277,13 @@ async fn f1_killed_instance_restarts_and_its_clients_rebootstrap() {
     c.start_instance(1).await;
     let t = c.wait_converged(&all, &c.env_id, CONVERGE).await;
     c.record("instance killed and restarted", t);
-    assert!(
-        sdks[1].with(|s| s.readies) >= 2,
-        "client of B bootstrapped again"
-    );
+    // B's client must re-bootstrap over the stream, but convergence alone
+    // does not prove it yet: when B restarts slowly (a loaded machine), the
+    // client has already fallen back to polling, converges from
+    // `/flags/snapshot`, and only reconnects its stream once the backoff
+    // expires. Wait for that reconnect instead of sampling `readies` at the
+    // instant of convergence.
+    sdks[1].wait_readies(2, CONVERGE).await;
 
     // A brand-new client on the restarted instance bootstraps correctly.
     let fresh = c.sdk("sdk-b-new", 1);
