@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **CLI: generated code that did not compile.** A string default containing a carriage return
+  broke the Rust output (bare CR is illegal in a raw string) and the Dart output (raw CR in a
+  one-line string); a flag keyed `self` became the Rust keyword `Self`; Dart flags named
+  `values`, `index`, `hashCode`, `toString`, `runtimeType`, `noSuchMethod`, `dynamic`, `bool`,
+  `int` or `key` clashed with reserved or generated names; de-duplicated Rust variants (`AB_2`)
+  failed crates built with `-D warnings`. CI now compiles the generated code with `rustc`,
+  `tsc --strict` and `dart analyze` instead of only generating it.
+- **CLI: a flag default that does not match its type is an error naming the flag**, instead of
+  silently producing code that does not compile (a string on an integer flag), `NaN`, or a
+  constant that differs from the server's value (an integer beyond ±2^53, a fraction truncated).
+  A `null` default on a non-`json` flag counts as no default.
+- **CLI: a server that never answers no longer hangs the run.** Requests time out after
+  `--timeout` seconds (default 30, `CHECKGATE_TIMEOUT`).
+- **CLI: credentials in `--url` were printed to the terminal.** `fetch` refuses such URLs and its
+  error repeated the URL, so `https://user:password@host` landed in CI logs. Such a URL is now
+  refused up front without echoing it (use `--token`).
+- CLI: `--version` printed `0.1.20` regardless of the installed version; it now reads
+  `package.json`.
+- CLI: an HTML response (dashboard URL, proxy or SSO page) is reported as such instead of
+  `Unexpected token '<'`, and a server error includes the server's message.
+- CLI: output files are written atomically (temp file + rename), so Ctrl+C or a kill never leaves
+  a truncated file; an identical file is not rewritten (its mtime does not change).
 - **A change committed by a server that died before publishing it now reaches every client.**
   Redis Pub/Sub delivers at most once, and no server held the lost event, so clients of the
   other servers stayed on the old configuration until they reconnected for another reason.
@@ -34,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- CLI `--check`: compares generated output with the files on disk, writes nothing, and exits `3`
+  when a file is missing or stale. The `// Source:` header is ignored, so output generated from
+  the server checks clean against an export of the same flags.
+- CLI `--json`: one machine-readable result object on stdout (`schema_version: 1`): status, exit
+  code, per-file status, findings with an `action`, and a classified `error.code`. See
+  `docs/ecosystem/cli.md` for the schema, a GitHub Actions example and the agent contract.
+- CLI `--timeout` / `CHECKGATE_TIMEOUT`.
 - Prometheus/OpenMetrics metrics on a separate listener (`METRICS_ADDR`, off by default):
   propagation, publish failures, Redis subscription state, resyncs, reconciliation, SSE
   connections and rejections, bootstrap and snapshot latency, database pool and readiness.
@@ -56,6 +85,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **CLI exit codes:** usage errors (unknown, missing or conflicting options) now exit `2` instead
+  of `1`; `--check` drift exits `3`; operational failures stay `1`; Ctrl+C / SIGTERM exit `130` /
+  `143`. Running `checkgate` with no command prints help to stderr and exits `2` (was stdout,
+  `1`). Scripts that only test for non-zero are unaffected.
+- **CLI: unknown options are rejected** (with a "did you mean"), as are `--out` together with
+  `--out-dir`, `--input` together with `--url`/`--env`, and an option missing its value.
+  Previously a typo such as `--out-dirr` was ignored and the code went to stdout with exit `0`.
+- **Faster rollout and multivariate evaluation in every SDK built on `checkgate-core`**: the bucketing
+  hash is now computed over the key parts directly instead of a `format!`ed string. Same bytes,
+  same buckets (tested over every split of inputs up to 40 bytes); allocations per evaluation 2 → 0
+  (rollout) and 4 → 1 (multivariate); Criterion time −57 % and −59 % on the same machine.
+- CI workflow runs with `permissions: contents: read`.
 - The Docker image runs no process as root. The server runs as `checkgate` (UID 10001); in
   all-in-one mode the bundled PostgreSQL and Redis run as their own users, and the entrypoint
   only starts as root to prepare their volumes. External mode supports `--user 10001:10001` /
@@ -70,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - rustls-webpki 0.103.16 (RUSTSEC-2026-0382), webpki-roots 1.0.11 (RUSTSEC-2026-0381),
   tokio 1.54.1 (RUSTSEC-2026-0386).
 
-## [0.1.25] - Unreleased
+## [0.1.25] - 2026-10-19
 
 ### Security
 

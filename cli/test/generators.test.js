@@ -81,3 +81,10 @@ test('arg parsing', () => {
     { command: 'typegen', options: { help: true }, positional: [] },
   )
 })
+
+test('rust: a key of "self" does not become the keyword `Self`', () => {
+  const out = generate('rust', normalizeFlags([{ key: 'self', flag_type: 'boolean' }]), meta)
+  assert.match(out, /^    SelfFlag,$/m)
+  assert.match(out, /FlagKey::SelfFlag => "self",/)
+  assert.match(out, /#\[allow\(non_camel_case_types\)\]/)
+})

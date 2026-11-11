@@ -97,8 +97,18 @@ methodology). Times are Criterion's mean estimate (95 % CI within ±1 %).
 | SDK applying one change event (parse JSON + replace flag) | 5.5 µs | – |
 
 Lookup cost is flat from 10 to 10 000 flags (hash map). Rollout and
-multivariate evaluations allocate (the hashing input is built as a string),
-which is the main cost difference to a plain boolean.
+multivariate evaluations allocated because the hashing input was built as a
+string. That was the main cost difference to a plain boolean.
+
+**Update (2026-11-11, after this baseline):** the hash now streams the key parts
+instead of formatting them. Allocations per evaluation dropped from 2 to 0
+(rollout) and from 4 to 1 (multivariate; the remaining one is the returned
+value). On the same machine, measured back to back with
+`--save-baseline before` / `--baseline before`: rollout −57 % (730 → 322 ns)
+and multivariate −59 % (1.09 µs → 457 ns); groups that do not hash showed no
+change. Those absolute times came from a busier machine than the table above
+(`targeting_1_rule` read 115 ns there, against 62.7 ns here). Compare the
+percentages, not the times.
 
 **Concurrency** (1 000 flags; wall time per evaluation across all threads):
 

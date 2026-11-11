@@ -1,0 +1,162 @@
+[
+  {
+    "key": "self",
+    "flag_type": "boolean",
+    "default_value": true
+  },
+  {
+    "key": "Self",
+    "flag_type": "boolean",
+    "default_value": false
+  },
+  {
+    "key": "index",
+    "flag_type": "boolean",
+    "default_value": false
+  },
+  {
+    "key": "values",
+    "flag_type": "integer",
+    "default_value": -9007199254740991
+  },
+  {
+    "key": "hashCode",
+    "flag_type": "integer",
+    "default_value": 9007199254740991
+  },
+  {
+    "key": "toString",
+    "flag_type": "string",
+    "default_value": "x"
+  },
+  {
+    "key": "runtimeType",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "noSuchMethod",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "class",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "async",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "await",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "dynamic",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "get",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "late",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "required",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "name",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "type",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "fn",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "crate",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "control-chars",
+    "flag_type": "string",
+    "default_value": "cr\r lf\n tab\t nul\u0000 bell\u0007 del"
+  },
+  {
+    "key": "quotes",
+    "flag_type": "string",
+    "default_value": "it's \"quoted\" $var ${x} \\ back \"# hash \"## more"
+  },
+  {
+    "key": "unicode",
+    "flag_type": "string",
+    "default_value": "line sep para sep 🚀 ü"
+  },
+  {
+    "key": "json-tricky",
+    "flag_type": "json",
+    "default_value": {
+      "a": "$x\"#",
+      "b": [
+        1,
+        null,
+        true
+      ],
+      "c": "\r\n\u0001"
+    }
+  },
+  {
+    "key": "json-null",
+    "flag_type": "json",
+    "default_value": null
+  },
+  {
+    "key": "null-bool",
+    "flag_type": "boolean",
+    "default_value": null
+  },
+  {
+    "key": "a.b",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "a-b",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "9lives",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "bool",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "int",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "key",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "string",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "map",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "all",
+    "flag_type": "boolean"
+  },
+  {
+    "key": "form\ffeed\bback\u0001",
+    "flag_type": "boolean"
+  }
+]

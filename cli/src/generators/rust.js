@@ -2,7 +2,7 @@
 // typed constants. Dependency-free — `json` flags' defaults are emitted as raw
 // JSON string constants so the output needs no serde.
 
-import { pascalCase, upperSnakeCase, dedupeIdentifiers, rustLiteral, zeroValue } from '../util.js'
+import { pascalCase, upperSnakeCase, dedupeIdentifiers, rustLiteral, rustEscapedLiteral, zeroValue } from '../util.js'
 
 const RUST_TYPE = { boolean: 'bool', string: '&str', integer: 'i64', json: '&str' }
 const RUST_KIND = { boolean: 'bool', string: 'str', integer: 'i64', json: 'json' }
@@ -16,14 +16,25 @@ function header(meta) {
   ].join('\n')
 }
 
+/**
+ * `Self` is the one keyword a PascalCase identifier can produce, and it cannot
+ * be a raw identifier (`r#Self` is rejected), so it gets a `Flag` suffix.
+ */
+function safeRustVariant(name) {
+  return name === 'Self' ? 'SelfFlag' : name
+}
+
 export function generate(flags, meta) {
-  const variants = dedupeIdentifiers(flags.map(f => pascalCase(f.key)))
+  const variants = dedupeIdentifiers(flags.map(f => safeRustVariant(pascalCase(f.key))))
   const constNames = dedupeIdentifiers(flags.map(f => upperSnakeCase(f.key)))
   const out = [header(meta)]
 
   // Enum of flag keys.
   out.push('/// Compile-time set of known Checkgate flag keys.')
   out.push('#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]')
+  // De-duplicated names (`AB_2`) and digit-guarded ones are not UpperCamelCase;
+  // keep a crate built with `-D warnings` compiling.
+  out.push('#[allow(non_camel_case_types)]')
   if (flags.length === 0) {
     out.push('pub enum FlagKey {}')
   } else {
@@ -41,7 +52,7 @@ export function generate(flags, meta) {
     out.push('        match *self {}')
   } else {
     out.push('        match self {')
-    flags.forEach((f, i) => out.push(`            FlagKey::${variants[i]} => ${JSON.stringify(f.key)},`))
+    flags.forEach((f, i) => out.push(`            FlagKey::${variants[i]} => ${rustEscapedLiteral(f.key)},`))
     out.push('        }')
   }
   out.push('    }')
