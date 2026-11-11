@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-11-11
+
+Versions 0.1.26–0.1.29 were skipped; 0.1.30 directly follows 0.1.25.
+
+### Upgrading from 0.1.25
+
+Nothing needs to change for most deployments. Check these before upgrading:
+
+- **CLI scripts that test for exit code `1` exactly.** Usage errors now exit `2`, and `--check`
+  drift exits `3` (see Changed). Checks for non-zero are unaffected.
+- **More than 10 000 SSE connections on one instance.** `SSE_MAX_CONNECTIONS` now caps
+  connections per instance (default 10 000; there was no limit). Further connections get `503`
+  with `Retry-After`. Raise the limit or add instances.
+- **Running the image with a fixed user.** The server runs as UID 10001. External mode accepts
+  `--user 10001:10001` / `runAsNonRoot`. All-in-one mode must start as root (its entrypoint drops
+  privileges) and refuses to run as any other user.
+- **Slow database connections.** The PostgreSQL pool now waits at most 10 s for a connection
+  (was 30 s).
+- **Shutdown timing.** SIGTERM drains and exits within `SHUTDOWN_GRACE_PERIOD_SECS` (default 20).
+  Keep your orchestrator's kill timeout above that (Kubernetes' default is 30 s).
+
+No server API, SSE wire format or SDK API changed incompatibly. One migration
+(`20261029000028_archive_keeps_revision`) runs automatically at startup. It only replaces the
+`flags_bump_revision()` trigger function, with no table rewrite. Running 0.1.25 servers keep
+working during a rolling upgrade. However, a 0.1.25 server that **starts** against a migrated
+database refuses to boot, because it does not know the newer migration. This affects rollback
+and any old instance restarted mid-rollout. 0.1.25's own migration behaved the same way.
+
 ### Fixed
 
 - **CLI: generated code that did not compile.** A string default containing a carriage return
