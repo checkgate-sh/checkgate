@@ -11,6 +11,11 @@ Measured on 2026-10-29 at commit `feat/phase2-production-reliability`
 repetitions of the control-plane run. These are a reference point for
 regressions, not capacity guarantees — re-measure on your hardware.
 
+> The current published numbers, for v0.1.30, are on the
+> [public benchmarks](./benchmarks.md) page. This page is kept as the
+> October 2026 baseline: a different machine (Linux desktop), an earlier
+> commit, and no resource limits.
+
 ## Environment
 
 | | |
