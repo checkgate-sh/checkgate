@@ -1,0 +1,109 @@
+# Benchmark environment for the public suite. Driven by bench/public/run.sh;
+# see bench/public/README.md.
+#
+# The server is the only resource-limited component that is being measured:
+# BENCH_SERVER_CPUS (default 1 vCPU, a CFS quota) and BENCH_SERVER_MEMORY
+# (default 512 MiB). PostgreSQL, Redis and the load generators have their own
+# separate limits, so their work is never charged to the server's budget.
+#
+# CPU placement: the server, PostgreSQL and Redis run on BENCH_SYSTEM_CPUSET
+# (default vCPUs 0-3); the load generators on BENCH_GENERATOR_CPUSET (default
+# 4-7) with no quota. A quota on a bursty generator throttles it mid-burst and
+# shows up as false latency; dedicated CPUs do not. The defaults need a Docker
+# VM with 8 vCPUs; on smaller machines set both variables.
+#
+# The load generators join the server's PID namespace (pid: service:server)
+# so they can read the server's CPU time and RSS from /proc/1 while they run.
+
+name: checkgate-bench
+
+services:
+  postgres:
+    image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: checkgate
+    # Default PostgreSQL configuration: fsync and synchronous_commit stay on.
+    cpus: 2
+    cpuset: ${BENCH_SYSTEM_CPUSET:-0-3}
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
+    cpus: 0.5
+    cpuset: ${BENCH_SYSTEM_CPUSET:-0-3}
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  server:
+    build:
+      context: ../..
+      dockerfile: bench/public/Dockerfile
+      target: server
+    image: checkgate-bench-server:local
+    cpus: ${BENCH_SERVER_CPUS:-1}
+    cpuset: ${BENCH_SYSTEM_CPUSET:-0-3}
+    mem_limit: ${BENCH_SERVER_MEMORY:-512m}
+    environment:
+      DATABASE_URL: postgres://postgres:bench@postgres:5432/checkgate
+      REDIS_URL: redis://redis:6379
+      PORT: "3000"
+      METRICS_ADDR: 0.0.0.0:9090
+      SESSION_SECRET: bench-session-secret-0123456789-0123456789-0123
+      SETUP_TOKEN: bench-setup-token-0123456789
+      COOKIE_SECURE: "false"
+      RUST_LOG: warn
+      # Per-client rate limits are keyed by source IP. Every simulated client
+      # here shares one IP, so the limits are switched off; admission limits
+      # (SSE_MAX_CONNECTIONS, SSE_BOOTSTRAP_CONCURRENCY, DB_MAX_CONNECTIONS)
+      # keep their defaults.
+      RATE_LIMIT_AUTH_PER_MINUTE: "0"
+      RATE_LIMIT_API_PER_MINUTE: "0"
+      RATE_LIMIT_SDK_PER_MINUTE: "0"
+      RATE_LIMIT_SSE_PER_MINUTE: "0"
+      RATE_LIMIT_INGEST_PER_MINUTE: "0"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  loadgen:
+    build:
+      context: ../..
+      dockerfile: bench/public/Dockerfile
+      target: loadgen
+    image: checkgate-bench-loadgen:local
+    profiles: [tools]
+    pid: "service:server"
+    cpuset: ${BENCH_GENERATOR_CPUSET:-4-7}
+    mem_limit: 1g
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ${BENCH_WORK:-./.work}:/work
+      - ${BENCH_RESULTS:-./.work}:/results
+
+  sdk:
+    build:
+      context: ../..
+      dockerfile: bench/public/Dockerfile
+      target: sdk
+    image: checkgate-bench-sdk:local
+    profiles: [tools]
+    pid: "service:server"
+    cpuset: ${BENCH_GENERATOR_CPUSET:-4-7}
+    mem_limit: 1536m
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ${BENCH_WORK:-./.work}:/work
+      - ${BENCH_RESULTS:-./.work}:/results

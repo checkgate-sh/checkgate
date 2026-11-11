@@ -1,0 +1,3 @@
+{"phase":"throughput","rep":1,"status":"ok","started":"2026-11-11T07:08:43Z","ended":"2026-11-11T07:13:53Z","host_load_before":"8.81 7.85 19.24","host_load_after":"3.41 4.86 14.35","host_swap_used_mib_before":3849,"host_swap_used_mib_after":4077}
+{"phase":"throughput","rep":2,"status":"ok","started":"2026-11-11T07:13:53Z","ended":"2026-11-11T07:19:04Z","host_load_before":"3.41 4.86 14.35","host_load_after":"4.77 4.49 11.26","host_swap_used_mib_before":4077,"host_swap_used_mib_after":3895}
+{"phase":"throughput","rep":3,"status":"ok","started":"2026-11-11T07:19:04Z","ended":"2026-11-11T07:24:13Z","host_load_before":"4.77 4.49 11.26","host_load_after":"6.66 5.84 9.82","host_swap_used_mib_before":3895,"host_swap_used_mib_after":4350}

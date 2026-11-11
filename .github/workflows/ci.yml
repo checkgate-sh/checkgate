@@ -34,6 +34,25 @@ jobs:
         run: scripts/check-tracked-artifacts.sh
 
   # ---------------------------------------------------------------------------
+  # Published benchmarks — schema, deterministic graphic, links, documented
+  # commands. Runs no benchmark (those are manual: public-benchmarks.yml).
+  # ---------------------------------------------------------------------------
+  benchmarks:
+    name: Benchmark results and graphic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Scripts parse
+        run: |
+          bash -n bench/public/run.sh
+          for f in bench/public/sdk/*.mjs; do node --check "$f"; done
+          docker compose -f bench/public/compose.yml --profile tools config --quiet
+
+      - name: Results, graphic, links and commands are consistent
+        run: python3 bench/public/scripts/validate.py
+
+  # ---------------------------------------------------------------------------
   # Rust — test the whole workspace
   # ---------------------------------------------------------------------------
   rust:

@@ -1,0 +1,33 @@
+{
+  "source": "docker stats, ~1 s samples over the whole repetition",
+  "containers": {
+    "postgres": {
+      "samples": 351,
+      "cpu_pct_p50": 9.9,
+      "cpu_pct_p90": 14.9,
+      "cpu_pct_max": 85.0,
+      "mem_mib_max": 60.4
+    },
+    "redis": {
+      "samples": 351,
+      "cpu_pct_p50": 3.6,
+      "cpu_pct_p90": 7.7,
+      "cpu_pct_max": 12.5,
+      "mem_mib_max": 16.6
+    },
+    "sdk": {
+      "samples": 349,
+      "cpu_pct_p50": 18.6,
+      "cpu_pct_p90": 109.5,
+      "cpu_pct_max": 396.3,
+      "mem_mib_max": 549.2
+    },
+    "server": {
+      "samples": 351,
+      "cpu_pct_p50": 6.1,
+      "cpu_pct_p90": 25.6,
+      "cpu_pct_max": 103.1,
+      "mem_mib_max": 38.2
+    }
+  }
+}

@@ -37,3 +37,7 @@ checkgate-setup-token
 # Internal engineering reports and working notes — kept locally, never
 # committed.
 internal_docs/
+
+# Benchmark scratch: session credentials and docker stats captures written
+# while bench/public/run.sh runs.
+bench/public/.work/

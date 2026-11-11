@@ -6,7 +6,9 @@ description: How Checkgate's evaluation core and control plane are benchmarked, 
 # Benchmark methodology
 
 Two harnesses, measuring different things. Neither number should be read as
-the other.
+the other. The [public benchmark suite](./benchmarks.md) (`bench/public/`)
+builds on the first and adds a resource-limited server, real SDK clients and
+repeated runs; it is described on its own page.
 
 | Harness | Measures | Excludes |
 |---|---|---|

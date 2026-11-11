@@ -1,0 +1,148 @@
+{
+  "endpoint": "GET /flags/snapshot",
+  "flags_in_snapshot": 101,
+  "generated_by": "server/examples/throughput.rs",
+  "levels": [
+    {
+      "concurrency": 10,
+      "error_rate": 0.0,
+      "errors": {},
+      "failed_requests": 0,
+      "generator": {
+        "cpu_cores_mean": 0.108,
+        "cpu_cores_peak_1s": 0.431
+      },
+      "latency": {
+        "max_ms": 437.517,
+        "mean_ms": 23.631,
+        "p50_ms": 19.879,
+        "p90_ms": 31.932,
+        "p95_ms": 41.366,
+        "p999_ms": 263.832,
+        "p99_ms": 92.539,
+        "samples": 25399
+      },
+      "response_bytes": 15271,
+      "server": {
+        "cpu_cores_mean": 0.918,
+        "cpu_cores_peak_1s": 0.95,
+        "cpu_samples": 60,
+        "requests_per_cpu_second": 461.088,
+        "rss_mib_median": 13.34,
+        "rss_mib_peak_1s": 13.348
+      },
+      "successful_requests": 25399,
+      "successful_rps": 423.317,
+      "throughput_mib_per_s": 6.165,
+      "warmup_s": 10,
+      "window_s": 60
+    },
+    {
+      "concurrency": 100,
+      "error_rate": 0.0,
+      "errors": {},
+      "failed_requests": 0,
+      "generator": {
+        "cpu_cores_mean": 0.118,
+        "cpu_cores_peak_1s": 0.16
+      },
+      "latency": {
+        "max_ms": 655.129,
+        "mean_ms": 212.92,
+        "p50_ms": 202.596,
+        "p90_ms": 245.002,
+        "p95_ms": 268.495,
+        "p999_ms": 633.14,
+        "p99_ms": 421.884,
+        "samples": 28181
+      },
+      "response_bytes": 15271,
+      "server": {
+        "cpu_cores_mean": 0.929,
+        "cpu_cores_peak_1s": 0.95,
+        "cpu_samples": 60,
+        "requests_per_cpu_second": 505.585,
+        "rss_mib_median": 17.801,
+        "rss_mib_peak_1s": 17.801
+      },
+      "successful_requests": 28181,
+      "successful_rps": 469.683,
+      "throughput_mib_per_s": 6.84,
+      "warmup_s": 10,
+      "window_s": 60
+    },
+    {
+      "concurrency": 500,
+      "error_rate": 0.0,
+      "errors": {},
+      "failed_requests": 0,
+      "generator": {
+        "cpu_cores_mean": 0.13,
+        "cpu_cores_peak_1s": 0.17
+      },
+      "latency": {
+        "max_ms": 1793.636,
+        "mean_ms": 1120.892,
+        "p50_ms": 1076.398,
+        "p90_ms": 1314.066,
+        "p95_ms": 1397.279,
+        "p999_ms": 1786.957,
+        "p99_ms": 1705.144,
+        "samples": 26768
+      },
+      "response_bytes": 15271,
+      "server": {
+        "cpu_cores_mean": 0.934,
+        "cpu_cores_peak_1s": 0.96,
+        "cpu_samples": 60,
+        "requests_per_cpu_second": 477.497,
+        "rss_mib_median": 33.273,
+        "rss_mib_peak_1s": 35.988
+      },
+      "successful_requests": 26768,
+      "successful_rps": 446.133,
+      "throughput_mib_per_s": 6.497,
+      "warmup_s": 10,
+      "window_s": 60
+    },
+    {
+      "concurrency": 1000,
+      "error_rate": 0.0,
+      "errors": {},
+      "failed_requests": 0,
+      "generator": {
+        "cpu_cores_mean": 0.114,
+        "cpu_cores_peak_1s": 0.18
+      },
+      "latency": {
+        "max_ms": 2768.332,
+        "mean_ms": 2169.731,
+        "p50_ms": 2142.491,
+        "p90_ms": 2342.908,
+        "p95_ms": 2507.09,
+        "p999_ms": 2759.208,
+        "p99_ms": 2708.633,
+        "samples": 27496
+      },
+      "response_bytes": 15271,
+      "server": {
+        "cpu_cores_mean": 0.935,
+        "cpu_cores_peak_1s": 0.96,
+        "cpu_samples": 60,
+        "requests_per_cpu_second": 490.318,
+        "rss_mib_median": 56.133,
+        "rss_mib_peak_1s": 56.695
+      },
+      "successful_requests": 27496,
+      "successful_rps": 458.267,
+      "throughput_mib_per_s": 6.674,
+      "warmup_s": 10,
+      "window_s": 60
+    }
+  ],
+  "response_bytes": 15271,
+  "server_proc_visible": true,
+  "server_rss_mib_after": 56.895,
+  "server_rss_mib_before": 12.316,
+  "server_rss_mib_high_water_mark": 56.895
+}
