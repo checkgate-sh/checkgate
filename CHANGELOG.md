@@ -5,8 +5,6 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
 ## [0.1.30] - 2026-11-11
 
 Versions 0.1.26–0.1.29 were skipped; 0.1.30 directly follows 0.1.25.
