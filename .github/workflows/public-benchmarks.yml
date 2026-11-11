@@ -1,0 +1,66 @@
+name: Public benchmarks (manual)
+
+# The full public benchmark suite (bench/public/run.sh all) on a GitHub-hosted
+# runner. Manual only. Shared runners vary from run to run and from machine to
+# machine, so these results are for spotting large regressions between two
+# runs of this workflow, never a published baseline: the README numbers come
+# from a documented machine (docs/performance/benchmarks.md). The results are
+# uploaded as an artifact and not committed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reps:
+        description: "Repetitions of the server and propagation runs"
+        default: "3"
+      window_secs:
+        description: "Throughput measurement window per concurrency level (s)"
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-benchmarks
+  cancel-in-progress: false
+
+jobs:
+  suite:
+    name: Full suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      OUT: ${{ github.workspace }}/bench-results
+      REPS: ${{ inputs.reps }}
+      WINDOW_SECS: ${{ inputs.window_secs }}
+      # ubuntu-latest has 4 vCPUs: server, PostgreSQL and Redis on 0-1,
+      # load generators on 2-3 (the defaults assume an 8-vCPU machine).
+      BENCH_SYSTEM_CPUSET: "0-1"
+      BENCH_GENERATOR_CPUSET: "2-3"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Run
+        run: bench/public/run.sh all
+      - name: Summary
+        if: always()
+        run: |
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, os
+          p = os.path.join(os.environ["OUT"], "summary.json")
+          if os.path.exists(p):
+              for k, h in json.load(open(p))["headline"].items():
+                  print(f"- **{k}**: {h['value']} {h['unit']} — {h['scenario']} ({h['context']})")
+          PY
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: public-benchmarks
+          path: |
+            bench-results
+            assets/benchmarks
+          retention-days: 90
