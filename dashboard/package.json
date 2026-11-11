@@ -1,6 +1,6 @@
 {
   "name": "checkgate-dashboard",
-  "version": "0.1.25",
+  "version": "0.1.30",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.2",
