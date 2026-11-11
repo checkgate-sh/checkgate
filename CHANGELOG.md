@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Faster rollout and multivariate evaluation in every SDK built on `checkgate-core`**: the bucketing
+  hash is now computed over the key parts directly instead of a `format!`ed string. Same bytes,
+  same buckets (tested over every split of inputs up to 40 bytes); allocations per evaluation 2 → 0
+  (rollout) and 4 → 1 (multivariate); Criterion time −57 % and −59 % on the same machine.
 - The Docker image runs no process as root. The server runs as `checkgate` (UID 10001); in
   all-in-one mode the bundled PostgreSQL and Redis run as their own users, and the entrypoint
   only starts as root to prepare their volumes. External mode supports `--user 10001:10001` /
