@@ -14,6 +14,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: every job only reads the repository (artifact uploads use
+# the runner's own token, not GITHUB_TOKEN).
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------------
   # Repository hygiene — dependencies, build output and tool caches must not be
@@ -328,9 +333,32 @@ jobs:
         working-directory: cli
         run: node --test
 
-      - name: Smoke-test codegen (ts, dart, rust)
+      # Generated code is compiled, not just generated: rustc -D warnings,
+      # tsc --strict and dart analyze --fatal-infos over every fixture.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Compile generated code (ts, dart, rust)
         working-directory: cli
-        run: node bin/checkgate.js typegen --lang ts,dart,rust --input test/fixtures/flags.json --out-dir /tmp/checkgate-gen
+        run: scripts/compile-generated.sh
+
+      # The documented CI recipe, end to end: --check passes on fresh output and
+      # fails with exit 3 and a JSON report once the output is stale.
+      - name: --check round trip
+        working-directory: cli
+        run: |
+          set -u
+          out="$RUNNER_TEMP/checkgate-gen"
+          node bin/checkgate.js typegen --lang ts,dart,rust --input test/fixtures/flags.json --out-dir "$out"
+          node bin/checkgate.js typegen --lang ts,dart,rust --input test/fixtures/flags.json --out-dir "$out" --check
+          echo '// stale' > "$out/flags.ts"
+          set +e
+          node bin/checkgate.js typegen --lang ts,dart,rust --input test/fixtures/flags.json --out-dir "$out" --check --json > "$RUNNER_TEMP/report.json"
+          code=$?
+          set -e
+          test "$code" -eq 3
+          node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); if (r.status !== "out_of_date" || r.findings[0].id !== "typegen.out_of_date") process.exit(1)' "$RUNNER_TEMP/report.json"
 
   # ---------------------------------------------------------------------------
   # Edge — @checkgate/edge evaluator tests (zero deps, Node's built-in runner)
