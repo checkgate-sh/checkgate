@@ -18,8 +18,8 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
-import '../checkgate_bindings.dart';
-import '../checkgate_flutter.dart';
+import 'package:checkgate_flutter/checkgate_bindings.dart';
+import 'package:checkgate_flutter/checkgate_flutter.dart';
 
 const _states = {
   CheckgateConnectionState.idle: 'idle',

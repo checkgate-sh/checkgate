@@ -13,6 +13,9 @@ Built fundamentally on top of Dart FFI (Foreign Function Interface), this SDK by
 flutter pub add checkgate_flutter
 ```
 
+The package does not bundle a compiled engine: build it and link it into
+your app as described in [Linking the native engine](https://checkgate-sh.github.io/checkgate/sdks/flutter#linking-the-native-engine).
+
 ## Quick Start
 
 Initialize the `CheckgateClient` instance inside your main Dart entrypoint:

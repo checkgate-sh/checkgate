@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import '../checkgate_flutter.dart';
+import 'package:checkgate_flutter/checkgate_flutter.dart';
 
 /// Records every request a MockClient receives. The SDK reports impressions and
 /// events fire-and-forget, and MockClient invokes its handler asynchronously —
