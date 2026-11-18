@@ -57,15 +57,18 @@ if (process.argv[2] === '--worker') {
   };
 
   function openStream(c) {
+    // A generation per connection: events of a replaced one (a close that
+    // lands after a drop) must not reconnect or count.
+    const gen = ++c.gen;
     c.ready = false;
-    c.phase = 'bootstrap';
     const req = http.get(`${cfg.url}/stream`, {
       agent: false, headers: { Authorization: `Bearer ${cfg.sdkKey}`, Accept: 'text/event-stream' },
     }, (res) => {
+      if (gen !== c.gen) { res.destroy(); return; }
       if (res.statusCode !== 200) {
         refused++;
         res.resume();
-        setTimeout(() => openStream(c), backoff(c.attempt++));
+        setTimeout(() => { if (gen === c.gen) openStream(c); }, backoff(c.attempt++));
         return;
       }
       c.res = res;
@@ -74,6 +77,7 @@ if (process.argv[2] === '--worker') {
       let frameBytes = 0;
       res.setEncoding('utf8');
       res.on('data', (chunk) => {
+        if (gen !== c.gen) return;
         buf += chunk;
         let nl;
         while ((nl = buf.indexOf('\n')) >= 0) {
@@ -95,14 +99,16 @@ if (process.argv[2] === '--worker') {
       });
       res.on('error', () => {});
       res.on('close', () => {
+        if (gen !== c.gen) return;
         c.res = null;
         c.ready = false;
-        if (!c.dropped && !cfg.stopping) setTimeout(() => openStream(c), backoff(c.attempt++));
+        if (!cfg.stopping) setTimeout(() => { if (gen === c.gen) openStream(c); }, backoff(c.attempt++));
       });
     });
     req.on('error', () => {
+      if (gen !== c.gen) return;
       errors++;
-      if (!cfg.stopping) setTimeout(() => openStream(c), backoff(c.attempt++));
+      if (!cfg.stopping) setTimeout(() => { if (gen === c.gen) openStream(c); }, backoff(c.attempt++));
     });
     c.req = req;
   }
@@ -130,7 +136,7 @@ if (process.argv[2] === '--worker') {
   process.on('message', async (msg) => {
     if (msg.cmd === 'start') {
       cfg = msg;
-      for (let i = 0; i < msg.count; i++) clients.push({ id: i, attempt: 0, ready: false, last: null });
+      for (let i = 0; i < msg.count; i++) clients.push({ id: i, gen: 0, attempt: 0, ready: false, last: null });
       if (msg.mode === 'sse') {
         for (let i = 0; i < clients.length; i += 50) {
           clients.slice(i, i + 50).forEach(openStream);
@@ -150,19 +156,17 @@ if (process.argv[2] === '--worker') {
     } else if (msg.cmd === 'drop') {
       // Every stream dropped at once; each reconnects like an SDK's first retry.
       for (const c of clients) {
-        c.dropped = true;
+        const gen = ++c.gen; // the old connection's events are ignored from now on
         c.req && c.req.destroy();
         c.res && c.res.destroy();
         c.ready = false;
-      }
-      for (const c of clients) {
-        c.dropped = false;
         c.attempt = 0;
-        setTimeout(() => openStream(c), 3000 * (1 + Math.random() * 0.3));
+        setTimeout(() => { if (gen === c.gen) openStream(c); }, 3000 * (1 + Math.random() * 0.3));
       }
     } else if (msg.cmd === 'stop') {
       cfg.stopping = true;
       for (const c of clients) {
+        c.gen++;
         clearInterval(c.timer);
         c.req && c.req.destroy();
         c.res && c.res.destroy();
