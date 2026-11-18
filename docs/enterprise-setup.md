@@ -77,11 +77,11 @@ final checkgate = CheckgateClient(
 
 await checkgate.initialize();
 
-// 2. Evaluate flags locally (zero latency)
+// 2. Evaluate flags locally (no network call)
 bool showNewFeature = checkgate.isEnabled("new_feature_v2");
 ```
 
 ## Why Enterprise Teams Choose Checkgate
 - **Data Sovereignty**: user identities and PII never leave your network.
-- **Zero-Latency Evaluation**: Decisions happen in microseconds inside your application's memory using Rust-powered FFI.
+- **In-Process Evaluation**: Decisions happen in microseconds inside your application's memory, in the shared Rust core.
 - **Cost Transparency**: No per-user, per-seat, or per-flag pricing. Scale to millions of users at the cost of a small cloud instance.

@@ -1,11 +1,11 @@
 ---
 layout: home
 title: "Checkgate — Feature Flags Without the Round-Trip."
-description: "Open-source, self-hosted feature flag engine that evaluates flags locally in sub-microseconds — no network call per evaluation. Native SDKs for Node.js, Web, React Native, and Flutter."
+description: "Open-source, self-hosted feature flag engine that evaluates flags locally — no network call per evaluation. Native SDKs for Node.js, Web, React Native, and Flutter."
 hero:
   name: "Checkgate"
   text: "Feature Flags Without the Round-Trip."
-  tagline: "Flags evaluated in-process. Updates pushed in under 50 ms. No vendor, no round-trips, no latency tax."
+  tagline: "Flags evaluated in-process. Updates pushed in tens of milliseconds. No vendor, no round-trips, no latency tax."
   image:
     src: /logo.svg
     alt: Checkgate Logo
@@ -19,8 +19,8 @@ hero:
 
 features:
   - icon: ⚡
-    title: Sub-Microsecond Evaluation
-    details: Flags are evaluated entirely in-process from an in-memory store. Zero network latency on every isEnabled() call — no HTTP round-trips, no polling.
+    title: In-Process Evaluation
+    details: Flags are evaluated entirely in-process from an in-memory store — well under a microsecond in the Rust core. Zero network latency on every isEnabled() call — no HTTP round-trips, no polling.
 
   - icon: 🏠
     title: Fully Self-Hosted

@@ -14,9 +14,9 @@
 [![npm @checkgate/web](https://img.shields.io/npm/v/@checkgate/web?label=npm%20web)](https://www.npmjs.com/package/@checkgate/web)
 [![npm @checkgate/react-native](https://img.shields.io/npm/v/@checkgate/react-native?label=npm%20react-native)](https://www.npmjs.com/package/@checkgate/react-native)
 
-**Checkgate is an open-source feature flag engine that evaluates flags locally — no network call, no latency, no SaaS vendor.** Every flag decision happens inside your process in sub-microseconds, while a persistent SSE stream keeps every SDK instance in sync within 50 ms of a change.
+**Checkgate is an open-source feature flag engine that evaluates flags locally — no network call, no latency, no SaaS vendor.** Every flag decision happens inside your process, while a persistent SSE stream keeps every SDK instance in sync, typically within tens of milliseconds of a change.
 
-It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), browsers (WebAssembly), React Native (JSI), and Flutter (FFI). A persistent SSE stream propagates flag changes to every connected SDK instance in under 50 ms.
+It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), browsers (WebAssembly), React Native (JSI), and Flutter (FFI). In the published benchmark, a change reached 1,000 connected SDK clients with a p50 of 38 ms and a p99 of 90 ms, none missed.
 
 **[Explore the Documentation →](https://checkgate-sh.github.io/checkgate)**
 
@@ -39,8 +39,8 @@ It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), brows
 
 ## Features
 
-- **Sub-microsecond evaluation** — flags are evaluated entirely in local memory
-- **Real-time updates** — SSE push, not polling; changes land in < 50 ms
+- **In-process evaluation** — flags are evaluated in local memory: well under a microsecond in the Rust core, a few microseconds through the Node.js SDK
+- **Real-time updates** — SSE push, not polling; changes typically land in tens of milliseconds
 - **Targeting rules** — match by any user attribute (`email`, `plan`, `region`, …)
 - **Percentage rollouts** — deterministic MurmurHash3 bucketing; sticky and independent per flag
 - **Rust evaluation core** — compiled to NAPI, WASM, JSI, or FFI depending on platform

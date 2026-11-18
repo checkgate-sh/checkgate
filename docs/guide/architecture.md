@@ -12,7 +12,7 @@ Checkgate has three main layers: the **control plane** (server), the **evaluatio
 <FlowDiagram />
 
 A flag change is written once to the server, which persists it and pushes the delta to every
-connected SDK over SSE in under 50 ms. From then on, each `isEnabled()` is a local, in-process
+connected SDK over SSE, typically within tens of milliseconds. From then on, each `isEnabled()` is a local, in-process
 lookup — no network on the evaluation path. The detailed view:
 
 ```
@@ -45,7 +45,7 @@ lookup — no network on the evaluation path. The detailed view:
 │  SDK   │   │   WASM   │   │   FFI   │   │  C FFI/JSI   │
 │(NAPI)  │   │   SDK    │   │   SDK   │   │     SDK      │
 └────────┘   └──────────┘   └─────────┘   └──────────────┘
- isEnabled()  in-process, sub-microsecond
+ isEnabled()  in-process, no network call
 ```
 
 ## Data Model
@@ -152,6 +152,9 @@ isEnabled(flag_key, user_key, attributes)
     │
     ├── Flag not found → false
     ├── flag.is_enabled == false → false
+    ├── Any prerequisite unsatisfied → false
+    │     (evaluated recursively; a missing prerequisite, a chain deeper than 10,
+    │      or more than 1,000 prerequisite evaluations counts as unsatisfied)
     │
     ├── Targeting rules (first match wins)
     │   └── rule.attribute ∈ attributes AND operator matches → true

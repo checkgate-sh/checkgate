@@ -6,8 +6,8 @@ import { useAuth } from '../context/AuthContext'
 const STEPS = ['Welcome', 'Workspace', 'Your account', 'SDK key', 'Done'] as const
 
 const FEATURES = [
-  { icon: Zap, title: 'Sub-microsecond evaluation', desc: 'Flags evaluated in-process — no network calls.' },
-  { icon: Globe, title: 'Real-time updates', desc: 'SSE push propagates changes in < 50 ms.' },
+  { icon: Zap, title: 'In-process evaluation', desc: 'Flags evaluated in-process — no network calls.' },
+  { icon: Globe, title: 'Real-time updates', desc: 'SSE push propagates changes in tens of milliseconds.' },
   { icon: Shield, title: 'Self-hosted & private', desc: 'Your data never leaves your infrastructure.' },
 ]
 

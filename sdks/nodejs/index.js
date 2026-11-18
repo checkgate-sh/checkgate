@@ -445,7 +445,8 @@ class CheckgateClient {
     }
 
     /**
-     * Evaluates a feature flag synchronously in <1 microsecond with 0 network IO.
+     * Evaluates a feature flag synchronously, with no network IO (a few microseconds;
+     * see docs/performance/benchmarks.md).
      *
      * @param {string} flagKey
      * @param {string} userKey - Stable user identifier used for rollout hashing
