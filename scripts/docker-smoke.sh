@@ -141,6 +141,12 @@ expect_uid "$AIO" checkgate-serve checkgate
 expect_uid "$AIO" postgres postgres
 expect_uid "$AIO" redis-server redis
 
+log "all-in-one: the PID 1 supervisor keeps only KILL, SETUID and SETGID"
+STATUS1="$(docker exec "$AIO" cat /proc/1/status)"
+grep -qE '^CapEff:[[:space:]]+00000000000000e0$' <<<"$STATUS1" || fail "PID 1 effective capabilities: $(grep '^CapEff' <<<"$STATUS1")"
+grep -qE '^CapBnd:[[:space:]]+00000000000000e0$' <<<"$STATUS1" || fail "PID 1 bounding set: $(grep '^CapBnd' <<<"$STATUS1")"
+grep -qE '^NoNewPrivs:[[:space:]]+1$' <<<"$STATUS1" || fail "PID 1 can regain privileges (no_new_privs unset)"
+
 log "all-in-one: health endpoints and dashboard headers"
 expect 200 "$(status_of "$AIO" /health/live)" "liveness"
 expect 200 "$(status_of "$AIO" /health/ready)" "readiness"

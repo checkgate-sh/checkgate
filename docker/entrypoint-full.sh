@@ -12,8 +12,10 @@
 # PostgreSQL and Redis as `postgres` and `redis`. Started as root (the
 # default), the entrypoint prepares the volumes for those users and drops
 # privileges before starting each one. In all-in-one mode the entrypoint shell
-# itself stays as PID 1 (root) to stop the bundled services cleanly on
-# shutdown; it only waits and forwards signals (see `supervise_server`). In
+# itself stays as PID 1 to stop the bundled services cleanly on shutdown; it
+# only waits and forwards signals (see `supervise_server`), and it does so as
+# root with every capability dropped except the three that job needs (KILL,
+# SETUID, SETGID) and no_new_privs set. In
 # external mode the server replaces the shell, as before. Started as a non-root user (e.g.
 # `--user 10001:10001`), external mode runs the server directly; all-in-one
 # mode needs root to start, because it owns the bundled services' volumes.
@@ -71,9 +73,15 @@ supervise_server() {
   done
   trap - TERM INT
   echo "[shutdown] Server exited with status $status; stopping Redis and PostgreSQL."
-  if [ -f /var/lib/redis/redis.pid ]; then
+  # Read at startup: without CAP_DAC_READ_SEARCH this shell cannot open
+  # Redis's data directory any more.
+  local redis_pid="${CHECKGATE_REDIS_PID:-}"
+  if [ -z "$redis_pid" ] && [ -f /var/lib/redis/redis.pid ]; then
+    redis_pid="$(cat /var/lib/redis/redis.pid)"
+  fi
+  if [ -n "$redis_pid" ]; then
     # SIGTERM makes Redis flush its append-only file and exit cleanly.
-    kill -TERM "$(cat /var/lib/redis/redis.pid)" 2>/dev/null || true
+    kill -TERM "$redis_pid" 2>/dev/null || true
   fi
   as_user postgres pg_ctl -D "$PG_DATA" stop -m fast -w -t 20 >/dev/null ||
     echo "[warn] PostgreSQL did not stop cleanly; it will run recovery on the next start." >&2
@@ -88,6 +96,12 @@ as_user() {
   shift
   setpriv --reuid="$user" --regid="$user" --init-groups --inh-caps=-all "$@"
 }
+
+# Second stage of all-in-one mode: the supervisor, re-executed with a reduced
+# capability bounding set once setup no longer needs full root (see the end).
+if [ "${1:-}" = "--supervise" ]; then
+  supervise_server
+fi
 
 MODE="${CHECKGATE_MODE:-}"
 if [ -z "$MODE" ]; then
@@ -204,6 +218,12 @@ REDIS_ARGS="${REDIS_ARGS} --pidfile /var/lib/redis/redis.pid"
 chown -R redis:redis /var/lib/redis /var/log/redis.log
 # shellcheck disable=SC2086
 as_user redis redis-server ${REDIS_ARGS}
+for _ in $(seq 1 50); do
+  [ -s /var/lib/redis/redis.pid ] && break
+  sleep 0.1
+done
+CHECKGATE_REDIS_PID="$(cat /var/lib/redis/redis.pid 2>/dev/null || true)"
+export CHECKGATE_REDIS_PID
 echo "[init] Redis ready."
 
 # ---------------------------------------------------------------------------
@@ -218,4 +238,10 @@ fi
 export PUBLIC_DIR="${PUBLIC_DIR:-/app/public}"
 
 echo "[init] Starting Checkgate server..."
-supervise_server
+# Setup needed root (volume ownership, initdb, starting services as their
+# users). Supervising needs only: signalling the server and Redis (CAP_KILL)
+# and running pg_ctl as postgres (CAP_SETUID, CAP_SETGID). Re-execute this
+# script as the supervisor with just those, and no way to regain the rest.
+export PG_DATA PATH
+exec setpriv --bounding-set=-all,+kill,+setuid,+setgid --inh-caps=-all --no-new-privs \
+  /bin/bash "$0" --supervise
