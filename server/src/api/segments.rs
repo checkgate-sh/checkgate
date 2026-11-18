@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::Row;
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use super::flags::check_env_access;
 
@@ -259,6 +259,10 @@ async fn create_segment(
     if !is_valid_segment_key(&body.key) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    if let Err(reason) = crate::limits::check_segment_rules(&body.rules) {
+        warn!(%reason, "Rejected create_segment: configuration exceeds limits");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
 
     let rules_val = serde_json::to_value(&body.rules).map_err(|e| {
         error!(error = %e, "Failed to serialize segment rules");
@@ -324,6 +328,12 @@ async fn patch_segment(
         return Err(StatusCode::CONFLICT);
     }
 
+    if let Some(rules) = &body.rules
+        && let Err(reason) = crate::limits::check_segment_rules(rules)
+    {
+        warn!(%reason, "Rejected patch_segment: configuration exceeds limits");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let rules_val = body
         .rules
         .as_ref()

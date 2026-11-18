@@ -238,10 +238,10 @@ fn default_limit() -> usize {
 /// uncapped `limit` lets one authenticated request pull the entire flag table,
 /// and a `usize` too large for `i64` used to wrap to a negative `LIMIT`, which
 /// Postgres rejects with a 500 rather than a 4xx.
-const MAX_PAGE_LIMIT: i64 = 500;
+pub(crate) const MAX_PAGE_LIMIT: i64 = 500;
 
 /// Ceiling on `offset`. Paging deeper than this is a sequential scan, not a query.
-const MAX_PAGE_OFFSET: i64 = 1_000_000;
+pub(crate) const MAX_PAGE_OFFSET: i64 = 1_000_000;
 
 impl Pagination {
     /// `limit` clamped into `0..=MAX_PAGE_LIMIT`, as the `i64` Postgres binds.
@@ -339,6 +339,10 @@ async fn create_flag(
         );
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    if let Err(reason) = crate::limits::check_flag(&payload) {
+        warn!(%reason, "Rejected create_flag: configuration exceeds limits");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
 
     let data = serde_json::to_value(&payload).map_err(|e| {
         error!(error = %e, "Failed to serialize flag for DB write");
@@ -392,12 +396,7 @@ async fn create_flag(
     )
     .await;
 
-    let segment_map = super::segments::load_env_segments(&env_id, &state.db)
-        .await
-        .unwrap_or_default();
-    let expanded = super::segments::expand_flag_with_segments(payload.clone(), &segment_map);
-    let msg = upsert_message(&env_id, &expanded, revision);
-    publish_update(&state, &msg, "create_flag").await;
+    publish_flag_change(&state, &env_id, &payload, revision, "create_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
         "flag.created",
@@ -597,6 +596,10 @@ pub(super) async fn merge_and_validate(
         );
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    if let Err(reason) = crate::limits::check_flag(&flag) {
+        warn!(%reason, "Rejected patch_flag: configuration exceeds limits");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
 
     Ok((before_val, flag_val, flag, new_tags, new_owner_email))
 }
@@ -697,13 +700,14 @@ pub(crate) async fn emit_patch(
     )
     .await;
 
-    let segment_map = super::segments::load_env_segments(env_id, &state.db)
-        .await
-        .unwrap_or_default();
-    let expanded =
-        super::segments::expand_flag_with_segments(applied.result.flag.clone(), &segment_map);
-    let msg = upsert_message(env_id, &expanded, applied.revision);
-    publish_update(state, &msg, "patch_flag").await;
+    publish_flag_change(
+        state,
+        env_id,
+        &applied.result.flag,
+        applied.revision,
+        "patch_flag",
+    )
+    .await;
 
     let wh_payload = super::webhooks::flag_event_payload(
         if scheduled_change_id.is_some() {
@@ -881,12 +885,7 @@ async fn promote_flag(
     )
     .await;
 
-    let segment_map = super::segments::load_env_segments(&target_env_id, &state.db)
-        .await
-        .unwrap_or_default();
-    let expanded = super::segments::expand_flag_with_segments(flag.clone(), &segment_map);
-    let msg = upsert_message(&target_env_id, &expanded, revision);
-    publish_update(&state, &msg, "promote_flag").await;
+    publish_flag_change(&state, &target_env_id, &flag, revision, "promote_flag").await;
 
     let wh_payload = super::webhooks::flag_event_payload(
         "flag.promoted",
@@ -995,6 +994,47 @@ pub(crate) fn delete_message(env_id: &str, key: &str, revision: i64) -> String {
 }
 
 use crate::sync::RESYNC_MESSAGE;
+
+/// Publishes a committed flag change with its segment references expanded.
+///
+/// If the environment's segments cannot be read, nothing is published.
+/// Expanding against an empty segment map (the old fallback) silently drops
+/// every segment rule, yet the event carries the new revision: SDKs apply it,
+/// and reconciliation sees that revision as relayed, so the stripped flag stays
+/// live until its next change. Instead, this instance's clients of the
+/// environment re-bootstrap from PostgreSQL now, and other instances find the
+/// unrelayed revision through reconciliation — the same recovery as a writer
+/// that died between commit and publish.
+pub(crate) async fn publish_flag_change(
+    state: &AppState,
+    env_id: &str,
+    flag: &Flag,
+    revision: i64,
+    op: &str,
+) {
+    match super::segments::load_env_segments(env_id, &state.db).await {
+        Ok(segment_map) => {
+            let expanded = super::segments::expand_flag_with_segments(flag.clone(), &segment_map);
+            publish_update(state, &upsert_message(env_id, &expanded, revision), op).await;
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                operation = op,
+                env_id,
+                "Could not read segments to expand a committed flag change — \
+                 resyncing this environment's clients instead of publishing it"
+            );
+            state
+                .metrics
+                .resync(crate::metrics::ResyncTrigger::segment_read_failed);
+            crate::sync::relay(
+                state,
+                crate::sync::SyncEvent::resync_env(env_id.to_string()),
+            );
+        }
+    }
+}
 
 /// Publish a flag change event to every instance through Redis.
 ///
