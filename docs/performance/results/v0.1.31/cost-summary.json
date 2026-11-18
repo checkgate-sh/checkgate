@@ -1,0 +1,971 @@
+{
+  "schema": "checkgate-cost/v1",
+  "version": "0.1.31",
+  "commit": "66cbfec6f25c47992e7210150cdd1c25ee770d00",
+  "limits": "server 1 vCPU / 512 MiB; PostgreSQL 2 vCPU / 1 GiB; Redis 0.5 vCPU / 256 MiB (bench/public/compose.yml)",
+  "kinds": {
+    "measured": "read from the runs",
+    "calculated": "measured per-event costs × a month of events under the stated assumptions",
+    "pricing": "inputs from bench/public/pricing.json",
+    "projected": "calculated usage priced with those inputs; only for sustained profiles"
+  },
+  "measured": {
+    "sse": [
+      {
+        "clients": 100,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "ramp": {
+          "seconds_to_all_ready": 0.632,
+          "refused_attempts": 0,
+          "server_reported_connections": 100,
+          "bootstrap_bytes_per_client": 26298.0
+        },
+        "idle": {
+          "server_cpu_pct": 0.15,
+          "server_rss_mib": 16.242,
+          "server_net_tx_bytes_per_s": 734.568,
+          "server_net_rx_bytes_per_s": 752.3,
+          "heartbeat_bytes_per_client_per_hour": 6479.567
+        },
+        "updates": {
+          "updates": 30,
+          "deliveries": 3000,
+          "missed": 0,
+          "delivery_p50_ms": 15.955,
+          "delivery_p99_ms": 43.757,
+          "server_cpu_pct": 0.425,
+          "update_bytes_per_client_per_update": 247.667,
+          "timing": "PATCH sent → the event read from the client's socket (raw client, not an SDK)"
+        },
+        "reconnect": {
+          "seconds_to_all_ready": 4.028,
+          "includes_client_wait_s": "3.0-3.9",
+          "refused_attempts": 0,
+          "server_cpu_pct": 7.697,
+          "rebootstrap_bytes_per_client": 26307
+        },
+        "server_rss_peak_mib": 30.363,
+        "postgres": {
+          "cpu_pct_p90": 11.2,
+          "mem_mib_max": 59.4
+        },
+        "redis": {
+          "cpu_pct_p90": 6.7,
+          "mem_mib_max": 16.8
+        }
+      },
+      {
+        "clients": 1000,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "ramp": {
+          "seconds_to_all_ready": 3.152,
+          "refused_attempts": 0,
+          "server_reported_connections": 1000,
+          "bootstrap_bytes_per_client": 26298.0
+        },
+        "idle": {
+          "server_cpu_pct": 1.5,
+          "server_rss_mib": 47.449,
+          "server_net_tx_bytes_per_s": 6666.489,
+          "server_net_rx_bytes_per_s": 4707.301,
+          "heartbeat_bytes_per_client_per_hour": 6479.245
+        },
+        "updates": {
+          "updates": 30,
+          "deliveries": 30000,
+          "missed": 0,
+          "delivery_p50_ms": 32.91,
+          "delivery_p99_ms": 72.291,
+          "server_cpu_pct": 1.637,
+          "update_bytes_per_client_per_update": 247.667,
+          "timing": "PATCH sent → the event read from the client's socket (raw client, not an SDK)"
+        },
+        "reconnect": {
+          "seconds_to_all_ready": 6.306,
+          "includes_client_wait_s": "3.0-3.9",
+          "refused_attempts": 0,
+          "server_cpu_pct": 46.465,
+          "rebootstrap_bytes_per_client": 26307
+        },
+        "server_rss_peak_mib": 54.906,
+        "postgres": {
+          "cpu_pct_p90": 11.6,
+          "mem_mib_max": 61.8
+        },
+        "redis": {
+          "cpu_pct_p90": 6.7,
+          "mem_mib_max": 16.7
+        }
+      },
+      {
+        "clients": 5000,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "ramp": {
+          "seconds_to_all_ready": 19.94,
+          "refused_attempts": 1129,
+          "server_reported_connections": 5000,
+          "bootstrap_bytes_per_client": 26298.0
+        },
+        "idle": {
+          "server_cpu_pct": 6.893,
+          "server_rss_mib": 206.035,
+          "server_net_tx_bytes_per_s": 33073.094,
+          "server_net_rx_bytes_per_s": 22311.239,
+          "heartbeat_bytes_per_client_per_hour": 6481.247
+        },
+        "updates": {
+          "updates": 30,
+          "deliveries": 150000,
+          "missed": 0,
+          "delivery_p50_ms": 202.814,
+          "delivery_p99_ms": 703.093,
+          "server_cpu_pct": 17.541,
+          "update_bytes_per_client_per_update": 247.667,
+          "timing": "PATCH sent → the event read from the client's socket (raw client, not an SDK)"
+        },
+        "reconnect": {
+          "seconds_to_all_ready": 22.763,
+          "includes_client_wait_s": "3.0-3.9",
+          "refused_attempts": 1163,
+          "server_cpu_pct": 72.047,
+          "rebootstrap_bytes_per_client": 26307
+        },
+        "server_rss_peak_mib": 245.508,
+        "postgres": {
+          "cpu_pct_p90": 65.0,
+          "mem_mib_max": 58.6
+        },
+        "redis": {
+          "cpu_pct_p90": 7.1,
+          "mem_mib_max": 16.6
+        }
+      },
+      {
+        "clients": 10000,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "ramp": {
+          "seconds_to_all_ready": 70.565,
+          "refused_attempts": 16063,
+          "server_reported_connections": 10000,
+          "bootstrap_bytes_per_client": 26298.0
+        },
+        "idle": {
+          "server_cpu_pct": 14.737,
+          "server_rss_mib": 447.648,
+          "server_net_tx_bytes_per_s": 66092.352,
+          "server_net_rx_bytes_per_s": 44324.097,
+          "heartbeat_bytes_per_client_per_hour": 6482.426
+        },
+        "updates": {
+          "updates": 30,
+          "deliveries": 300000,
+          "missed": 0,
+          "delivery_p50_ms": 438.892,
+          "delivery_p99_ms": 988.957,
+          "server_cpu_pct": 39.669,
+          "update_bytes_per_client_per_update": 247.667,
+          "timing": "PATCH sent → the event read from the client's socket (raw client, not an SDK)"
+        },
+        "reconnect": {
+          "seconds_to_all_ready": 53.904,
+          "includes_client_wait_s": "3.0-3.9",
+          "refused_attempts": 9481,
+          "server_cpu_pct": 90.717,
+          "rebootstrap_bytes_per_client": 26307
+        },
+        "server_rss_peak_mib": 479.953,
+        "postgres": {
+          "cpu_pct_p90": 78.5,
+          "mem_mib_max": 62.6
+        },
+        "redis": {
+          "cpu_pct_p90": 11.9,
+          "mem_mib_max": 16.3
+        }
+      }
+    ],
+    "poll": [
+      {
+        "clients": 100,
+        "interval_s": 10,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 10.0,
+        "requests_per_s": 9.999,
+        "error_rate": 0,
+        "server_cpu_pct": 2.7,
+        "server_rss_mib": 12.402,
+        "server_rss_peak_mib": 30.34,
+        "server_net_tx_bytes_per_s": 173699.425,
+        "bytes_per_request": 15279.665,
+        "request_p50_ms": 5.453,
+        "request_p99_ms": 8.407,
+        "staleness_p50_ms": 4961.417,
+        "staleness_p99_ms": 9883.787,
+        "postgres": {
+          "cpu_pct_p90": 14.3,
+          "mem_mib_max": 47.1
+        }
+      },
+      {
+        "clients": 100,
+        "interval_s": 30,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 3.333,
+        "requests_per_s": 3.333,
+        "error_rate": 0,
+        "server_cpu_pct": 1.067,
+        "server_rss_mib": 12.383,
+        "server_rss_peak_mib": 30.559,
+        "server_net_tx_bytes_per_s": 59755.116,
+        "bytes_per_request": 15279.743,
+        "request_p50_ms": 5.691,
+        "request_p99_ms": 8.746,
+        "staleness_p50_ms": 14950.117,
+        "staleness_p99_ms": 29665.745,
+        "postgres": {
+          "cpu_pct_p90": 12.5,
+          "mem_mib_max": 45.9
+        }
+      },
+      {
+        "clients": 100,
+        "interval_s": 60,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 1.667,
+        "requests_per_s": 1.667,
+        "error_rate": 0,
+        "server_cpu_pct": 0.678,
+        "server_rss_mib": 12.406,
+        "server_rss_peak_mib": 30.555,
+        "server_net_tx_bytes_per_s": 31257.243,
+        "bytes_per_request": 15279.863,
+        "request_p50_ms": 5.858,
+        "request_p99_ms": 8.833,
+        "staleness_p50_ms": 30020.694,
+        "staleness_p99_ms": 59419.031,
+        "postgres": {
+          "cpu_pct_p90": 11.7,
+          "mem_mib_max": 49.8
+        }
+      },
+      {
+        "clients": 1000,
+        "interval_s": 10,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 100.0,
+        "requests_per_s": 100.007,
+        "error_rate": 0,
+        "server_cpu_pct": 20.181,
+        "server_rss_mib": 12.945,
+        "server_rss_peak_mib": 30.156,
+        "server_net_tx_bytes_per_s": 1697624.488,
+        "bytes_per_request": 15277.11,
+        "request_p50_ms": 4.601,
+        "request_p99_ms": 9.152,
+        "staleness_p50_ms": 4998.764,
+        "staleness_p99_ms": 9914.923,
+        "postgres": {
+          "cpu_pct_p90": 33.5,
+          "mem_mib_max": 55.7
+        }
+      },
+      {
+        "clients": 1000,
+        "interval_s": 30,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 33.333,
+        "requests_per_s": 33.33,
+        "error_rate": 0,
+        "server_cpu_pct": 8.199,
+        "server_rss_mib": 12.543,
+        "server_rss_peak_mib": 30.285,
+        "server_net_tx_bytes_per_s": 572039.619,
+        "bytes_per_request": 15284.862,
+        "request_p50_ms": 5.335,
+        "request_p99_ms": 8.72,
+        "staleness_p50_ms": 15000.051,
+        "staleness_p99_ms": 29720.397,
+        "postgres": {
+          "cpu_pct_p90": 19.8,
+          "mem_mib_max": 48.5
+        }
+      },
+      {
+        "clients": 1000,
+        "interval_s": 60,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 16.667,
+        "requests_per_s": 16.666,
+        "error_rate": 0,
+        "server_cpu_pct": 4.255,
+        "server_rss_mib": 12.648,
+        "server_rss_peak_mib": 30.344,
+        "server_net_tx_bytes_per_s": 287560.308,
+        "bytes_per_request": 15279.884,
+        "request_p50_ms": 5.369,
+        "request_p99_ms": 8.663,
+        "staleness_p50_ms": 30024.021,
+        "staleness_p99_ms": 59422.536,
+        "postgres": {
+          "cpu_pct_p90": 15.7,
+          "mem_mib_max": 53.0
+        }
+      },
+      {
+        "clients": 5000,
+        "interval_s": 10,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 500.0,
+        "requests_per_s": 499.995,
+        "error_rate": 0,
+        "server_cpu_pct": 76.281,
+        "server_rss_mib": 21.438,
+        "server_rss_peak_mib": 30.219,
+        "server_net_tx_bytes_per_s": 8398138.749,
+        "bytes_per_request": 15278.117,
+        "request_p50_ms": 6.802,
+        "request_p99_ms": 277.206,
+        "staleness_p50_ms": 5039.058,
+        "staleness_p99_ms": 9928.874,
+        "postgres": {
+          "cpu_pct_p90": 93.5,
+          "mem_mib_max": 58.7
+        }
+      },
+      {
+        "clients": 5000,
+        "interval_s": 30,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 166.667,
+        "requests_per_s": 166.645,
+        "error_rate": 0,
+        "server_cpu_pct": 30.663,
+        "server_rss_mib": 13.426,
+        "server_rss_peak_mib": 30.695,
+        "server_net_tx_bytes_per_s": 2814376.028,
+        "bytes_per_request": 15279.769,
+        "request_p50_ms": 4.473,
+        "request_p99_ms": 10.799,
+        "staleness_p50_ms": 15014.34,
+        "staleness_p99_ms": 29708.366,
+        "postgres": {
+          "cpu_pct_p90": 44.2,
+          "mem_mib_max": 61.9
+        }
+      },
+      {
+        "clients": 5000,
+        "interval_s": 60,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 83.333,
+        "requests_per_s": 83.332,
+        "error_rate": 0,
+        "server_cpu_pct": 17.282,
+        "server_rss_mib": 12.965,
+        "server_rss_peak_mib": 30.398,
+        "server_net_tx_bytes_per_s": 1418107.464,
+        "bytes_per_request": 15280.905,
+        "request_p50_ms": 4.754,
+        "request_p99_ms": 8.326,
+        "staleness_p50_ms": 30012.811,
+        "staleness_p99_ms": 59411.204,
+        "postgres": {
+          "cpu_pct_p90": 29.5,
+          "mem_mib_max": 59.4
+        }
+      },
+      {
+        "clients": 10000,
+        "interval_s": 10,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": false,
+        "errors": [],
+        "target_requests_per_s": 1000.0,
+        "requests_per_s": 999.864,
+        "error_rate": 0.649,
+        "server_cpu_pct": 95.542,
+        "server_rss_mib": 424.449,
+        "server_rss_peak_mib": 424.449,
+        "server_net_tx_bytes_per_s": 6548880.647,
+        "bytes_per_request": 4705.293,
+        "request_p50_ms": 10036.68,
+        "request_p99_ms": 10137.067,
+        "staleness_p50_ms": 12899.822,
+        "staleness_p99_ms": 57895.092,
+        "postgres": {
+          "cpu_pct_p90": 93.5,
+          "mem_mib_max": 61.8
+        }
+      },
+      {
+        "clients": 10000,
+        "interval_s": 30,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 333.333,
+        "requests_per_s": 333.319,
+        "error_rate": 0,
+        "server_cpu_pct": 54.776,
+        "server_rss_mib": 19.16,
+        "server_rss_peak_mib": 30.23,
+        "server_net_tx_bytes_per_s": 5611189.431,
+        "bytes_per_request": 15275.179,
+        "request_p50_ms": 4.85,
+        "request_p99_ms": 77.465,
+        "staleness_p50_ms": 15019.942,
+        "staleness_p99_ms": 29711.932,
+        "postgres": {
+          "cpu_pct_p90": 75.5,
+          "mem_mib_max": 59.0
+        }
+      },
+      {
+        "clients": 10000,
+        "interval_s": 60,
+        "runs": 1,
+        "failed_runs": 0,
+        "sustained": true,
+        "errors": [],
+        "target_requests_per_s": 166.667,
+        "requests_per_s": 166.663,
+        "error_rate": 0,
+        "server_cpu_pct": 30.023,
+        "server_rss_mib": 13.293,
+        "server_rss_peak_mib": 30.348,
+        "server_net_tx_bytes_per_s": 2815996.617,
+        "bytes_per_request": 15280.393,
+        "request_p50_ms": 4.427,
+        "request_p99_ms": 9.093,
+        "staleness_p50_ms": 30021.652,
+        "staleness_p99_ms": 59416.602,
+        "postgres": {
+          "cpu_pct_p90": 43.6,
+          "mem_mib_max": 63.5
+        }
+      }
+    ]
+  },
+  "calculated": {
+    "assumptions": {
+      "flag_changes_per_day": 100,
+      "stream_reconnects_per_client_per_day": 4,
+      "days_per_month": 30.42,
+      "why": "Traffic that depends on how an application is used rather than on Checkgate: how often flags change, and how often each client's stream is re-established (app restarts, deploys, network changes). Each reconnect re-sends the full flag set. Change them to fit your deployment; the measured per-event costs do not change."
+    },
+    "monthly_traffic": [
+      {
+        "mode": "sse",
+        "clients": 100,
+        "requests_per_month": 12168,
+        "bytes_per_client_per_month": 8685041,
+        "breakdown_bytes_per_client_per_month": {
+          "heartbeats": 4730602,
+          "flag_changes": 753403,
+          "reconnects": 3201036
+        },
+        "gb_per_month": 0.869
+      },
+      {
+        "mode": "sse",
+        "clients": 1000,
+        "requests_per_month": 121680,
+        "bytes_per_client_per_month": 8684806,
+        "breakdown_bytes_per_client_per_month": {
+          "heartbeats": 4730367,
+          "flag_changes": 753403,
+          "reconnects": 3201036
+        },
+        "gb_per_month": 8.685
+      },
+      {
+        "mode": "sse",
+        "clients": 5000,
+        "requests_per_month": 608400,
+        "bytes_per_client_per_month": 8686268,
+        "breakdown_bytes_per_client_per_month": {
+          "heartbeats": 4731829,
+          "flag_changes": 753403,
+          "reconnects": 3201036
+        },
+        "gb_per_month": 43.431
+      },
+      {
+        "mode": "sse",
+        "clients": 10000,
+        "requests_per_month": 1216800,
+        "bytes_per_client_per_month": 8687128,
+        "breakdown_bytes_per_client_per_month": {
+          "heartbeats": 4732690,
+          "flag_changes": 753403,
+          "reconnects": 3201036
+        },
+        "gb_per_month": 86.871
+      },
+      {
+        "mode": "poll",
+        "clients": 100,
+        "interval_s": 10,
+        "requests_per_month": 26282880,
+        "bytes_per_client_per_month": 4015936016,
+        "gb_per_month": 401.594
+      },
+      {
+        "mode": "poll",
+        "clients": 100,
+        "interval_s": 30,
+        "requests_per_month": 8760960,
+        "bytes_per_client_per_month": 1338652172,
+        "gb_per_month": 133.865
+      },
+      {
+        "mode": "poll",
+        "clients": 100,
+        "interval_s": 60,
+        "requests_per_month": 4380480,
+        "bytes_per_client_per_month": 669331343,
+        "gb_per_month": 66.933
+      },
+      {
+        "mode": "poll",
+        "clients": 1000,
+        "interval_s": 10,
+        "requests_per_month": 262828800,
+        "bytes_per_client_per_month": 4015264489,
+        "gb_per_month": 4015.264
+      },
+      {
+        "mode": "poll",
+        "clients": 1000,
+        "interval_s": 30,
+        "requests_per_month": 87609600,
+        "bytes_per_client_per_month": 1339100646,
+        "gb_per_month": 1339.101
+      },
+      {
+        "mode": "poll",
+        "clients": 1000,
+        "interval_s": 60,
+        "requests_per_month": 43804800,
+        "bytes_per_client_per_month": 669332263,
+        "gb_per_month": 669.332
+      },
+      {
+        "mode": "poll",
+        "clients": 5000,
+        "interval_s": 10,
+        "requests_per_month": 1314144000,
+        "bytes_per_client_per_month": 4015529157,
+        "gb_per_month": 20077.646
+      },
+      {
+        "mode": "poll",
+        "clients": 5000,
+        "interval_s": 30,
+        "requests_per_month": 438048000,
+        "bytes_per_client_per_month": 1338654450,
+        "gb_per_month": 6693.272
+      },
+      {
+        "mode": "poll",
+        "clients": 5000,
+        "interval_s": 60,
+        "requests_per_month": 219024000,
+        "bytes_per_client_per_month": 669376987,
+        "gb_per_month": 3346.885
+      },
+      {
+        "mode": "poll",
+        "clients": 10000,
+        "interval_s": 10,
+        "requests_per_month": null,
+        "bytes_per_client_per_month": null,
+        "gb_per_month": null,
+        "why_none": "not sustained: the measured bytes per request include failed requests"
+      },
+      {
+        "mode": "poll",
+        "clients": 10000,
+        "interval_s": 30,
+        "requests_per_month": 876096000,
+        "bytes_per_client_per_month": 1338252322,
+        "gb_per_month": 13382.523
+      },
+      {
+        "mode": "poll",
+        "clients": 10000,
+        "interval_s": 60,
+        "requests_per_month": 438048000,
+        "bytes_per_client_per_month": 669354559,
+        "gb_per_month": 6693.546
+      }
+    ]
+  },
+  "pricing": {
+    "accessed": "2026-11-19",
+    "region": "AWS us-east-1 (N. Virginia), on-demand, Linux, single-AZ",
+    "hours_per_month": 730,
+    "caveat": "List prices as reported by third-party price aggregators on the access date (AWS's own pricing pages could not be read programmatically). Prices change; check the AWS pricing pages for your region before budgeting. Taxes, support plans, reserved or spot discounts, backups beyond the free allowance, and TLS/load-balancer costs are not included.",
+    "items": {
+      "server": {
+        "sku": "EC2 t4g.small (2 vCPU burstable, 2 GiB)",
+        "usd_per_hour": 0.0168,
+        "note": "Burstable: 20 % of each vCPU (0.4 vCPU in total) is the sustained baseline; more consumes CPU credits. t4g is arm64 (Graviton); the benchmark measured CPU on an x86_64 host, so the fit against the baseline is a projection, not a measurement on this instance.",
+        "sources": [
+          "https://cloud.cloudquell.com/aws/ec2/t4g.small/",
+          "https://cloud-credits.org/prices/ec2/t4g-small",
+          "https://cloudprice.net/aws/ec2/instances/t4g.small"
+        ]
+      },
+      "server_disk": {
+        "sku": "EBS gp3, 8 GB root volume",
+        "gb": 8,
+        "usd_per_gb_month": 0.08,
+        "sources": [
+          "https://aws.amazon.com/ebs/pricing",
+          "https://www.factualminds.com/blog/amazon-ebs-pricing-orphaned-volumes-snapshots/"
+        ]
+      },
+      "database": {
+        "sku": "RDS for PostgreSQL db.t4g.micro (2 vCPU burstable, 1 GiB), single-AZ",
+        "usd_per_hour": 0.016,
+        "sources": [
+          "https://codewithsql.com/cloud-databases/aws/rds/pricing",
+          "https://selfhost.dev/blog/aws-rds-cost-breakdown-2026/",
+          "https://www.bytebase.com/dbcost/rds/instance/db.t4g.micro/"
+        ]
+      },
+      "database_storage": {
+        "sku": "RDS gp3 storage, 20 GB (the RDS minimum)",
+        "gb": 20,
+        "usd_per_gb_month": 0.115,
+        "sources": [
+          "https://bminfotrade.com/blog/cloud-computing/aws-rds-pricing-2026-mysql-postgresql-and-sql-server-costs",
+          "https://codewithsql.com/cloud-databases/aws/rds/pricing"
+        ]
+      },
+      "redis": {
+        "sku": "ElastiCache for Redis OSS cache.t4g.micro (0.5 GiB), one node",
+        "usd_per_hour": 0.016,
+        "sources": [
+          "https://calculator.holori.com/aws/elasticache/cache.t4g.micro",
+          "https://instances.vantage.sh/aws/elasticache/cache.t4g.micro"
+        ]
+      },
+      "egress": {
+        "sku": "Data transfer out to the internet",
+        "free_gb_per_month": 100,
+        "usd_per_gb": 0.09,
+        "note": "Rate for the first 10 TB a month after the free 100 GB.",
+        "sources": [
+          "https://egresscost.com/aws/data-transfer-pricing",
+          "https://www.eon.io/blog/aws-data-transfer-pricing"
+        ]
+      }
+    }
+  },
+  "projected": {
+    "deployment": "one Checkgate server (EC2 t4g.small) + RDS PostgreSQL db.t4g.micro (20 GB) + ElastiCache cache.t4g.micro, priced for the client counts that one server sustained under the published limits",
+    "monthly": [
+      {
+        "mode": "sse",
+        "clients": 100,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 0.0
+        },
+        "total_usd": 38.56,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 0.15,
+        "server_cpu_basis": "idle-stream CPU (flag changes and reconnects are short bursts, paid from CPU credits)"
+      },
+      {
+        "mode": "sse",
+        "clients": 1000,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 0.0
+        },
+        "total_usd": 38.56,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 1.5,
+        "server_cpu_basis": "idle-stream CPU (flag changes and reconnects are short bursts, paid from CPU credits)"
+      },
+      {
+        "mode": "sse",
+        "clients": 5000,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 0.0
+        },
+        "total_usd": 38.56,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 6.893,
+        "server_cpu_basis": "idle-stream CPU (flag changes and reconnects are short bursts, paid from CPU credits)"
+      },
+      {
+        "mode": "sse",
+        "clients": 10000,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 0.0
+        },
+        "total_usd": 38.56,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 14.737,
+        "server_cpu_basis": "idle-stream CPU (flag changes and reconnects are short bursts, paid from CPU credits)"
+      },
+      {
+        "mode": "poll",
+        "clients": 100,
+        "interval_s": 10,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 27.14
+        },
+        "total_usd": 65.71,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 2.7,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 100,
+        "interval_s": 30,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 3.05
+        },
+        "total_usd": 41.61,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 1.067,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 100,
+        "interval_s": 60,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 0.0
+        },
+        "total_usd": 38.56,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 0.678,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 1000,
+        "interval_s": 10,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 352.37
+        },
+        "total_usd": 390.94,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 20.181,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 1000,
+        "interval_s": 30,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 111.52
+        },
+        "total_usd": 150.08,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 8.199,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 1000,
+        "interval_s": 60,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 51.24
+        },
+        "total_usd": 89.8,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 4.255,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 5000,
+        "interval_s": 10,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 1797.99
+        },
+        "total_usd": 1836.55,
+        "server_cpu_vs_burst_baseline": "above",
+        "server_cpu_pct_compared": 76.281,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 5000,
+        "interval_s": 30,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 593.39
+        },
+        "total_usd": 631.96,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 30.663,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 5000,
+        "interval_s": 60,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 292.22
+        },
+        "total_usd": 330.78,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 17.282,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 10000,
+        "interval_s": 10,
+        "total_usd": null,
+        "why_no_price": "not sustained by one server at the published limits; what it would need was not measured"
+      },
+      {
+        "mode": "poll",
+        "clients": 10000,
+        "interval_s": 30,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 1195.43
+        },
+        "total_usd": 1233.99,
+        "server_cpu_vs_burst_baseline": "above",
+        "server_cpu_pct_compared": 54.776,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      },
+      {
+        "mode": "poll",
+        "clients": 10000,
+        "interval_s": 60,
+        "lines_usd": {
+          "server": 12.26,
+          "server_disk": 0.64,
+          "database": 11.68,
+          "database_storage": 2.3,
+          "redis": 11.68,
+          "egress": 593.42
+        },
+        "total_usd": 631.98,
+        "server_cpu_vs_burst_baseline": "within",
+        "server_cpu_pct_compared": 30.023,
+        "server_cpu_basis": "CPU while polling at the target rate"
+      }
+    ]
+  }
+}
