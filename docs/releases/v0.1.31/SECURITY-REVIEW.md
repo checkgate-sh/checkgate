@@ -88,6 +88,33 @@ depend on them.
   resolves v1.85.0, which is at or above every patched version (1.82.2,
   1.83.1). The alerts are raised against `main`'s dependency graph, which
   lags; dismiss them as "fix already applied" after confirming on `main`.
+  **RC2: root cause found.** GitHub's dependency graph (SBOM regenerated
+  2026-11-18) still lists grpc v1.82.1 for that manifest: its static parser
+  does not resolve these Go modules, which reach the shared client through a
+  `replace` to a local path, so it never picked up the 2026-11-11 bump. The new
+  `dependency-submission.yml` workflow submits the graph `go` resolves, on
+  pushes to `main`; the alerts close once it has run there.
+
+## RC2 changes (reviewed)
+
+- **SSE lifecycle and auth handling** (SDK-CONNECTION-RELIABILITY.md): no new
+  retry amplification (deadlines reuse the jittered backoff; the browser
+  credential check is at most one request per failed attempt); one watchdog
+  per client, cleared on close; auth errors carry the status, never the key
+  (asserted in tests); `heartbeat_ms` is server-controlled (1–300 s).
+- **Heartbeat**: 27 bytes per quiet interval per stream; no new endpoint, no
+  new input parsed by the server.
+- **Fault-test infrastructure**: test-only (`sdks/conformance`, test files,
+  `bench/`); nothing ships in a package (`files` lists unchanged). New dev
+  dependencies: `eventsource` (web), `react-native-sse` (RN). `npm audit`
+  reports 4–5 high advisories in the web and RN dev trees, all one ReDoS in
+  `picomatch` reached through `vitest`, present before RC2, dev-only, with no
+  fixed release yet (affected range `*`).
+- **All-in-one supervisor**: capabilities reduced to KILL, SETUID, SETGID and
+  `no_new_privs` (DEPLOYMENT-READINESS.md).
+- **Cross-tenant exposure and rollout determinism**: untouched (no server
+  query, key handling or core change in RC2; the 22 fault scenarios check
+  evaluation stability at every unchanged revision).
 - `cargo clippy --workspace --all-targets --all-features -D warnings`: clean,
   under the workspace's deny-level safety lints.
 - Miri runs on the FFI crates in CI (job `miri`). The FFI changes in this

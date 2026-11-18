@@ -74,10 +74,18 @@ container restart. It **fails on the v0.1.30 image** ("PostgreSQL was not
 asked to shut down on container stop") and passes on v0.1.31. CI runs it on
 every PR (job `docker-smoke`).
 
-**Trade-off.** The supervising shell runs as root for the container's
-lifetime, because it must stop PostgreSQL and Redis under their own users.
-It only waits and forwards signals; it has no network exposure and processes
-no input. All three services still run as non-root users.
+**Trade-off, reduced in RC2.** The supervising shell stays uid 0, because it
+must signal the server and Redis and run `pg_ctl` as `postgres`. Since RC2,
+once setup is done the entrypoint re-executes itself as the supervisor with
+its capability bounding set cut to `KILL`, `SETUID` and `SETGID` and
+`no_new_privs` set: effective and bounding sets `0xe0`, checked by
+`scripts/docker-smoke.sh`. Without `DAC_READ_SEARCH` it can no longer open
+Redis's data directory, so Redis's PID is read during setup. On the rebuilt
+image every smoke scenario passes, PostgreSQL still logs a fast shutdown, and
+Redis still logs SIGTERM, an AOF fsync and "ready to exit". A supervisor that
+is not uid 0 at all would need the services started by something other than
+this shell (a separate init); not done, to keep the validated shutdown path.
+All three services still run as non-root users.
 
 ## Other fixes in this area
 
