@@ -23,6 +23,44 @@ fn sign_payload(secret: &str, body: &[u8]) -> String {
     format!("sha256={}", hex_encode(&mac.finalize().into_bytes()))
 }
 
+/// Bytes of a webhook or integration response kept for the delivery log.
+pub(crate) const MAX_STORED_RESPONSE_BYTES: usize = 1024;
+
+/// Reads at most [`MAX_STORED_RESPONSE_BYTES`] of a response body, stopping as
+/// soon as the cap is reached. Reading the whole body (`text()`) let a
+/// receiver stream an arbitrarily large response into memory for the length of
+/// the request timeout, and stored all of it where every project viewer can
+/// read it.
+pub(crate) async fn read_capped_body(mut resp: reqwest::Response) -> String {
+    let mut body = Vec::new();
+    while body.len() < MAX_STORED_RESPONSE_BYTES {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                let room = MAX_STORED_RESPONSE_BYTES.saturating_sub(body.len());
+                body.extend_from_slice(chunk.get(..room.min(chunk.len())).unwrap_or_default());
+            }
+            Ok(None) | Err(_) => break,
+        }
+    }
+    String::from_utf8_lossy(&body).into_owned()
+}
+
+/// The shared client for outbound webhook and integration deliveries.
+///
+/// Redirects are not followed. A receiver could otherwise answer `303` with a
+/// `Location` on an internal address (cloud metadata, a service on the
+/// server's network); the client would GET it and the response body would be
+/// stored in the delivery log, readable by project viewers. A redirect now
+/// lands in the log as its 3xx status.
+pub(crate) fn delivery_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent("Checkgate-Webhooks/1.0")
+        .build()
+        .unwrap_or_default()
+}
+
 struct WebhookRow {
     id: String,
     url: String,
@@ -110,7 +148,7 @@ async fn deliver_with_retry(
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16() as i32;
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text = read_capped_body(resp).await;
                 let ok = (200..300).contains(&status);
 
                 log_delivery(
@@ -124,20 +162,23 @@ async fn deliver_with_retry(
                 .await;
 
                 if ok {
-                    info!(webhook_id, url, status, "Webhook delivered");
+                    info!(webhook_id, status, "Webhook delivered");
                 } else {
-                    warn!(webhook_id, url, status, "Webhook returned non-2xx");
+                    warn!(webhook_id, status, "Webhook returned non-2xx");
                 }
                 return;
             }
             Err(e) => {
+                // The URL may carry a credential (a token in the path or
+                // query); keep it out of the stored error and the log.
+                let e = e.without_url();
                 let is_last = attempt == backoff_secs.len().saturating_sub(1);
                 if is_last {
                     let err_str = e.to_string();
-                    warn!(webhook_id, url, error = %e, "Webhook delivery failed after all retries");
+                    warn!(webhook_id, error = %e, "Webhook delivery failed after all retries");
                     log_delivery(&state.db, webhook_id, payload, None, None, Some(&err_str)).await;
                 } else {
-                    warn!(webhook_id, url, attempt, error = %e, "Webhook delivery failed — retrying");
+                    warn!(webhook_id, attempt, error = %e, "Webhook delivery failed — retrying");
                     tokio::time::sleep(Duration::from_secs(wait)).await;
                 }
             }
@@ -190,5 +231,63 @@ async fn log_delivery(
     .await
     {
         warn!(error = %e, "Failed to prune old webhook deliveries");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Serves each accepted connection one canned HTTP/1.1 response.
+    async fn serve(responses: Vec<Vec<u8>>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for response in responses {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buf = [0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let _ = socket.write_all(&response).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn redirects_are_not_followed() {
+        // The receiver points the client at an internal address. Following it
+        // would GET that address and store its body in the delivery log.
+        let base = serve(vec![
+            b"HTTP/1.1 303 See Other\r\nLocation: http://169.254.169.254/latest/meta-data/\r\nContent-Length: 0\r\n\r\n"
+                .to_vec(),
+        ])
+        .await;
+        let resp = delivery_client()
+            .post(&base)
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 303);
+    }
+
+    #[tokio::test]
+    async fn stored_response_bodies_are_capped() {
+        let big = "x".repeat(5 * 1024 * 1024);
+        let response = format!(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\n\r\n{big}",
+            big.len()
+        );
+        let base = serve(vec![response.into_bytes()]).await;
+        let resp = delivery_client()
+            .post(&base)
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        let body = read_capped_body(resp).await;
+        assert_eq!(body.len(), MAX_STORED_RESPONSE_BYTES);
     }
 }

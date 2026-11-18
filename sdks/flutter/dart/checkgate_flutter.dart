@@ -22,6 +22,33 @@ import 'package:http/http.dart' as http;
 
 import 'checkgate_bindings.dart';
 
+/// Splits a raw SSE byte stream into `(event name, data)` pairs.
+///
+/// Network reads end wherever the socket does — mid-line or even inside a
+/// multi-byte UTF-8 character — so the bytes are decoded and re-split into
+/// whole lines (`LineSplitter` carries a partial line over to the next chunk)
+/// before any line is interpreted. Splitting each chunk on `\n` instead lost
+/// the second half of every line that straddled two reads, which dropped
+/// flags from large bootstraps and could lose the `ready` event entirely.
+Stream<MapEntry<String, String>> parseSseEvents(Stream<List<int>> bytes) async* {
+  var eventName = '';
+  final data = StringBuffer();
+  await for (final line
+      in bytes.transform(utf8.decoder).transform(const LineSplitter())) {
+    if (line.startsWith('event:')) {
+      eventName = line.substring(6).trim();
+    } else if (line.startsWith('data:')) {
+      data.write(line.substring(5).trim());
+    } else if (line.isEmpty) {
+      if (data.isNotEmpty) {
+        yield MapEntry(eventName, data.toString());
+        data.clear();
+      }
+      eventName = '';
+    }
+  }
+}
+
 /// Optional persistence adapter. Implement with your storage of choice
 /// (e.g. `shared_preferences`) so the last flag snapshot survives restarts and
 /// flags can be evaluated before (or without) a live connection.
@@ -82,6 +109,16 @@ class CheckgateClient {
   // _flagCache to diff each poll response against the last known state.
   bool _polling = false;
   Timer? _pollTimer;
+
+  /// Bumped whenever polling stops (the stream took over, or [close]). A poll
+  /// response that arrives after a bump is stale and is discarded.
+  int _syncGeneration = 0;
+
+  /// The poll request in flight, so ticks never stack up behind a slow server.
+  Future<void>? _pollInFlight;
+
+  /// Upper bound on one poll request.
+  static const Duration _pollTimeout = Duration(seconds: 30);
 
   // Readiness: completed once the server has replayed the full flag set and
   // sent the "ready" event.
@@ -223,24 +260,9 @@ class CheckgateClient {
           throw Exception('SSE connect failed: ${response.statusCode}');
         }
 
-        String eventName = '';
-        final buffer = StringBuffer();
-
-        await for (final chunk
-            in response.stream.transform(utf8.decoder)) {
+        await for (final event in parseSseEvents(response.stream)) {
           if (_closed) break;
-          for (final line in chunk.split('\n')) {
-            if (line.startsWith('event:')) {
-              eventName = line.substring(6).trim();
-            } else if (line.startsWith('data:')) {
-              buffer.write(line.substring(5).trim());
-            } else if (line.isEmpty && buffer.isNotEmpty) {
-              final data = buffer.toString();
-              buffer.clear();
-              _handleSseEvent(eventName, data);
-              eventName = '';
-            }
-          }
+          _handleSseEvent(event.key, event.value);
         }
       } catch (e) {
         if (_closed) break;
@@ -292,6 +314,10 @@ class CheckgateClient {
   }
 
   void _stopPollFallback() {
+    // Invalidate any poll still in flight: its snapshot predates the stream
+    // state about to replace it, and applying it afterwards would roll flags
+    // back and reset the revisions that keep delayed events out.
+    _syncGeneration++;
     if (!_polling) return;
     _polling = false;
     _pollTimer?.cancel();
@@ -303,17 +329,26 @@ class CheckgateClient {
   /// onChange listeners. Resolves connect() if this is the first successful
   /// sync (SSE may never have connected at all). Best-effort: network/parse
   /// failures are silently retried on the next interval tick.
-  Future<void> _pollSnapshot() async {
+  ///
+  /// At most one request is in flight (later ticks share it), each is bounded
+  /// by [_pollTimeout], and a response that arrives after the stream took over
+  /// (or after [close]) is discarded — the same guards the JavaScript SDKs use.
+  Future<void> _pollSnapshot() =>
+      _pollInFlight ??= _fetchSnapshot(_syncGeneration)
+          .whenComplete(() => _pollInFlight = null);
+
+  Future<void> _fetchSnapshot(int generation) async {
     final client = _httpClient;
     if (client == null) return;
     try {
       final response = await client.get(
         Uri.parse('$serverUrl/flags/snapshot'),
         headers: {'Authorization': 'Bearer $sdkKey'},
-      );
+      ).timeout(_pollTimeout);
       if (response.statusCode != 200) return;
 
       final flags = jsonDecode(response.body) as List<dynamic>;
+      if (generation != _syncGeneration || _closed) return;
       _applySnapshot(flags);
       _hydrated = true;
 
@@ -482,7 +517,7 @@ class CheckgateClient {
     malloc.free(k);
   }
 
-  /// Evaluate a flag for a user synchronously (sub-microsecond, no network).
+  /// Evaluate a flag for a user synchronously (in-process, no network).
   ///
   /// [attributes] is a flat map of string→string user attributes used for
   /// targeting rules (e.g. `{'email': 'u@acme.com', 'country': 'US'}`).
@@ -729,6 +764,9 @@ class CheckgateClient {
     _staged = null;
     _stagedRevisions = null;
   }
+
+  /// Test-only: run one poll-fallback request, as the poll timer does.
+  Future<void> debugPollSnapshot() => _pollSnapshot();
 
   /// Test-only: the raw flags the client currently evaluates against.
   Map<String, Map<String, dynamic>> get debugFlags => _flagCache;

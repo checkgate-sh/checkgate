@@ -3,9 +3,12 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   base: "/checkgate/",
   ignoreDeadLinks: [/^http:\/\/localhost/],
+  // Release-engineering records (assessments, reviews, readiness reports) are
+  // versioned with the code but are not pages of the documentation site.
+  srcExclude: ["releases/**"],
   title: "Checkgate",
   description:
-    "The ultimate open-source feature flag engine. Achieve sub-microsecond feature toggle evaluation down to the local level with native SDKs. Self-hosted and fully private.",
+    "The ultimate open-source feature flag engine. Evaluate feature flags in-process, with no network call, through native SDKs. Self-hosted and fully private.",
 
   head: [
     ["meta", { name: "og:type", content: "website" }],
@@ -21,7 +24,7 @@ export default defineConfig({
       {
         name: "og:description",
         content:
-          "Sub-microsecond feature flag evaluation for Node.js, React Native, Flutter, and browsers. Self-hosted, open-source, no vendor lock-in.",
+          "In-process feature flag evaluation for Node.js, React Native, Flutter, and browsers. Self-hosted, open-source, no vendor lock-in.",
       },
     ],
     [
@@ -29,7 +32,7 @@ export default defineConfig({
       {
         name: "keywords",
         content:
-          "feature flags, open source feature flags, self-hosted feature toggles, LaunchDarkly alternative, sub-microsecond feature flags, Rust feature flag",
+          "feature flags, open source feature flags, self-hosted feature toggles, LaunchDarkly alternative, in-process feature flags, Rust feature flag",
       },
     ],
     ["meta", { name: "twitter:card", content: "summary_large_image" }],

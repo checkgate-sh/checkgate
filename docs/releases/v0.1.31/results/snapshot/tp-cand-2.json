@@ -1,0 +1,46 @@
+{
+  "endpoint": "GET /flags/snapshot",
+  "flags_in_snapshot": 101,
+  "generated_by": "server/examples/throughput.rs",
+  "levels": [
+    {
+      "concurrency": 10,
+      "error_rate": 0.0,
+      "errors": {},
+      "failed_requests": 0,
+      "generator": {
+        "cpu_cores_mean": 0.0,
+        "cpu_cores_peak_1s": 0.0
+      },
+      "latency": {
+        "max_ms": 251.952,
+        "mean_ms": 17.264,
+        "p50_ms": 15.71,
+        "p90_ms": 20.937,
+        "p95_ms": 23.887,
+        "p999_ms": 146.315,
+        "p99_ms": 42.523,
+        "samples": 11583
+      },
+      "response_bytes": 15271,
+      "server": {
+        "cpu_cores_mean": 0.0,
+        "cpu_cores_peak_1s": 0.0,
+        "cpu_samples": 0,
+        "requests_per_cpu_second": 0.0,
+        "rss_mib_median": 0.0,
+        "rss_mib_peak_1s": 0.0
+      },
+      "successful_requests": 11583,
+      "successful_rps": 579.15,
+      "throughput_mib_per_s": 8.434,
+      "warmup_s": 5,
+      "window_s": 20
+    }
+  ],
+  "response_bytes": 15271,
+  "server_proc_visible": false,
+  "server_rss_mib_after": 0.0,
+  "server_rss_mib_before": 0.0,
+  "server_rss_mib_high_water_mark": 0.0
+}

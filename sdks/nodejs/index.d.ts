@@ -54,7 +54,7 @@ export interface CheckgateClientOptions {
  * Checkgate Node.js SDK client.
  *
  * Connects once to the server via SSE, downloads all flags, and evaluates
- * them locally in <1 µs with zero network IO on every isEnabled() call.
+ * them locally, with no network IO, on every isEnabled() call.
  */
 export declare class CheckgateClient {
   constructor(options: CheckgateClientOptions);

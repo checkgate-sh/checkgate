@@ -1,0 +1,18 @@
+== 1. v0.1.30 creates schema + 101 flags
+seeded 101 flags into environment 198ce324-bd23-49dc-862c-871e15f17e63
+old snapshot:        101 f28529ff1cb635b2
+== 2. upgrade: v0.1.31 on the same database
+new is ready
+new snapshot:        101 f28529ff1cb635b2
+migrations before/after: 29|20261029000028 / 29|20261029000028
+patch via new: 200
+== 3. rolling: v0.1.30 and v0.1.31 together
+old is ready next to new
+patch via new: 200
+patch via old: 200
+old instance's client saw new's change: 1
+new instance's client saw old's change: 1
+== 4. rollback: v0.1.30 alone
+old is ready after rollback
+old snapshot:        101 6854f4747aef6673
+hot after rollback:  ['old-to-new']

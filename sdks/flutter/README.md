@@ -73,7 +73,7 @@ Use the **same `userKey`** you pass to `getVariant()`/`isEnabled()` so conversio
 attribute to the right variant.
 
 ## Why Checkgate FFI?
-* **Synchronous FFI Evaluation:** You do not need to `await` flag resolution ever. The evaluation runs in Rust natively in sub-microseconds avoiding Dart async blocking limits.
-* **Instant Propagation (0 to <50ms):** Leverages server-side SSE channels natively within the Rust binary so flag adjustments happen seamlessly within your app flow.
+* **Synchronous FFI Evaluation:** You do not need to `await` flag resolution ever. The evaluation runs in Rust natively, avoiding Dart async blocking limits.
+* **Real-Time Propagation:** Leverages server-side SSE channels natively within the Rust binary so flag adjustments happen seamlessly within your app flow.
 
 Review advanced patterns inside the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

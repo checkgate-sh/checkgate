@@ -15,8 +15,10 @@ mod auth;
 mod client_ip;
 mod integrations;
 mod lifecycle;
+mod limits;
 mod metrics;
 mod notify;
+mod process_metrics;
 mod rate_limit;
 mod scheduler;
 mod setup;
@@ -43,7 +45,7 @@ use std::time::Duration;
 use tokio::sync::{Notify, RwLock, broadcast};
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::{DefaultMakeSpan, DefaultOnFailure, DefaultOnResponse, TraceLayer};
+use tower_http::trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer};
 use tracing::{Level, error, info, warn};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -322,11 +324,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── App state ─────────────────────────────────────────────────────────────
 
-    let webhook_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .user_agent("Checkgate-Webhooks/1.0")
-        .build()
-        .unwrap_or_default();
+    let webhook_client = webhook_fire::delivery_client();
 
     let metrics = metrics::Metrics::new(max_conns);
     let lifecycle = Arc::new(lifecycle::Lifecycle::new(lifecycle_config));
@@ -397,7 +395,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )]);
 
     let trace_layer = TraceLayer::new_for_http()
-        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+        // The path only: browser EventSource clients authenticate with
+        // `?sdk_key=`, and the default span records the full URI — query
+        // string included — on every log line of the request.
+        .make_span_with(|req: &axum::http::Request<axum::body::Body>| {
+            tracing::info_span!(
+                "request",
+                method = %req.method(),
+                path = %req.uri().path(),
+                version = ?req.version(),
+            )
+        })
         .on_response(DefaultOnResponse::new().level(Level::INFO))
         .on_failure(DefaultOnFailure::new().level(Level::ERROR));
 

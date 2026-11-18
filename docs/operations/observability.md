@@ -58,7 +58,7 @@ to forward metrics to any OTel backend.
 | `checkgate_flag_publish_duration_seconds` | histogram | Time to publish one event, retry included. |
 | `checkgate_redis_connected` | gauge | `1` while the subscription is up and answering pings. |
 | `checkgate_redis_reconnections_total{reason}` | counter | Subscription losses: `closed`, `ping_timeout`, `connect_failed`. |
-| `checkgate_resync_requests_total{trigger}` | counter | Times clients were told to re-bootstrap: `subscriber_reconnect`, `remote`, `reconciliation`, `environment_removed`. |
+| `checkgate_resync_requests_total{trigger}` | counter | Times clients were told to re-bootstrap: `subscriber_reconnect`, `remote`, `reconciliation`, `environment_removed`, `segment_read_failed` (a committed change could not be expanded with its segments, so its environment re-bootstraps instead). |
 | `checkgate_resync_failures_total` | counter | Failed attempts to broadcast a `RESYNC` through Redis. |
 | `checkgate_resync_pending` | gauge | `1` while a `RESYNC` broadcast is waiting for Redis. |
 | `checkgate_sync_reconciliations_total{outcome}` | counter | Reconciliation passes, `success`/`failure`. |
@@ -76,6 +76,16 @@ to forward metrics to any OTel backend.
 | `checkgate_database_up` | gauge | `1` if the last database check (readiness or reconciliation) succeeded. |
 | `checkgate_ready` | gauge | `1` while ready (not draining). |
 | `checkgate_build_info{version}` | info | Build version. |
+| `process_cpu_seconds_total` | counter | CPU time (user + system) of the server process. Linux only. |
+| `process_resident_memory_bytes` / `process_virtual_memory_bytes` | gauge | Resident and virtual memory. Linux only. |
+| `process_open_fds` / `process_threads` | gauge | Open file descriptors (each SSE stream holds one) and OS threads. Linux only. |
+| `process_start_time_seconds` | gauge | Process start time, Unix epoch. Linux only. |
+
+The `process_*` metrics use the standard names of every Prometheus client
+library, so existing dashboards work. They are read from `/proc/self` only when
+`/metrics` is scraped (no background sampling) and are absent on non-Linux
+hosts. No metric carries a user key, attribute value, SDK key or flag key as a
+label: every label is from a fixed set (route templates, reasons, outcomes).
 
 ### Reading the signals
 
@@ -156,6 +166,7 @@ and fields for operations:
 | `Redis reachable again — resync broadcast sent` | INFO | |
 | `Committed flag changes were never relayed to this instance — resyncing the environment's clients` | WARN | `environment_id`, `flags`, `sample_keys` |
 | `Sync reconciliation failed — will retry` | WARN | `error` |
+| `Could not read segments to expand a committed flag change — resyncing this environment's clients instead of publishing it` | WARN | `operation`, `env_id`, `error` |
 | `SSE client connected` | INFO | `connection_id`, `environment_id`, `sdk_key_name`, `bootstrap_flags`, `bootstrap_ms`, `client_ip` |
 | `SSE client disconnected` | INFO | `connection_id`, `reason` |
 | `SSE client lagged — closing connection to trigger reconnect` | WARN | `missed_messages` |

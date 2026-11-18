@@ -5,7 +5,7 @@
 # @checkgate/node
 
 **Checkgate Node.js SDK (NAPI)** — The official high-performance, native Node.js client for Checkgate.
-This SDK is built on top of the Rust native codebase, powered by NAPI-RS for absolute zero-overhead sub-microsecond feature flag evaluation directly in your server.
+This SDK is built on top of the Rust native codebase, powered by NAPI-RS for in-process feature flag evaluation directly in your server.
 
 ## Installation
 
@@ -33,7 +33,7 @@ async function run() {
   // Connect via SSE to instantly stream flag rules
   await checkgate.connect()
 
-  // Evaluate features with sub-microsecond latency locally
+  // Evaluate features locally (no network call)
   const showFeature = checkgate.isEnabled('new-dashboard', 'user_123', { 
     email: 'user@example.com' 
   })
@@ -64,8 +64,8 @@ Use the **same `userKey`** you pass to `getVariant()`/`isEnabled()` so conversio
 attribute to the right variant.
 
 ## Why Checkgate?
-* **Sub-Microsecond Evaluation:** Flags are parsed instantly in-memory via Rust native bindings.
-* **Instant Propagation:** Leverages SSE (Server Sent Events) to distribute flag toggles globally in < 50ms without polling.
+* **In-Process Evaluation:** Flags are evaluated in memory via Rust native bindings, in a few microseconds per call.
+* **Instant Propagation:** Leverages SSE (Server Sent Events) to distribute flag toggles, typically within tens of milliseconds, without polling.
 * **Self-Hosted Privacy:** Keep your user data strictly within your own infrastructure bounds.
 
 For more information and detailed architecture designs, check out the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

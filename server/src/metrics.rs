@@ -103,6 +103,9 @@ pub enum ResyncTrigger {
     reconciliation,
     /// Reconciliation found an environment that no longer exists.
     environment_removed,
+    /// A committed flag change could not be expanded with its segments, so
+    /// its environment's clients re-bootstrap instead of receiving it.
+    segment_read_failed,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -193,6 +196,7 @@ impl Metrics {
     pub fn new(db_pool_max: u32) -> Arc<Self> {
         let mut r = Registry::default();
         let p = |name: &str| format!("checkgate_{name}");
+        r.register_collector(Box::new(crate::process_metrics::ProcessCollector));
 
         let http_requests = Family::<HttpLabels, Counter>::default();
         r.register(
@@ -393,6 +397,7 @@ impl Metrics {
             ResyncTrigger::remote,
             ResyncTrigger::reconciliation,
             ResyncTrigger::environment_removed,
+            ResyncTrigger::segment_read_failed,
         ] {
             drop(resync_requests.get_or_create(&ResyncLabels { trigger }));
         }
