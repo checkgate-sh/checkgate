@@ -69,8 +69,11 @@ Future<void> main() async {
         reply({
           'id': id,
           'value': engine
-              ? client!.isEnabled(msg['key'] as String, msg['user'] as String,
-                  {'plan': 'pro'})
+              ? client!.isEnabled(
+                  msg['key'] as String,
+                  msg['user'] as String,
+                  (msg['attrs'] as Map<String, dynamic>?)?.cast<String, String>() ??
+                      const {'plan': 'pro'})
               : null,
         });
       case 'sample':

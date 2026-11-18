@@ -216,7 +216,7 @@ jobs:
   # live SSE connection against a running server (the full application loop).
   # ---------------------------------------------------------------------------
   sdk-node-e2e:
-    name: Node SDK e2e (live SSE)
+    name: SDK e2e (live SSE)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -286,6 +286,27 @@ jobs:
           kill $SRV 2>/dev/null || true
           if [ $RC -ne 0 ]; then echo "=== server log ==="; cat server.log; fi
           exit $RC
+
+      # Every SDK's real client, transport and engine against a real server:
+      # bootstrap, live updates, reconnect, half-open detection, poll
+      # fallback, invalid and revoked keys, shutdown (sdks/conformance/live.mjs).
+      - name: Toolchains for the web and Flutter engines
+        run: |
+          rustup target add wasm32-unknown-unknown
+          npm install -g wasm-pack@0.15.1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Live end-to-end, every SDK
+        env:
+          PGPASSWORD: postgres
+          REDIS_URL: redis://localhost:6379/5
+        run: |
+          psql -h localhost -U postgres -c 'CREATE DATABASE checkgate_live'
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/checkgate_live \
+            scripts/sdk-live-e2e.sh all
 
   # ---------------------------------------------------------------------------
   # Docker image — build it and smoke-test both deployment modes (all-in-one
