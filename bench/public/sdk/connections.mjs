@@ -22,7 +22,7 @@
 // Poll mode: every client GETs /flags/snapshot every --interval-s (start
 //   offsets spread over one interval), --warmup-s unrecorded, then a window of
 //   max(--window-s, 3 intervals) with one PATCH every --update-gap-s; for each
-//   update, staleness = when each client first saw it − PATCH sent.
+//   update, staleness = when each client first saw it (or a newer one) − PATCH sent.
 //
 // The server's CPU and RSS come from /proc/<server-pid> and its network bytes
 // (all of eth0: SDK traffic plus PostgreSQL and Redis) from
@@ -45,7 +45,7 @@ if (process.argv[2] === '--worker') {
   const clients = [];
   let cfg;
   const bytes = { bootstrap: 0, heartbeat: 0, update: 0, other: 0, poll: 0 };
-  const seen = []; // [value, t] per hot-flag observation
+  const seen = []; // [value, t, previous value] per hot-flag observation
   let refused = 0;
   let requests = 0;
   let errors = 0;
@@ -128,7 +128,7 @@ if (process.argv[2] === '--worker') {
         pollLatency.push(t - t0);
         const m = body.match(new RegExp(`"key":"${HOT_FLAG}"[^}]*?"default_value":"([^"]+)"|"default_value":"([^"]+)"[^}]*?"key":"${HOT_FLAG}"`));
         const v = m && (m[1] || m[2]);
-        if (v && v !== c.last) { c.last = v; seen.push([v, t]); }
+        if (v && v !== c.last) { seen.push([v, t, c.last]); c.last = v; }
       });
     }).on('error', () => { errors++; });
   }
@@ -345,10 +345,20 @@ async function main() {
       // Clients that saw an update after the window still count for staleness.
       await sleep(interval * 1000 + 2000);
       const ps2 = await stats();
+      // A poll that returns update k after the client last saw update j is
+      // the first time that client saw every update j+1..k: updates replaced
+      // before the client polled count too, each from its own PATCH.
+      const order = [...sentAt.keys()];
+      const index = new Map(order.map((v, i) => [v, i]));
       const stale = [];
-      for (const [v, t] of [...ps0.seen, ...ps1.seen, ...ps2.seen]) {
-        const sent = sentAt.get(v);
-        if (sent !== undefined && t >= sent) stale.push(t - sent);
+      for (const [v, t, prev] of [...ps0.seen, ...ps1.seen, ...ps2.seen]) {
+        const k = index.get(v);
+        if (k === undefined) continue;
+        const j = index.has(prev) ? index.get(prev) : -1;
+        for (let i = j + 1; i <= k; i++) {
+          const sent = sentAt.get(order[i]);
+          if (t >= sent) stale.push(t - sent);
+        }
       }
       const secs = (p1.t - p0.t) / 1000;
       const req = ps1.requests - ps0.requests;

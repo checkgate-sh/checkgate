@@ -6,13 +6,15 @@
 Does not run any benchmark. Checks that:
 1. summary.json and every raw run file parse and carry the expected fields;
    the summary was generated from the raw files now on disk.
-2. Every headline number in the graphic comes from summary.json (the SVGs
+   The same for cost-summary.json (connected-client cost) and pricing.json.
+2. Every headline number in the graphics comes from the summaries (the SVGs
    are re-rendered and must be byte-identical — generation is deterministic
    and the committed files are current).
 3. The SVGs are well-formed XML with <title> and <desc>, and contain no
    script, external reference, event handler or web font.
-4. The README states the headline numbers (alt text); every relative link and image in the README's Performance section, and the
-   benchmark docs, resolves to a file in the repository.
+4. The README states the headline numbers (alt text); every relative link and
+   image in the README's two benchmark sections, and the benchmark docs,
+   resolves to a file in the repository.
 5. Every `bench/public/run.sh <command>` written in the docs is a real
    command, and every repository path the docs name exists.
 """
@@ -30,9 +32,13 @@ sys.dont_write_bytecode = True  # importing render_svg must not leave __pycache_
 ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
                       text=True, check=True).stdout.strip()
 HERE = os.path.join(ROOT, "bench", "public")
-RESULTS = os.path.join(ROOT, "docs", "performance", "results", "v0.1.30")
+with open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8") as _f:
+    VERSION = re.search(r'^version = "([^"]+)"', _f.read(), re.M).group(1)
+RESULTS = os.path.join(ROOT, "docs", "performance", "results", f"v{VERSION}")
+SECTIONS = ("Architecture & Performance", "Infrastructure Cost & Savings")
 ASSETS = os.path.join(ROOT, "assets", "benchmarks")
-DOCS = [os.path.join(ROOT, "docs", "performance", "benchmarks.md"), os.path.join(HERE, "README.md")]
+DOCS = [os.path.join(ROOT, "docs", "performance", "benchmarks.md"),
+        os.path.join(ROOT, "docs", "performance", "cost-efficiency.md"), os.path.join(HERE, "README.md")]
 errors = []
 
 
@@ -106,22 +112,59 @@ def check_schema():
         fail(f"summarize.py failed: {regenerated.stderr.strip()}")
     elif json.loads(regenerated.stdout) != s:
         fail("summary.json is stale: rerun `bench/public/run.sh summarize`")
+    if s.get("baseline") and not glob_baseline():
+        fail("summary.json has a baseline but no baseline-v*/ directory is committed")
     return s
 
 
-def check_svgs(summary):
+def glob_baseline():
+    return [d for d in os.listdir(RESULTS) if d.startswith("baseline-v")] if os.path.isdir(RESULTS) else []
+
+
+def check_cost():
+    path = os.path.join(RESULTS, "cost-summary.json")
+    if not os.path.exists(path):
+        return None
+    c = load(path)
+    if c is None:
+        return None
+    require(c, "", ["schema", "measured", "calculated", "pricing", "projected"], "cost-summary.json")
+    for name, item in (c.get("pricing", {}).get("items") or {}).items():
+        if not item.get("sources"):
+            fail(f"cost-summary.json: price `{name}` has no source")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(c.get("pricing", {}).get("accessed"))):
+        fail("cost-summary.json: pricing has no access date")
+    for m in c.get("projected", {}).get("monthly", []):
+        profiles = c["measured"]["sse" if m["mode"] == "sse" else "poll"]
+        prof = next((p for p in profiles if p["clients"] == m["clients"] and p.get("interval_s") == m.get("interval_s")), None)
+        if m.get("total_usd") is not None and not (prof and prof.get("sustained")):
+            fail(f"cost-summary.json: a price is projected for {m['mode']} {m['clients']} clients, which was not sustained")
+    regenerated = subprocess.run([sys.executable, os.path.join(HERE, "scripts", "summarize_cost.py"), RESULTS],
+                                 capture_output=True, text=True)
+    if regenerated.returncode != 0:
+        fail(f"summarize_cost.py failed: {regenerated.stderr.strip()}")
+    elif json.loads(regenerated.stdout) != c:
+        fail("cost-summary.json is stale: rerun `bench/public/run.sh summarize`")
+    return c
+
+
+def check_svgs(summary, cost):
     with tempfile.TemporaryDirectory() as tmp:
         tmp_summary = os.path.join(tmp, "summary.json")
         with open(tmp_summary, "w", encoding="utf-8") as f:
             json.dump(summary, f)
+        if cost is not None:
+            with open(os.path.join(tmp, "cost-summary.json"), "w", encoding="utf-8") as f:
+                json.dump(cost, f)
         out = os.path.join(tmp, "svg")
         r = subprocess.run([sys.executable, os.path.join(HERE, "scripts", "render_svg.py"), tmp_summary, out],
                            capture_output=True, text=True)
         if r.returncode != 0:
             fail(f"render_svg.py failed: {r.stderr.strip()}")
             return
-        for theme in ("light", "dark"):
-            name = f"performance-{theme}.svg"
+        names = [f"{g}-{theme}.svg" for g in ("performance", "cost") if g == "performance" or cost is not None
+                 for theme in ("light", "dark")]
+        for name in names:
             committed = os.path.join(ASSETS, name)
             if not os.path.exists(committed):
                 fail(f"assets/benchmarks/{name} is missing")
@@ -176,7 +219,7 @@ def links(md_path, section=None):
 
 
 def check_links():
-    targets = [(os.path.join(ROOT, "README.md"), "Performance")] + [(d, None) for d in DOCS]
+    targets = [(os.path.join(ROOT, "README.md"), s) for s in SECTIONS] + [(d, None) for d in DOCS]
     for md, section in targets:
         if not os.path.exists(md):
             fail(f"{os.path.relpath(md, ROOT)} is missing")
@@ -195,12 +238,12 @@ def check_readme_numbers(summary):
     sys.path.insert(0, os.path.join(HERE, "scripts"))
     from render_svg import fmt_value  # the graphic's own formatting
     with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as f:
-        m = re.search(r"^## Performance\n(.*?)(?=^## |\Z)", f.read(), re.M | re.S)
+        m = re.search(rf"^## {re.escape(SECTIONS[0])}\n(.*?)(?=^## |\Z)", f.read(), re.M | re.S)
     section = m.group(1) if m else ""
     for key, h in summary.get("headline", {}).items():
         num, unit = fmt_value(h)
         if f"{num} {unit}" not in section and f"{num} {h['unit']}" not in section and num not in section:
-            fail(f"README.md Performance section does not state the {key} headline ({num} {unit})")
+            fail(f"README.md {SECTIONS[0]} section does not state the {key} headline ({num} {unit})")
 
 
 def check_commands():
@@ -222,8 +265,9 @@ def check_commands():
 
 def main():
     summary = check_schema()
+    cost = check_cost()
     if summary is not None:
-        check_svgs(summary)
+        check_svgs(summary, cost)
         check_readme_numbers(summary)
     check_links()
     check_commands()

@@ -25,6 +25,7 @@
 #   COST_CLIENTS   connected clients per cost profile [100,1000,5000,10000]
 #   COST_POLL_INTERVALS  polling intervals compared with SSE, seconds [10,30,60]
 #   COST_REPS      repetitions of each cost profile [1]
+#   COST_MODES     which cost profiles to run: sse, poll or both [sse,poll]
 #   BENCH_SERVER_CPUS / BENCH_SERVER_MEMORY   server limits [1 / 512m]
 #
 # Each repetition starts from an empty database on a freshly created stack.
@@ -48,6 +49,7 @@ UPDATES="${UPDATES:-200}"
 COST_CLIENTS="${COST_CLIENTS:-100,1000,5000,10000}"
 COST_POLL_INTERVALS="${COST_POLL_INTERVALS:-10,30,60}"
 COST_REPS="${COST_REPS:-1}"
+COST_MODES="${COST_MODES:-sse,poll}"
 REP_START="${REP_START:-1}"
 reps() { seq "$REP_START" $((REP_START + $1 - 1)); }
 build() { [ "${BENCH_SKIP_BUILD:-0}" = 1 ] || compose --profile tools build; }
@@ -193,10 +195,12 @@ run_cost() {
   local n i r
   for r in $(reps "$COST_REPS"); do
     for n in ${COST_CLIENTS//,/ }; do
-      run_cost_profile sse "$n" "" "$r"
-      for i in ${COST_POLL_INTERVALS//,/ }; do
-        run_cost_profile poll "$n" "$i" "$r"
-      done
+      if [[ ",$COST_MODES," == *,sse,* ]]; then run_cost_profile sse "$n" "" "$r"; fi
+      if [[ ",$COST_MODES," == *,poll,* ]]; then
+        for i in ${COST_POLL_INTERVALS//,/ }; do
+          run_cost_profile poll "$n" "$i" "$r"
+        done
+      fi
     done
   done
   compose --profile tools down -v --remove-orphans

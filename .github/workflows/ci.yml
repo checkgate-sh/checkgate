@@ -46,6 +46,7 @@ jobs:
       - name: Scripts parse
         run: |
           bash -n bench/public/run.sh
+          bash -n bench/public/compare.sh
           for f in bench/public/sdk/*.mjs; do node --check "$f"; done
           docker compose -f bench/public/compose.yml --profile tools config --quiet
 
