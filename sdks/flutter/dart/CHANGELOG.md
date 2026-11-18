@@ -1,3 +1,7 @@
+## 0.1.31 (2026-11-18)
+
+- Release 0.1.31.
+
 ## 0.1.30 (2026-11-11)
 
 - Faster rollout and multivariate evaluation: the shared Rust core hashes
