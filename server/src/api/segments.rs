@@ -90,8 +90,9 @@ pub(crate) async fn load_env_segments(
     let mut map = HashMap::new();
     for row in rows {
         let key: String = row.get("key");
-        if let Ok(rules_val) = row.try_get::<Value, _>("rules")
-            && let Ok(rules) = serde_json::from_value::<Vec<TargetingRule>>(rules_val)
+        // Decoded straight into the rules, without a `Value` tree in between.
+        if let Ok(sqlx::types::Json(rules)) =
+            row.try_get::<sqlx::types::Json<Vec<TargetingRule>>, _>("rules")
         {
             map.insert(key, rules);
         }

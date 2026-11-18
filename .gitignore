@@ -41,3 +41,6 @@ internal_docs/
 # Benchmark scratch: session credentials and docker stats captures written
 # while bench/public/run.sh runs.
 bench/public/.work/
+# Output of the local A/B scripts (bench/ab/); results worth keeping are
+# copied into docs/releases/<version>/results/.
+bench/ab/out/
