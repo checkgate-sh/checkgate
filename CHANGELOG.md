@@ -5,6 +5,114 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.31] - Unreleased
+
+### Upgrading from 0.1.30
+
+No migration, configuration change or API change is required, and rolling
+back to 0.1.30 needs no database step (tested: upgrade, mixed versions and
+rollback on one database). Check these first:
+
+- **Configuration limits.** Flag and segment writes past these limits now get
+  `422`: more than 500 rules on a flag; the same segment referenced twice;
+  more than 50 distinct segments on a flag; a prerequisite on the flag itself,
+  listed twice, or more than 50; more than 100 variants; more than 500 rules
+  in a segment. Stored flags keep working. `docs/releases/v0.1.31/UPGRADE-AND-ROLLBACK.md`
+  has a query that finds flags a later edit would reject.
+- **`GET /flags/snapshot` answers `500` when a stored flag does not decode**,
+  instead of silently leaving it out (which polling SDKs treated as a delete).
+- **Tokens.** A personal access token can no longer create a token that
+  outlives itself, and a read-only token can no longer revoke tokens.
+- **Webhooks and integrations no longer follow redirects**, and store at most
+  1 KiB of each response.
+- **Logs.** The request span records `path` (no query string) instead of
+  `uri`, so `?sdk_key=` is no longer logged. Webhook logs no longer include
+  the URL.
+- **All-in-one container.** The entrypoint shell stays as PID 1 and stops the
+  bundled PostgreSQL and Redis after the server exits. Keep the stop timeout
+  at 30 s or more (`docker-compose.yml` now sets `stop_grace_period: 30s`).
+
+### Security
+
+- **One editor could exhaust memory for the whole server** by referencing a
+  segment thousands of times in a flag: each reference copied the segment's
+  rules, for every publish, SSE bootstrap and snapshot. Duplicate references
+  are rejected and expansion is bounded (see the limits above).
+- **Prerequisite fan-out could freeze every SDK.** Prerequisites that are all
+  satisfied never short-circuit, so a chain of flags that each list the next
+  one several times cost N^depth evaluations per `isEnabled`. The core now
+  caps prerequisite evaluations at 1 000 per evaluation (failing closed), and
+  the server rejects self-references, duplicates and more than 50.
+- **Webhook SSRF through redirects.** The delivery client followed redirects
+  to any host and stored the full response, readable by project viewers.
+  Redirects are no longer followed and bodies are capped.
+- **An integration's URL (its posting credential) leaked through delivery
+  errors** stored for viewers and written to logs. It is now removed.
+- **Unauthenticated logins could stall an instance.** Argon2 ran on async
+  worker threads; it now runs on the blocking pool, at most one per CPU.
+- **`?sdk_key=` was written to the server's own logs** through the request span.
+- Read-only tokens could revoke the user's other tokens, and any token could
+  mint a non-expiring one. Audit-log paging was unbounded (a negative limit
+  gave a 500).
+- `quinn-udp` 0.5.14 → 0.5.16 (RUSTSEC-2026-0538). Only in the lockfile; never
+  compiled.
+
+### Fixed
+
+- **Web, React Native and Flutter SDKs: one non-string attribute erased every
+  attribute**, so a user excluded by a `not_equals` rule was let through. Each
+  invalid attribute is now skipped on its own.
+- **Flutter: large bootstraps lost flags, and `connect()` could hang.** The
+  SSE parser split each network chunk on newlines without carrying partial
+  lines over, so lines cut across socket reads were dropped, sometimes
+  including the `ready` event.
+- **Flutter: a slow poll could roll back newer stream state** after a
+  reconnect. Polls are now single-flight, time out after 30 s, and discard
+  responses that arrive after the stream takes over.
+- **React Native: without an `EventSource` polyfill, `connect()` never
+  settled.** React Native ships none. The SDK now logs what to install and
+  polls meanwhile; the docs require `react-native-sse`.
+- **A flag change whose segments could not be read was published with its
+  segment rules stripped**, and reconciliation could not repair it. Such a
+  change now re-bootstraps the environment's clients instead
+  (`checkgate_resync_requests_total{trigger="segment_read_failed"}`).
+- `/flags/snapshot` read flags and segments in two statements (a segment edit
+  in between gave a mixed snapshot) and silently dropped undecodable flags.
+- **All-in-one container: PostgreSQL and Redis were SIGKILLed on every
+  `docker stop`**, so PostgreSQL ran crash recovery on each start. They are
+  now shut down cleanly. `scripts/docker-smoke.sh` checks this, and also runs
+  on macOS's bash 3.2.
+
+### Performance
+
+- **Node SDK evaluation is 1.9–8.8× faster** (boolean flag: 6.9 µs → 0.78 µs,
+  5 attributes). The binding reads only the attributes the flag's rules
+  reference, instead of converting the whole object on every call. Results
+  are identical (360 000-call differential check against 0.1.30). An attribute
+  that no rule reads is no longer validated, and `null` attributes no longer
+  throw.
+- **`/flags/snapshot` and SSE bootstrap use about a third less CPU per
+  request**: flags are decoded straight from `jsonb`, without an intermediate
+  JSON tree, and the snapshot is one query. Measured locally: −33 % server CPU
+  per request, +44 % throughput.
+
+### Added
+
+- Prometheus process metrics on `/metrics` (Linux): `process_cpu_seconds_total`,
+  `process_resident_memory_bytes`, `process_virtual_memory_bytes`,
+  `process_open_fds`, `process_threads`, `process_start_time_seconds`.
+- `bench/ab/`: scripts to compare two builds (Node evaluation, snapshot
+  throughput and CPU, a Node differential check, upgrade and rollback).
+- `docs/releases/v0.1.31/`: the assessment, reviews, measurements and release
+  readiness report for this release.
+
+### Documentation
+
+- Performance claims now match measurements: "sub-microsecond" only for the
+  Rust core, "a few microseconds" for the Node SDK, "tens of milliseconds" for
+  propagation. Unsourced numbers about other products were removed.
+- The evaluation diagram includes prerequisites.
+
 ## [0.1.30] - 2026-11-11
 
 Versions 0.1.26–0.1.29 were skipped; 0.1.30 directly follows 0.1.25.
