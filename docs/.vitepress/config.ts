@@ -3,6 +3,9 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   base: "/checkgate/",
   ignoreDeadLinks: [/^http:\/\/localhost/],
+  // Release-engineering records (assessments, reviews, readiness reports) are
+  // versioned with the code but are not pages of the documentation site.
+  srcExclude: ["releases/**"],
   title: "Checkgate",
   description:
     "The ultimate open-source feature flag engine. Achieve sub-microsecond feature toggle evaluation down to the local level with native SDKs. Self-hosted and fully private.",
