@@ -76,6 +76,16 @@ to forward metrics to any OTel backend.
 | `checkgate_database_up` | gauge | `1` if the last database check (readiness or reconciliation) succeeded. |
 | `checkgate_ready` | gauge | `1` while ready (not draining). |
 | `checkgate_build_info{version}` | info | Build version. |
+| `process_cpu_seconds_total` | counter | CPU time (user + system) of the server process. Linux only. |
+| `process_resident_memory_bytes` / `process_virtual_memory_bytes` | gauge | Resident and virtual memory. Linux only. |
+| `process_open_fds` / `process_threads` | gauge | Open file descriptors (each SSE stream holds one) and OS threads. Linux only. |
+| `process_start_time_seconds` | gauge | Process start time, Unix epoch. Linux only. |
+
+The `process_*` metrics use the standard names of every Prometheus client
+library, so existing dashboards work. They are read from `/proc/self` only when
+`/metrics` is scraped (no background sampling) and are absent on non-Linux
+hosts. No metric carries a user key, attribute value, SDK key or flag key as a
+label: every label is from a fixed set (route templates, reasons, outcomes).
 
 ### Reading the signals
 
