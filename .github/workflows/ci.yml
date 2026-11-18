@@ -446,8 +446,9 @@ jobs:
         run: node --test
 
   # ---------------------------------------------------------------------------
-  # Node SDK — client-logic unit tests (native core + eventsource are mocked,
-  # so no native build or install is needed)
+  # Node SDK — client-logic unit tests (the native core is mocked, so no native
+  # build). The fault-injection suite uses the real `eventsource` transport,
+  # the SDK's one runtime dependency.
   # ---------------------------------------------------------------------------
   sdk-node:
     name: Node SDK tests
@@ -458,6 +459,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+
+      - name: Install the runtime dependency
+        working-directory: sdks/nodejs
+        run: npm ci --omit=dev --ignore-scripts
 
       - name: Run tests
         working-directory: sdks/nodejs
