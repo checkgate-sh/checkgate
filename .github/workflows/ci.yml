@@ -190,6 +190,7 @@ jobs:
           cargo test -p server --test setup_ownership -- --nocapture
           cargo test -p server --test sdk_health -- --nocapture
           cargo test -p server --test environment_isolation -- --nocapture
+          cargo test -p server --test hardening -- --nocapture
 
       # Health, readiness, graceful shutdown, metrics and admission control.
       - name: Lifecycle and metrics tests
