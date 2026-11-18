@@ -58,6 +58,8 @@ const enabled = client.isEnabled('new-checkout-flow', userId, {
 | `maxReconnectDelayMs` | `number` | `30000` | Maximum backoff delay between reconnects |
 | `pollFallbackThreshold` | `number` | `3` | Consecutive failed SSE reconnects before falling back to polling `/flags/snapshot`. `Infinity` disables |
 | `pollIntervalMs` | `number` | `30000` | Poll interval while in fallback mode |
+| `connectTimeoutMs` | `number` | `30000` | A stream attempt without the server's `connected` event by then is retried |
+| `streamIdleTimeoutMs` | `number` | 3 × announced heartbeat | A connected stream silent this long is reconnected. No idle timeout against servers before 0.1.31; `0` disables |
 | `reportImpressions` | `boolean` | `true` | Report evaluation events for analytics |
 | `impressionBatchSize` | `number` | `50` | Flush after this many buffered events |
 | `impressionFlushIntervalMs` | `number` | `10000` | Periodic flush interval |
@@ -69,6 +71,30 @@ const enabled = client.isEnabled('new-checkout-flow', userId, {
 Connects to the server's SSE stream and downloads the current flag set. Resolves when the initial bootstrap is complete. Call this once at application startup.
 
 Sets up automatic reconnection with exponential backoff on connection loss.
+
+### Connection health
+
+`client.getStatus()` returns `{ state, lastSyncAt, error }`:
+
+| `state` | Meaning |
+|---|---|
+| `'connecting'` | First connection attempt in progress |
+| `'streaming'` | Live stream; flags are current |
+| `'reconnecting'` | Stream lost; retrying with backoff (flags: last known) |
+| `'polling'` | Stream keeps failing; polling `/flags/snapshot` |
+| `'auth_failed'` | The server rejected the SDK key (401/403); not retrying |
+| `'closed'` | After `disconnect()` |
+
+`lastSyncAt` is when the client last confirmed its flags are current (a bootstrap, a poll, or any
+event on a live stream, the server's heartbeats included), in ms since the epoch. Flags are always
+served from the last known state; `Date.now() - lastSyncAt` is how old they may be. A stream that
+receives nothing for 3 × the server's heartbeat interval (45 s by default) is dropped and
+reconnected, so a silently dead connection (lost NAT mapping, half-open TCP) no longer looks healthy.
+
+A rejected key is not retried: `connect()` rejects with a `CheckgateAuthError` (`err.status` is 401 or 403; the
+key is never in the message), the last known flags keep being served, and calling `connect()` again
+retries. `connect()` also rejects if `disconnect()` is called before it completes. While the server is
+unreachable it keeps retrying; race it with a timeout if startup cannot wait.
 
 ### `client.isEnabled(flagKey, userKey, attributes): boolean`
 

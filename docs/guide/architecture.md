@@ -195,7 +195,7 @@ This means a single Checkgate installation can serve multiple projects with mult
 3. Server sends `connected` event — SDK clears its local store
 4. Server bootstraps the SDK by replaying all current flags for that environment
 5. Server sends `ready` — SDK resolves its `connect()` promise
-6. Server sends `keep-alive` pings every 15 seconds
+6. Server sends a `heartbeat` event after 15 seconds of silence (`SSE_HEARTBEAT_INTERVAL_SECS`); SDKs reconnect a stream silent for 3 intervals
 7. On flag change, only clients in the matching environment receive the update
 8. On reconnect, the SDK clears its local store and re-bootstraps from scratch, then receives `ready` again
 
@@ -206,7 +206,7 @@ This means a single Checkgate installation can serve multiple projects with mult
 | `connected` | `{"environment_id": "<uuid>" \| null}` | Connection established; SDK resets its store |
 | `update` | JSON string | A flag was upserted or deleted in this environment |
 | `ready` | flag count (string) | Bootstrap replay complete; SDK resolves `connect()` |
-| (keep-alive) | `keep-alive-text` | Heartbeat every 15 seconds |
+| `heartbeat` | `{}` | After 15 s of silence; SDKs treat 3 missed intervals as a dead stream |
 
 ### Poll Fallback
 

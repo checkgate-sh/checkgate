@@ -50,14 +50,30 @@ void main() async {
 ```dart
 final client = CheckgateClient(
   serverUrl: String,     // required — base URL of your Checkgate server
-  sdkKey: String?,       // optional — for authenticated servers
-  reconnectDelay: Duration(seconds: 3), // optional
+  sdkKey: String,                                   // required
+  reconnectBaseDelay: Duration(seconds: 2),         // optional, doubles per attempt
+  maxReconnectDelay: Duration(seconds: 30),         // optional
+  connectTimeout: Duration(seconds: 30),            // optional: retry an attempt without `connected`
+  streamIdleTimeout: null,                          // optional: default 3 × the server's heartbeat
 );
 ```
 
 ### `client.connect(): Future<void>`
 
 Connects to the SSE stream and waits for the initial flag bootstrap to complete. Call this before calling `isEnabled()`.
+
+### Connection health
+
+`client.status` returns a `CheckgateStatus` with `state` (`CheckgateConnectionState.connecting`,
+`streaming`, `reconnecting`, `polling`, `authFailed`, `closed`), `lastSyncAt` (when the client last
+confirmed its flags are current: a bootstrap, a poll, or any frame on a live stream, heartbeats
+included) and `error`. Flags are always served from the last known state. A stream that receives
+no complete frame for 3 × the server's heartbeat (45 s by default; servers before 0.1.31 send a
+keep-alive comment every 15 s, which counts) is dropped and reconnected.
+
+A rejected key (401/403) is not retried: `connect()` completes with a `CheckgateAuthException`
+(`statusCode`; the key is never in the message), the last flags keep being served, and calling
+`connect()` again retries. `connect()` completes with a `StateError` if `close()` is called first.
 
 ### `client.isEnabled(flagKey, userKey, attributes): bool`
 
@@ -71,9 +87,10 @@ final enabled = client.isEnabled(
 );
 ```
 
-### `client.disconnect(): void`
+### `client.close(): void`
 
-Closes the SSE connection and releases native resources.
+Closes the SSE connection, flushes buffered impressions and events, and resets readiness:
+evaluations return `false` until the next `connect()`.
 
 ## Usage with Provider
 

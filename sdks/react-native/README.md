@@ -83,6 +83,14 @@ function CheckoutScreen({ user }) {
 }
 ```
 
+## Connection health
+
+A stream that goes silent for 3 server heartbeats (45 s by default) is dropped
+and reconnected. A rejected SDK key (HTTP 401/403) is not retried: `connect()`
+rejects with `CheckgateAuthError` and the last known flags keep being served.
+`client.getStatus()` returns `{ state, lastSyncAt, error }` so you can tell how
+fresh the flags are. See the [SDK docs](https://checkgate-sh.github.io/checkgate/sdks/).
+
 ## A/B testing: track conversions
 
 Record goal events with `track()` to measure how each flag variant converts. Pair

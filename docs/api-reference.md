@@ -1751,16 +1751,18 @@ Opens a persistent SSE connection scoped to the environment associated with the 
 2. One `update` event per existing flag in the key's environment (bootstrap)
 3. A `ready` event once the bootstrap replay is complete
 4. `update` events as flags change in that environment in real time
-5. Keep-alive comments every 15 seconds
+5. A `heartbeat` event whenever the stream has been quiet for `SSE_HEARTBEAT_INTERVAL_SECS` (default 15)
 
 ### Event: `connected`
 
 ```
 event: connected
-data: {"environment_id":"<uuid>"}
+data: {"environment_id":"<uuid>","heartbeat_ms":15000}
 ```
 
-Sent once when the connection is established. `environment_id` is `null` for session-cookie
+Sent once when the connection is established. `heartbeat_ms` (0.1.31+) is the longest the
+stream stays silent while healthy; a client should treat a stream that sends nothing for
+several intervals as dead (the SDKs use 3) and reconnect. `environment_id` is `null` for session-cookie
 (dashboard) connections, which aren't scoped to a single environment. SDK clients should start
 staging the bootstrap replay that follows (keeping their current flags live until `ready`), and
 use `environment_id` to route impression reporting (`POST /api/environments/{environment_id}/impressions`).
@@ -1799,13 +1801,24 @@ Sent once the full bootstrap replay (the `update` events above) is complete — 
 number of flags sent. SDK clients should resolve their `connect()` promise on this event rather
 than guessing when bootstrap has finished. Sent on every (re)connection, not just the first.
 
-### Keep-Alive
+### Event: `heartbeat`
 
 ```
-: keep-alive-text
+event: heartbeat
+data: {}
 ```
 
-Sent every 15 seconds to prevent proxy timeouts.
+Sent when the stream has carried nothing else for `heartbeat_ms`; any other event resets the
+timer, so a busy stream sends none. It keeps proxies from closing an idle stream and lets
+clients detect a dead one. It is a named event, not an SSE comment, because `EventSource`
+never surfaces comments; it has data because `EventSource` drops events without data.
+Servers before 0.1.31 sent the comment `: keep-alive-text` every 15 s instead.
+
+### Errors
+
+`401` (unknown or revoked key) and `403` (key not allowed here) mean the key itself is
+rejected: retrying does not help, and the SDKs stop. `503` (instance draining, at
+`SSE_MAX_CONNECTIONS`, or bootstrap queue full) carries `Retry-After`; retry with backoff.
 
 ### Reconnection
 

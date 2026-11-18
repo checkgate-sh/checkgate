@@ -340,7 +340,7 @@ The SSE stream (`GET /stream`) is the connection between the server and each SDK
 |-------|---------|-------------|
 | `connected` | `"true"` | Connection established; SDK resets its store |
 | `update` | JSON string | A flag was upserted or deleted |
-| (keep-alive) | `keep-alive-text` | Heartbeat every 15 seconds |
+| `heartbeat` | `{}` | After 15 s of silence; SDKs treat 3 missed intervals as a dead stream |
 
 ### Update Payload
 

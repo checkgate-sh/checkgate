@@ -9,9 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Upgrading from 0.1.30
 
-No migration, configuration change or API change is required, and rolling
-back to 0.1.30 needs no database step (tested: upgrade, mixed versions and
-rollback on one database). Check these first:
+No migration or configuration change is required, and rolling back to
+0.1.30 needs no database step (tested: upgrade, mixed versions and rollback on
+one database). SDKs and servers of either version work together. Check these
+first:
+
+- **SDK `connect()` can now reject** (it used to stay pending forever): with
+  `CheckgateAuthError` (Flutter: `CheckgateAuthException`) when the server
+  answers 401/403, and when `disconnect()`/`close()` is called first. A caller
+  that never awaits `connect()` gets no unhandled rejection. After a 401/403
+  the SDK stops retrying instead of reconnecting every 30 s forever; flags
+  already loaded keep being served, and calling `connect()` again retries.
+- **SSE keep-alive is now `event: heartbeat`** (with `data: {}`) instead of an
+  SSE comment, sent after `SSE_HEARTBEAT_INTERVAL_SECS` (default 15) of
+  silence, and `connected` carries `heartbeat_ms`. Older SDKs ignore both.
+  Proxies see the same traffic pattern as before.
+- **SDKs drop a silent stream** after 3 heartbeat intervals (45 s by default)
+  and reconnect. Against a 0.1.30 server the JavaScript SDKs keep only the new
+  30 s connect deadline (that server's keep-alive is invisible to
+  `EventSource`); Flutter still sees it.
 
 - **Configuration limits.** Flag and segment writes past these limits now get
   `422`: more than 500 rules on a flag; the same segment referenced twice;
@@ -31,6 +47,25 @@ rollback on one database). Check these first:
 - **All-in-one container.** The entrypoint shell stays as PID 1 and stops the
   bundled PostgreSQL and Redis after the server exits. Keep the stop timeout
   at 30 s or more (`docker-compose.yml` now sets `stop_grace_period: 30s`).
+
+### Added
+
+- **Dead-stream detection in every SDK** (`connectTimeoutMs`, 30 s, and
+  `streamIdleTimeoutMs`, default 3 × the announced heartbeat; Flutter
+  `connectTimeout`, `streamIdleTimeout`). A dropped NAT mapping or half-open
+  connection used to leave an SDK on stale flags until the OS gave up (hours).
+- **`getStatus()`** (Flutter: `status`): `state` (`connecting`, `streaming`,
+  `reconnecting`, `polling`, `auth_failed`, `closed`), `lastSyncAt` (heartbeats
+  on a live stream count as confirmation) and `error`, so an app can tell how
+  fresh its flags are.
+- **`SSE_HEARTBEAT_INTERVAL_SECS`** (1–300, default 15).
+- **SDK fault-injection suite** (`sdks/conformance`): one randomized, seeded
+  suite every SDK runs against its real transport; nightly over 300 seeds.
+  **Live end-to-end runs of all four SDKs** against a real server
+  (`scripts/sdk-live-e2e.sh`, in CI). Server-side randomized fault and segment
+  read failure tests (`server/tests/sse_faults.rs`).
+- A workflow that submits the resolved Go module graph, so Dependabot stops
+  reporting the already-patched `google.golang.org/grpc` (#51, #54, #55).
 
 ### Security
 
@@ -59,6 +94,21 @@ rollback on one database). Check these first:
 
 ### Fixed
 
+- **React Native: after a network error the SDK stayed on stale flags until
+  the app restarted.** `react-native-sse` (the polyfill the docs require)
+  supports `addEventListener('error')` but not `onerror`, so the SDK never saw
+  a stream failure, and the polyfill does not reconnect after one. The SDK now
+  listens properly, closes replaced streams for good (the polyfill re-opened a
+  stream closed during its own error dispatch) and skips the polyfill's 500 ms
+  delay before each connection.
+- **Flutter: the package could not be imported.** Its library was outside
+  `lib/` in every published version. It also bundles no compiled engine; the
+  docs now describe how to link one (verified on an iOS simulator).
+- **SDKs retried a rejected key forever** and `connect()` never settled.
+- **Web: `disconnect()` during WASM start-up leaked a stream**, and a
+  `disconnect()` + `connect()` without storage served `false` for every flag
+  the replay found unchanged (a fresh engine was created each time).
+- **Flutter: `close()` followed quickly by `connect()` left two SSE loops.**
 - **Web, React Native and Flutter SDKs: one non-string attribute erased every
   attribute**, so a user excluded by a `not_equals` rule was let through. Each
   invalid attribute is now skipped on its own.
