@@ -1,0 +1,7 @@
+{
+  "comment": "Seeds every pull request runs. Append any seed the extended suite fails on (CONFORMANCE_SEEDS=1-500), with a note, so it stays a regression test.",
+  "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "regressions": [
+    { "seed": 11, "sdk": "flutter", "found": "2026-11-18", "note": "A stream that trickled bytes without completing a frame kept the Flutter client attached (liveness counted bytes); now counts complete frames, as the JS SDKs do." }
+  ]
+}

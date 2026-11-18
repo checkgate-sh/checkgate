@@ -1,8 +1,9 @@
 name: Reliability (extended)
 
 # Heavier checks that do not belong on every pull request: the fault-injection
-# suites repeated to expose flakiness, larger SSE connection profiles, and the
-# evaluation-core benchmarks. Nightly, or on demand.
+# suites repeated to expose flakiness, the SDK fault-injection suite over many
+# more seeds, larger SSE connection profiles, and the evaluation-core
+# benchmarks. Nightly, or on demand.
 
 on:
   workflow_dispatch:
@@ -13,6 +14,9 @@ on:
       connections:
         description: "SSE connection profiles for the load test (comma-separated)"
         default: "100,1000"
+      seeds:
+        description: "SDK fault-injection seeds (e.g. 1-300 or 4,17,42)"
+        default: "1-300"
   schedule:
     - cron: "17 3 * * *"
 
@@ -86,6 +90,57 @@ jobs:
         if: always()
         with:
           name: fault-injection-artifacts
+          path: artifacts
+          retention-days: 30
+
+  sdk-faults-extended:
+    name: SDK fault injection, extended (${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [nodejs, web, react-native, flutter]
+    env:
+      CONFORMANCE_SEEDS: ${{ inputs.seeds || '1-300' }}
+      CONFORMANCE_TRACE_DIR: ${{ github.workspace }}/artifacts/traces
+      CONFORMANCE_REPORT: ${{ github.workspace }}/artifacts/results.jsonl
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install dependencies
+        if: matrix.sdk == 'web' || matrix.sdk == 'react-native'
+        working-directory: sdks/${{ matrix.sdk }}
+        run: npm install
+      - name: Node SDK
+        if: matrix.sdk == 'nodejs'
+        working-directory: sdks/nodejs
+        run: mkdir -p ../../artifacts && node --test --test-concurrency=1 test/faults.test.mjs
+      - name: Web / React Native SDK
+        if: matrix.sdk == 'web' || matrix.sdk == 'react-native'
+        working-directory: sdks/${{ matrix.sdk }}
+        run: mkdir -p ../../artifacts && npx vitest run test/faults.test.js
+      - uses: subosito/flutter-action@v2
+        if: matrix.sdk == 'flutter'
+        with:
+          channel: stable
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.sdk == 'flutter'
+      - name: Flutter SDK (real engine)
+        if: matrix.sdk == 'flutter'
+        env:
+          CHECKGATE_FLUTTER_LIB: ${{ github.workspace }}/target/debug/libflutter.so
+        run: |
+          mkdir -p artifacts
+          cargo build -p flutter
+          (cd sdks/flutter/dart && flutter pub get)
+          node --test --test-concurrency=1 sdks/conformance/flutter.mjs
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: sdk-faults-${{ matrix.sdk }}
           path: artifacts
           retention-days: 30
 

@@ -1,7 +1,7 @@
 {
   "name": "@checkgate/web",
   "version": "0.1.31",
-  "description": "Checkgate feature-flag SDK for the web \u2014 local evaluation via WebAssembly.",
+  "description": "Checkgate feature-flag SDK for the web — local evaluation via WebAssembly.",
   "type": "module",
   "main": "index.js",
   "module": "index.js",
@@ -36,6 +36,7 @@
     "Cargo.toml"
   ],
   "devDependencies": {
+    "eventsource": "^4.1.1",
     "vitest": "^4.1.12"
   }
 }

@@ -492,7 +492,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Flutter SDK — Dart client-logic unit tests (native FFI is lazy-loaded and an
-  # http.Client is injected, so no native library is needed)
+  # http.Client is injected, so no native library is needed), then the shared
+  # SSE fault-injection suite against the real engine
   # ---------------------------------------------------------------------------
   sdk-flutter:
     name: Flutter SDK tests
@@ -511,6 +512,34 @@ jobs:
       - name: Run tests
         working-directory: sdks/flutter/dart
         run: flutter test
+
+      # The shared SSE fault-injection suite (sdks/conformance), driving the
+      # Dart client with the real Rust engine loaded from a host build.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the engine for the host
+        run: cargo build -p flutter
+
+      - name: SSE fault injection (CI seeds)
+        env:
+          CHECKGATE_FLUTTER_LIB: ${{ github.workspace }}/target/debug/libflutter.so
+          CONFORMANCE_TRACE_DIR: ${{ github.workspace }}/conformance-traces
+        run: node --test --test-concurrency=1 sdks/conformance/flutter.mjs
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: conformance-traces-flutter
+          path: conformance-traces
+          retention-days: 30
 
   # ---------------------------------------------------------------------------
   # Go integrations — shared client, Terraform provider, Kubernetes operator
