@@ -5,12 +5,13 @@
 #   bench/public/run.sh eval          # Rust core (Criterion) + Node SDK, on the host
 #   bench/public/run.sh server        # snapshot throughput, REPS fresh stacks
 #   bench/public/run.sh propagation   # SDK propagation, REPS fresh stacks
+#   bench/public/run.sh cost          # connected-client cost: SSE vs polling
 #   bench/public/run.sh environment   # environment.json only
 #   bench/public/run.sh summarize     # summary.json + README graphic from the results
 #   bench/public/run.sh all           # all of the above, in that order
 #
 # Environment (defaults in brackets):
-#   OUT            results directory [docs/performance/results/v0.1.30]
+#   OUT            results directory [docs/performance/results/v<workspace version>]
 #   REPS           repetitions of server and propagation [3]
 #   EVAL_REPS      repetitions of the evaluation benchmarks [3]
 #   CONCURRENCY    throughput client counts [10,100,500,1000]
@@ -18,6 +19,12 @@
 #   WINDOW_SECS    measurement window per concurrency level [60]
 #   CLIENTS        SDK clients per propagation profile [1,100,500,1000]
 #   UPDATES        flag updates per propagation profile [200]
+#   REP_START      number of the first repetition [1] (compare.sh alternates versions)
+#   BENCH_SKIP_BUILD=1   use the images already built for BENCH_IMAGE_TAG [build]
+#   BENCH_IMAGE_TAG      tag of the benchmark images [local]
+#   COST_CLIENTS   connected clients per cost profile [100,1000,5000,10000]
+#   COST_POLL_INTERVALS  polling intervals compared with SSE, seconds [10,30,60]
+#   COST_REPS      repetitions of each cost profile [1]
 #   BENCH_SERVER_CPUS / BENCH_SERVER_MEMORY   server limits [1 / 512m]
 #
 # Each repetition starts from an empty database on a freshly created stack.
@@ -27,7 +34,9 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 HERE="$ROOT/bench/public"
-OUT="${OUT:-$ROOT/docs/performance/results/v0.1.30}"
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)"
+export BENCH_VERSION="${BENCH_VERSION:-$VERSION}"
+OUT="${OUT:-$ROOT/docs/performance/results/v$BENCH_VERSION}"
 RAW="$OUT/raw"
 REPS="${REPS:-3}"
 EVAL_REPS="${EVAL_REPS:-3}"
@@ -36,6 +45,12 @@ WARMUP_SECS="${WARMUP_SECS:-10}"
 WINDOW_SECS="${WINDOW_SECS:-60}"
 CLIENTS="${CLIENTS:-1,100,500,1000}"
 UPDATES="${UPDATES:-200}"
+COST_CLIENTS="${COST_CLIENTS:-100,1000,5000,10000}"
+COST_POLL_INTERVALS="${COST_POLL_INTERVALS:-10,30,60}"
+COST_REPS="${COST_REPS:-1}"
+REP_START="${REP_START:-1}"
+reps() { seq "$REP_START" $((REP_START + $1 - 1)); }
+build() { [ "${BENCH_SKIP_BUILD:-0}" = 1 ] || compose --profile tools build; }
 SETUP_TOKEN="bench-setup-token-0123456789"   # matches compose.yml
 
 export BENCH_WORK="$HERE/.work"
@@ -76,7 +91,7 @@ stop_stats() { kill "$STATS_PID" 2>/dev/null || true; wait "$STATS_PID" 2>/dev/n
 
 run_eval() {
   local target="$ROOT/target/bench-public"
-  for r in $(seq 1 "$EVAL_REPS"); do
+  for r in $(reps "$EVAL_REPS"); do
     local started load swap; started="$(date -u +%FT%TZ)"; load="$(loadavg)"; swap="$(swap_mib)"
     rm -rf "$target/criterion"
     if (cd "$ROOT" && CARGO_TARGET_DIR="$target" cargo bench -p checkgate-bench --bench evaluation) \
@@ -94,7 +109,7 @@ run_eval() {
   if ! ls "$ROOT"/sdks/nodejs/*.node >/dev/null 2>&1; then
     (cd "$ROOT/sdks/nodejs" && npm ci && npm run build)
   fi
-  for r in $(seq 1 "$EVAL_REPS"); do
+  for r in $(reps "$EVAL_REPS"); do
     local started load swap; started="$(date -u +%FT%TZ)"; load="$(loadavg)"; swap="$(swap_mib)"
     if node "$HERE/sdk/eval.mjs" --out "$RAW/evaluation-node-run$r.json"; then
       log_run evaluation-node "$r" ok "$started" "$load" "$swap"
@@ -105,8 +120,8 @@ run_eval() {
 }
 
 run_server() {
-  compose --profile tools build
-  for r in $(seq 1 "$REPS"); do
+  build
+  for r in $(reps "$REPS"); do
     local started load swap; started="$(date -u +%FT%TZ)"; load="$(loadavg)"; swap="$(swap_mib)"
     fresh_stack
     start_stats "$BENCH_WORK/stats.jsonl"
@@ -129,8 +144,8 @@ run_server() {
 }
 
 run_propagation() {
-  compose --profile tools build
-  for r in $(seq 1 "$REPS"); do
+  build
+  for r in $(reps "$REPS"); do
     local started load swap; started="$(date -u +%FT%TZ)"; load="$(loadavg)"; swap="$(swap_mib)"
     fresh_stack
     start_stats "$BENCH_WORK/stats.jsonl"
@@ -151,10 +166,49 @@ run_propagation() {
   compose --profile tools down -v --remove-orphans
 }
 
+# One cost profile on a fresh stack: $1 = sse|poll, $2 = clients, $3 = interval (poll).
+run_cost_profile() {
+  local mode="$1" n="$2" interval="${3:-}" r="$4" tag started load swap
+  tag="cost-$mode-$n${interval:+-${interval}s}-run$r"
+  started="$(date -u +%FT%TZ)"; load="$(loadavg)"; swap="$(swap_mib)"
+  fresh_stack
+  start_stats "$BENCH_WORK/stats.jsonl"
+  if compose --profile tools run --rm -T sdk connections.mjs \
+      --session /work/session.json --mode "$mode" --clients "$n" ${interval:+--interval-s "$interval"} \
+      --out "/results/$tag.json"; then
+    stop_stats
+    python3 "$HERE/scripts/docker_stats.py" "$BENCH_WORK/stats.jsonl" > "$RAW/$tag.containers.json"
+    log_run "cost-$mode" "$r" ok "$started" "$load" "$swap"
+  else
+    stop_stats
+    mv "$RAW/$tag.json" "$RAW/failed/" 2>/dev/null || true
+    python3 "$HERE/scripts/docker_stats.py" "$BENCH_WORK/stats.jsonl" > "$RAW/failed/$tag.containers.json" || true
+    compose logs server > "$RAW/failed/$tag.server.log" 2>&1 || true
+    log_run "cost-$mode" "$r" failed "$started" "$load" "$swap"
+  fi
+}
+
+run_cost() {
+  build
+  local n i r
+  for r in $(reps "$COST_REPS"); do
+    for n in ${COST_CLIENTS//,/ }; do
+      run_cost_profile sse "$n" "" "$r"
+      for i in ${COST_POLL_INTERVALS//,/ }; do
+        run_cost_profile poll "$n" "$i" "$r"
+      done
+    done
+  done
+  compose --profile tools down -v --remove-orphans
+}
+
 run_environment() { python3 "$HERE/scripts/environment.py" "$HERE/compose.yml" > "$OUT/environment.json"; }
 
 run_summarize() {
   python3 "$HERE/scripts/summarize.py" "$OUT" > "$OUT/summary.json"
+  if ls "$RAW"/cost-*-run*.json >/dev/null 2>&1; then
+    python3 "$HERE/scripts/summarize_cost.py" "$OUT" > "$OUT/cost-summary.json"
+  fi
   python3 "$HERE/scripts/render_svg.py" "$OUT/summary.json" "$ROOT/assets/benchmarks"
 }
 
@@ -162,6 +216,7 @@ case "${1:-}" in
   eval) run_eval ;;
   server) run_server ;;
   propagation) run_propagation ;;
+  cost) run_cost ;;
   environment) run_environment ;;
   summarize) run_summarize ;;
   all) run_environment; run_eval; run_server; run_propagation; run_summarize ;;
