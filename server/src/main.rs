@@ -18,6 +18,7 @@ mod lifecycle;
 mod limits;
 mod metrics;
 mod notify;
+mod process_metrics;
 mod rate_limit;
 mod scheduler;
 mod setup;
