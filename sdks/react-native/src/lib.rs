@@ -163,7 +163,8 @@ pub unsafe extern "C" fn checkgate_make_context(
         // SAFETY: this branch runs only when `attributes_json` is non-null, and the
         // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
-        serde_json::from_str(&json).unwrap_or_default()
+        // Keeps the string attributes even if another value is not a string.
+        checkgate_core::attributes::attributes_from_json(&json)
     } else {
         HashMap::new()
     };
@@ -273,7 +274,8 @@ pub unsafe extern "C" fn checkgate_get_variant(
         // SAFETY: this branch runs only when `attributes_json` is non-null, and the
         // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
-        serde_json::from_str(&json).unwrap_or_default()
+        // Keeps the string attributes even if another value is not a string.
+        checkgate_core::attributes::attributes_from_json(&json)
     } else {
         HashMap::new()
     };
@@ -317,7 +319,8 @@ pub unsafe extern "C" fn checkgate_get_value(
         // SAFETY: this branch runs only when `attributes_json` is non-null, and the
         // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
-        serde_json::from_str(&json).unwrap_or_default()
+        // Keeps the string attributes even if another value is not a string.
+        checkgate_core::attributes::attributes_from_json(&json)
     } else {
         HashMap::new()
     };
@@ -381,7 +384,8 @@ pub unsafe extern "C" fn checkgate_is_enabled(
         // SAFETY: this branch runs only when `attributes_json` is non-null, and the
         // caller guarantees a non-null pointer is a live, NUL-terminated C string.
         let json = unsafe { CStr::from_ptr(attributes_json) }.to_string_lossy();
-        serde_json::from_str(&json).unwrap_or_default()
+        // Keeps the string attributes even if another value is not a string.
+        checkgate_core::attributes::attributes_from_json(&json)
     } else {
         HashMap::new()
     };

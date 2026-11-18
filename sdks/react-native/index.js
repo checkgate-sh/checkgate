@@ -11,7 +11,7 @@ import { cacheNamespace } from './cache-key.js';
  *   1. Open SSE stream.
  *   2. On "connected" → clear the Rust cache.
  *   3. Incoming UPSERT events rebuild the cache.
- *   4. isEnabled() evaluates synchronously — zero network IO, sub-microsecond.
+ *   4. isEnabled() evaluates synchronously — zero network IO.
  */
 
 /**
@@ -225,8 +225,21 @@ export class CheckgateNativeClient {
             this.sse.close();
         }
 
-        // React Native's built-in fetch-based EventSource (or the `event-source`
-        // package) supports headers, so we send auth via Authorization header.
+        // React Native has no built-in EventSource: the app installs one that
+        // accepts `headers` (e.g. `react-native-sse`) and assigns it to
+        // `global.EventSource` (see the README). Without it, `new EventSource`
+        // threw a ReferenceError inside a `.finally()` callback, so `connect()`
+        // never settled. Fall back to polling and say what is missing instead.
+        if (typeof EventSource !== 'function') {
+            console.error(
+                '[Checkgate] No global EventSource. Install an SSE polyfill that ' +
+                'supports headers (e.g. `react-native-sse`) and assign it to ' +
+                '`global.EventSource` before connect(). Polling ' +
+                `${this.serverUrl}/flags/snapshot instead.`
+            );
+            this._startPollFallback();
+            return;
+        }
         this.sse = new EventSource(`${this.serverUrl}/stream`, {
             headers: this.sdkKey ? { 'Authorization': `Bearer ${this.sdkKey}` } : {}
         });
@@ -495,7 +508,7 @@ export class CheckgateNativeClient {
 
     /**
      * Evaluates a feature flag synchronously.
-     * The call crosses JS → C++ JSI → Rust and returns in sub-microsecond time.
+     * The call crosses JS → C++ JSI → Rust synchronously, with no network IO.
      *
      * @param {string} flagKey
      * @param {string} userKey        Stable user identifier used for rollout hashing.

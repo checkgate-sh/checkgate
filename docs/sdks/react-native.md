@@ -25,6 +25,24 @@ cd ios && pod install
 
 The native library is linked automatically via CMake. No additional steps required.
 
+### Server-Sent Events polyfill
+
+React Native has no built-in `EventSource`. Install one that accepts request
+headers (the SDK authenticates the stream with an `Authorization` header) and
+assign it to the global before calling `connect()`:
+
+```bash
+npm install react-native-sse
+```
+
+```typescript
+import EventSource from 'react-native-sse';
+(global as any).EventSource = EventSource;
+```
+
+Without it the SDK logs an error and keeps flags current by polling
+`/flags/snapshot` every `pollIntervalMs` instead of streaming changes.
+
 ## Quick Start
 
 ```typescript

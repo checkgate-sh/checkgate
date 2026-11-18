@@ -19,6 +19,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
+/// Decodes the caller's attribute object. String values are kept; any other
+/// value (a number, boolean, null) is skipped on its own. Decoding straight into
+/// `HashMap<String, String>` failed on the first non-string value, and the
+/// fallback was an empty map — every attribute dropped, which let a user
+/// excluded by a `not_equals` rule through.
+fn js_attributes(value: JsValue) -> HashMap<String, String> {
+    checkgate_core::attributes::string_attributes(serde_wasm_bindgen::Deserializer::from(value))
+        .unwrap_or_default()
+}
+
 #[wasm_bindgen]
 pub struct CheckgateCoreWasm {
     store: Arc<FlagStore>,
@@ -99,8 +109,7 @@ impl CheckgateCoreWasm {
             Some(f) => f,
             None => return false,
         };
-        let attributes: HashMap<String, String> =
-            serde_wasm_bindgen::from_value(user_attributes_js).unwrap_or_default();
+        let attributes = js_attributes(user_attributes_js);
         let ctx = UserContext {
             key: user_key,
             attributes,
@@ -121,8 +130,7 @@ impl CheckgateCoreWasm {
             Some(f) => f,
             None => return JsValue::NULL,
         };
-        let attributes: HashMap<String, String> =
-            serde_wasm_bindgen::from_value(user_attributes_js).unwrap_or_default();
+        let attributes = js_attributes(user_attributes_js);
         let ctx = UserContext {
             key: user_key,
             attributes,
@@ -144,8 +152,7 @@ impl CheckgateCoreWasm {
             Some(f) => f,
             None => return JsValue::NULL,
         };
-        let attributes: HashMap<String, String> =
-            serde_wasm_bindgen::from_value(user_attributes_js).unwrap_or_default();
+        let attributes = js_attributes(user_attributes_js);
         let ctx = UserContext {
             key: user_key,
             attributes,

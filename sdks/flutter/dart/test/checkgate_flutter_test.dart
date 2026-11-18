@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -127,6 +128,43 @@ void main() {
     bool? enabled(CheckgateClient c, String key) =>
         c.debugFlags[key]?['is_enabled'] as bool?;
 
+    test('a poll response that lands after the stream took over is dropped',
+        () async {
+      final release = Completer<void>();
+      var requests = 0;
+      final c = CheckgateClient(
+        serverUrl: 'http://localhost:9999',
+        sdkKey: 'sk_test',
+        httpClient: MockClient((req) async {
+          requests++;
+          await release.future; // a slow server
+          return http.Response(
+              jsonEncode([
+                {'key': 'checkout', 'is_enabled': false}
+              ]),
+              200);
+        }),
+      );
+      final first = c.debugPollSnapshot();
+      final second = c.debugPollSnapshot();
+      await pumpEventQueue();
+      expect(requests, 1, reason: 'ticks share the request in flight');
+
+      // The stream reconnects and delivers a newer state meanwhile.
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 7);
+      send(c, 'ready', 1);
+      expect(enabled(c, 'checkout'), isTrue);
+
+      release.complete();
+      await Future.wait([first, second]);
+      expect(enabled(c, 'checkout'), isTrue,
+          reason: 'the stale poll must not roll the flag back');
+      upsert(c, 'checkout', false, 6);
+      expect(enabled(c, 'checkout'), isTrue,
+          reason: 'revisions survive, so an older event is still ignored');
+    });
+
     test('a reconnect keeps serving the last snapshot until "ready"', () {
       final c = client();
       send(c, 'connected', {'environment_id': 'env-1'});
@@ -220,5 +258,46 @@ void main() {
     final at = DateTime.parse(c.debugEvents.single['occurred_at'] as String);
     expect(at.isBefore(before), isFalse);
     expect(at.isAfter(DateTime.now().toUtc()), isFalse);
+  });
+
+  group('SSE framing', () {
+    // One frame per event the server sends during a bootstrap, plus a
+    // keep-alive comment, a multi-byte character and a trailing `ready`.
+    const frames = 'event: connected\ndata: {"environment_id":"env-1"}\n\n'
+        ': keep-alive-text\n\n'
+        'event: update\ndata: {"type":"UPSERT","flag":{"key":"caf\u00e9-\u{1F680}"}}\n\n'
+        'event: ready\ndata: 1\n\n';
+    const expected = [
+      MapEntry('connected', '{"environment_id":"env-1"}'),
+      MapEntry('update', '{"type":"UPSERT","flag":{"key":"caf\u00e9-\u{1F680}"}}'),
+      MapEntry('ready', '1'),
+    ];
+
+    Future<List<MapEntry<String, String>>> parse(List<List<int>> chunks) =>
+        parseSseEvents(Stream.fromIterable(chunks)).toList();
+
+    String show(List<MapEntry<String, String>> events) =>
+        events.map((e) => '${e.key}=${e.value}').join(' | ');
+
+    test('parses whole frames', () async {
+      expect(show(await parse([utf8.encode(frames)])), show(expected));
+    });
+
+    test('reassembles lines split at every byte offset', () async {
+      // Socket reads end anywhere: inside `event:`, inside a JSON payload,
+      // inside a UTF-8 sequence, or between the two newlines of a frame.
+      final bytes = utf8.encode(frames);
+      for (var cut = 1; cut < bytes.length; cut++) {
+        final events =
+            await parse([bytes.sublist(0, cut), bytes.sublist(cut)]);
+        expect(show(events), show(expected), reason: 'cut at byte $cut');
+      }
+    });
+
+    test('reassembles a stream delivered one byte at a time', () async {
+      final bytes = utf8.encode(frames);
+      final events = await parse([for (final b in bytes) [b]]);
+      expect(show(events), show(expected));
+    });
   });
 }
