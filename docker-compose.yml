@@ -35,6 +35,10 @@ services:
       - checkgate_pgdata:/var/lib/postgresql/data
       - checkgate_redis:/var/lib/redis
     restart: unless-stopped
+    # Docker's default is 10 s, after which everything is SIGKILLed. The server
+    # may take up to SHUTDOWN_GRACE_PERIOD_SECS (default 20) to drain, and the
+    # bundled PostgreSQL and Redis are stopped after it.
+    stop_grace_period: 30s
 
 volumes:
   checkgate_pgdata:
