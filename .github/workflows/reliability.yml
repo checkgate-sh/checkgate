@@ -61,7 +61,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build test binaries
-        run: cargo test -p server --test reliability --test lifecycle --no-run
+        run: cargo test -p server --test reliability --test lifecycle --test sse_faults --no-run
       - name: Repeat the suites
         shell: bash
         run: |
@@ -70,6 +70,8 @@ jobs:
           for i in $(seq 1 "$REPEAT"); do
             echo "::group::round $i of $REPEAT"
             cargo test -p server --test reliability --test lifecycle -- --nocapture 2>&1 | tee -a artifacts/soak.log
+            CHECKGATE_FAULT_SEEDS="$(( (i - 1) * 20 + 1 ))-$(( i * 20 ))" CHECKGATE_FAULT_STEPS=30 \
+              cargo test -p server --test sse_faults -- --nocapture 2>&1 | tee -a artifacts/soak.log
             echo "::endgroup::"
           done
       - name: Recovery windows

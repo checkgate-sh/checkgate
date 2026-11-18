@@ -202,6 +202,11 @@ jobs:
       - name: Multi-instance reliability tests
         run: cargo test -p server --test reliability -- --nocapture
 
+      # SSE liveness, revoked keys, randomized faults (seeds 1-3) and the
+      # segment-read-failure fault injection (server/tests/sse_faults.rs).
+      - name: SSE fault-injection tests
+        run: cargo test -p server --test sse_faults -- --nocapture
+
       - name: Upload reliability artifacts
         if: always()
         uses: actions/upload-artifact@v6
