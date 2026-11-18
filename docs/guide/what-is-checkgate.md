@@ -25,7 +25,7 @@ Checkgate takes a different approach: **local evaluation**.
 3. All evaluation happens **in-process, in memory** — no network calls
 4. When flags change, the server pushes deltas via SSE instantly
 
-The result: **sub-microsecond flag evaluation** with real-time updates and zero external dependencies at evaluation time.
+The result: **in-process flag evaluation** (well under a microsecond in the Rust core) with real-time updates and zero external dependencies at evaluation time.
 
 ## What You Get
 
@@ -42,8 +42,8 @@ Checkgate is a complete feature-flag platform, not just a toggle store:
 | | Checkgate | LaunchDarkly / Statsig |
 |---|---|---|
 | Evaluation location | In-process (local) | Remote HTTP / local with proprietary SDK |
-| Evaluation latency | ~100ns | ~5–50ms (remote) |
-| Update propagation | SSE push, <50ms | Polling / streaming |
+| Evaluation latency | 0.1–0.5 µs in the Rust core, a few µs through the Node.js SDK ([benchmarks](/performance/benchmarks)) | A network round trip per check when evaluated remotely |
+| Update propagation | SSE push: p50 13–38 ms, p99 21–98 ms for 1–1,000 clients ([benchmarks](/performance/benchmarks)) | Polling or streaming, depending on the SDK |
 | Self-hosted | Yes | No (or enterprise-only) |
 | Open source | Apache 2.0 | Closed source |
 | Vendor lock-in | None | High |

@@ -39,7 +39,7 @@ const client = new CheckgateClient({
 // Connect and download flags (call once at startup)
 await client.connect()
 
-// Evaluate flags — no await, no network, sub-microsecond
+// Evaluate flags — no await, no network call
 const enabled = client.isEnabled('new-checkout-flow', userId, {
   email: user.email,
   plan: user.plan,

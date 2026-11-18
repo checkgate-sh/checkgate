@@ -488,7 +488,7 @@ export class CheckgateWeb {
     }
 
     /**
-     * Evaluate a flag locally in the browser via WebAssembly (< 1 microsecond).
+     * Evaluate a flag locally in the browser via WebAssembly (no network call).
      *
      * @param {string} flagKey
      * @param {string} userKey - Stable user identifier
