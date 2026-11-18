@@ -4,7 +4,7 @@
 |---|---|
 | Candidate | `feat/v0.1.31-production-readiness` (from `dev` `f38f02e` = `v0.1.30`) |
 | Date | 2026-11-18 |
-| Recommendation | **CONDITIONAL GO** (conditions in §12) |
+| Recommendation | **CONDITIONAL GO** (conditions in §12; the CI condition is met) |
 
 ## 1. Executive summary
 
@@ -150,10 +150,13 @@ any measured dimension, and upgrade and rollback are tested.
 
 Conditions:
 
-1. **CI green on the phase PRs.** In particular, the Linux-only checks that
-   could not run on this macOS host: `reliability::g2`, `docker-smoke` on
-   Linux, `miri`, the Android native build, and the new native-attributes
-   step.
+1. ~~**CI green.**~~ **Met.** CI run `44310808558` on the full stack (draft
+   PR #40, head `4bd3526`): **20/20 jobs passed**, including the Linux-only
+   checks this macOS host could not run. `reliability::g2` passed with a real
+   database, Docker smoke on Linux passed with the new clean-shutdown check,
+   Miri passed, the Android native build passed, the native-attributes step
+   passed 6/6, and `tests/hardening.rs` passed 4/4 against PostgreSQL and
+   Redis. Re-run CI if the stack changes before merge.
 2. **The owner accepts two judgement calls:** the 422 limit values, and the
    root PID 1 supervisor in the all-in-one image.
 3. **Recommended, not blocking:** run `bench/public/run.sh all` on the release
