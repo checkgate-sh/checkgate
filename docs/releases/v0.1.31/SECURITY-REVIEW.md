@@ -82,6 +82,12 @@ depend on them.
 
 - `cargo audit`: clean after S9. Advisory DB of 2026-11-18, 1 533 advisories.
 - `cargo deny check`: advisories, bans, licenses and sources all pass.
+- GitHub Dependabot shows 3 open alerts on `google.golang.org/grpc` in
+  `integrations/terraform-provider-checkgate` (#51, #54, #55; two rated high).
+  **They are stale.** `go.mod` and `go.sum` pin v1.85.0, and `go list -m`
+  resolves v1.85.0, which is at or above every patched version (1.82.2,
+  1.83.1). The alerts are raised against `main`'s dependency graph, which
+  lags; dismiss them as "fix already applied" after confirming on `main`.
 - `cargo clippy --workspace --all-targets --all-features -D warnings`: clean,
   under the workspace's deny-level safety lints.
 - Miri runs on the FFI crates in CI (job `miri`). The FFI changes in this

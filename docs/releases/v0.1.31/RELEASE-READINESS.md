@@ -61,6 +61,9 @@ See SECURITY-REVIEW.md.
 | Low | 5 (S4–S7, S9 info) | 5 | 0 |
 | Deferred (low / info) | N1–N6 | — | 6, documented with mitigations |
 
+GitHub Dependabot's 3 open grpc alerts (Terraform provider) are stale:
+v1.85.0 is pinned, at or above every patched version. See SECURITY-REVIEW.md.
+
 ## 4. Correctness evidence
 
 See CORRECTNESS-REVIEW.md. Determinism and monotonicity were tested
