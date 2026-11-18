@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -298,6 +299,56 @@ void main() {
       final bytes = utf8.encode(frames);
       final events = await parse([for (final b in bytes) [b]]);
       expect(show(events), show(expected));
+    });
+  });
+
+  group('connection lifecycle (v0.1.31 RC2)', () {
+    test('a 401 ends retries and fails connect() with the status', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var requests = 0;
+      server.listen((req) {
+        requests++;
+        req.response.statusCode = 401;
+        req.response.close();
+      });
+      final client = CheckgateClient(
+        serverUrl: 'http://127.0.0.1:${server.port}',
+        sdkKey: 'sk_secret_value',
+        reportImpressions: false,
+        reconnectBaseDelay: const Duration(milliseconds: 10),
+      );
+      expect(client.status.state, CheckgateConnectionState.idle);
+      Object? error;
+      try {
+        await client.debugConnectWithoutEngine();
+      } catch (e) {
+        error = e;
+      }
+      expect(error, isA<CheckgateAuthException>());
+      expect((error as CheckgateAuthException).statusCode, 401);
+      expect(error.toString(), isNot(contains('sk_secret_value')));
+      expect(client.status.state, CheckgateConnectionState.authFailed);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(requests, 1, reason: 'no retry after the key was rejected');
+      client.close();
+      await server.close(force: true);
+    });
+
+    test('close() settles a pending connect()', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      // Accept the stream but never answer: connect() stays pending.
+      server.listen((req) {});
+      final client = CheckgateClient(
+        serverUrl: 'http://127.0.0.1:${server.port}',
+        sdkKey: 'sk',
+        reportImpressions: false,
+      );
+      final pending = client.debugConnectWithoutEngine();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      client.close();
+      await expectLater(pending, throwsA(isA<StateError>()));
+      expect(client.status.state, CheckgateConnectionState.closed);
+      await server.close(force: true);
     });
   });
 }

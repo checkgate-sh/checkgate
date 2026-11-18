@@ -385,3 +385,104 @@ test('a tombstone in the bootstrap keeps a delayed older event from resurrecting
     assert.equal(client.isEnabled('ghost', 'u'), true, 're-created flag applies');
     client.disconnect();
 });
+
+// --- Connection health, auth failure, settling connect() (v0.1.31 RC2) ---
+
+test('a 401 on the stream ends retries, rejects connect() and keeps serving flags', async () => {
+    const { CheckgateAuthError } = require('../index.js');
+    const client = newClient({ reportImpressions: false });
+    const pending = client.connect();
+    await new Promise((r) => setImmediate(r));
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1]]);
+    await pending;
+    assert.equal(client.getStatus().state, 'streaming');
+
+    // The key is revoked: the next attempt is answered 401.
+    client._scheduleReconnect();
+    clearTimeout(client._reconnectTimer);
+    client._reconnectTimer = null;
+    client._connectDeltas();
+    client.sse.listeners.error({ type: 'error', code: 401 });
+    const status = client.getStatus();
+    assert.equal(status.state, 'auth_failed');
+    assert.ok(status.error instanceof CheckgateAuthError);
+    assert.equal(status.error.status, 401);
+    assert.ok(!status.error.message.includes('sk_test'), 'the key never appears in the error');
+    assert.equal(client._reconnectTimer, null, 'no retry is scheduled');
+    assert.equal(client.sse, null);
+    assert.equal(client.isEnabled('checkout', 'u'), true, 'last known flags keep being served');
+
+    // A later connect() retries; with the key accepted again it settles.
+    const again = client.connect();
+    await new Promise((r) => setImmediate(r));
+    bootstrap(client, [[{ key: 'checkout', is_enabled: false }, 2]]);
+    await again;
+    assert.equal(client.getStatus().state, 'streaming');
+    assert.equal(client.isEnabled('checkout', 'u'), false);
+    client.disconnect();
+});
+
+test('connect() rejects on a 401 before the first bootstrap, without an unhandled rejection', async () => {
+    const client = newClient({ reportImpressions: false });
+    const pending = client.connect();
+    await new Promise((r) => setImmediate(r));
+    client.sse.listeners.error({ type: 'error', code: 403 });
+    await assert.rejects(pending, (err) => err.name === 'CheckgateAuthError' && err.status === 403);
+    client.disconnect();
+});
+
+test('a 5xx or network error keeps retrying', async () => {
+    const client = newClient({ reportImpressions: false });
+    client.connect();
+    await new Promise((r) => setImmediate(r));
+    client.sse.listeners.error({ type: 'error', code: 503 });
+    assert.notEqual(client._reconnectTimer, null);
+    assert.equal(client.getStatus().state, 'connecting');
+    client.disconnect();
+    const c2 = newClient({ reportImpressions: false });
+    c2.connect();
+    await new Promise((r) => setImmediate(r));
+    c2.sse.listeners.error({ type: 'error', code: 'ECONNREFUSED' });
+    assert.notEqual(c2._reconnectTimer, null);
+    c2.disconnect();
+});
+
+test('disconnect() settles a pending connect()', async () => {
+    const client = newClient({ reportImpressions: false });
+    const pending = client.connect();
+    client.disconnect();
+    await assert.rejects(pending, /disconnect\(\) was called/);
+    assert.equal(client.getStatus().state, 'closed');
+});
+
+test('the idle deadline follows the heartbeat the server announces', async () => {
+    const client = connectedClient();
+    assert.equal(client._idleTimeoutMs, 0, 'only the connect deadline before "connected"');
+    assert.ok(client._watchdogDeadline > 0);
+    client.sse.emit('connected', { environment_id: 'env-1', heartbeat_ms: 15000 });
+    assert.equal(client._idleTimeoutMs, 45000);
+    client.disconnect();
+
+    // A pre-0.1.31 server announces nothing and sends only comments: no idle deadline.
+    const legacy = connectedClient();
+    legacy.sse.emit('connected', { environment_id: 'env-1' });
+    assert.equal(legacy._idleTimeoutMs, 0);
+    assert.equal(legacy._watchdogDeadline, 0);
+    legacy.disconnect();
+
+    const custom = connectedClient({ streamIdleTimeoutMs: 5000 });
+    custom.sse.emit('connected', { environment_id: 'env-1', heartbeat_ms: 15000 });
+    assert.equal(custom._idleTimeoutMs, 5000);
+    custom.disconnect();
+});
+
+test('heartbeats on a live stream refresh lastSyncAt', async () => {
+    const client = connectedClient();
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1]]);
+    const first = client.getStatus().lastSyncAt;
+    assert.ok(first > 0);
+    await new Promise((r) => setTimeout(r, 5));
+    client.sse.emit('heartbeat', {});
+    assert.ok(client.getStatus().lastSyncAt > first);
+    client.disconnect();
+});
