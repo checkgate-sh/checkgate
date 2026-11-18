@@ -53,7 +53,7 @@ projected except where a row says so.
 | Benchmarks: v0.1.31 vs v0.1.30, same session, alternated | Node SDK eval 7.2× faster (rollout), 8.8× (boolean); server CPU per snapshot −21 % and throughput +21 % at 1,000 clients, unchanged at 10; RSS unchanged; propagation p50 equal, p99 pooled 198 vs 75 ms (two contended runs; median run 84 vs 76 ms); 0 of 1,921,200 deliveries missed. PUBLIC-BENCHMARK-RESULTS.md |
 | Cost suite (measured, calculated, projected kept apart) | 10,000 streams idle at 14.7 % of a core, 448 MiB; 1,000 clients: 8.7 GB a month streaming against 669–4,015 GB polling (calculated); $38.56 a month projected for 100–10,000 streaming clients. COST-EFFICIENCY-BENCHMARKS.md |
 | `bench/public/scripts/validate.py`, `scripts/check-tracked-artifacts.sh` | pass |
-| CI on the final commit | pending at the time of writing; recorded below once the PR run finishes |
+| CI (PR #42) | **20/20 jobs passed**, run `44392980702` on `0415a3d`, including on Linux: `sse_faults`, the SDK fault suites (CI tier), live SSE e2e for all four SDKs, Docker smoke with the capability check, Miri, the Android native build. The first run (`44387300918`) failed in `sdk-node` only: the job never installed `eventsource`, which the new fault suite needs; fixed in `0415a3d` |
 | Dependabot | 3 grpc alerts are stale (pinned v1.85.0 ≥ every fix); they close when `dependency-submission.yml` runs on `main` |
 
 ## 3. Findings still open
@@ -89,7 +89,7 @@ It is not an unconditional GO because the release would still ship with:
 
 Conditions for release:
 
-1. CI green on the final RC2 commit.
+1. ~~CI green on the final RC2 commit.~~ **Met** (run `44392980702`, 20/20). Re-run if anything is added before merge.
 2. The owner decides R20: ship v0.1.31 with R20 listed as a known issue, or
    fix it first (estimated scope: one server change to `/flags/snapshot`, the
    same change in four SDKs, the two seeds moved into the CI set).
