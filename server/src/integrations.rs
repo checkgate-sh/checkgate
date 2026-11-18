@@ -304,7 +304,7 @@ async fn deliver_with_retry(
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16() as i32;
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text = crate::webhook_fire::read_capped_body(resp).await;
                 let ok = (200..300).contains(&status);
 
                 log_delivery(
@@ -326,6 +326,11 @@ async fn deliver_with_retry(
                 return;
             }
             Err(e) => {
+                // reqwest's error text ends with the request URL, and an
+                // integration URL is itself the channel's posting credential
+                // (the API only ever shows a preview of it). Strip it before
+                // the error is stored where viewers can read it, or logged.
+                let e = e.without_url();
                 let is_last = attempt == backoff_secs.len().saturating_sub(1);
                 if is_last {
                     let err_str = e.to_string();

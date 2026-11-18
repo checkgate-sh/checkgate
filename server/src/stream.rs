@@ -445,36 +445,15 @@ pub async fn flags_snapshot_handler(
         warn!("flags_snapshot: bootstrap queue full — refusing request");
         return Err(unavailable("Server busy; retry shortly."));
     };
-    let segment_map = crate::api::segments::load_env_segments(&env_id, &state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-
-    let rows =
-        sqlx::query("SELECT data FROM flags WHERE environment_id = $1::uuid ORDER BY key ASC")
-            .bind(&env_id)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "flags_snapshot: DB query failed");
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            })?;
+    let flags = read_snapshot(&state, &env_id).await.map_err(|e| {
+        warn!(error = %e, "flags_snapshot: failed to read a consistent snapshot");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
     drop(permit);
     state
         .metrics
         .snapshot_duration
         .observe(started.elapsed().as_secs_f64());
-
-    let flags: Vec<checkgate_core::evaluator::Flag> = rows
-        .iter()
-        .filter_map(|row| {
-            let v: serde_json::Value = row.try_get("data").ok()?;
-            let flag = serde_json::from_value::<checkgate_core::evaluator::Flag>(v).ok()?;
-            Some(crate::api::segments::expand_flag_with_segments(
-                flag,
-                &segment_map,
-            ))
-        })
-        .collect();
 
     info!(
         env_id = %env_id,
@@ -489,6 +468,54 @@ pub async fn flags_snapshot_handler(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?,
     );
     Ok((headers, Json(flags)))
+}
+
+/// Reads an environment's flags, expanded with its segments, as of one moment.
+///
+/// Segments and flags come from a single statement, so they share one
+/// snapshot even under READ COMMITTED: a segment edit that commits between two
+/// separate reads can no longer pair a flag with segments of a different
+/// moment. It is also one round trip instead of two.
+///
+/// A flag row that does not decode fails the whole read, as it does for the
+/// SSE bootstrap: leaving it out would make every polling SDK treat the flag
+/// as deleted and fall back to its default. A segment that does not decode is
+/// skipped, as `load_env_segments` does everywhere else.
+async fn read_snapshot(
+    state: &AppState,
+    env_id: &str,
+) -> Result<Vec<checkgate_core::evaluator::Flag>, String> {
+    let rows = sqlx::query(
+        "SELECT 'f' AS kind, key, data FROM flags WHERE environment_id = $1::uuid \
+         UNION ALL \
+         SELECT 's' AS kind, key, rules AS data FROM segments WHERE environment_id = $1::uuid \
+         ORDER BY kind, key",
+    )
+    .bind(env_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut segment_map = std::collections::HashMap::new();
+    let mut flags = Vec::new();
+    for row in &rows {
+        let kind: &str = row.try_get("kind").map_err(|e| e.to_string())?;
+        let key: String = row.try_get("key").map_err(|e| e.to_string())?;
+        let data: serde_json::Value = row.try_get("data").map_err(|e| e.to_string())?;
+        if kind == "s" {
+            if let Ok(rules) = serde_json::from_value(data) {
+                segment_map.insert(key, rules);
+            }
+        } else {
+            let flag = serde_json::from_value::<checkgate_core::evaluator::Flag>(data)
+                .map_err(|e| format!("flag {key:?} does not decode: {e}"))?;
+            flags.push(flag);
+        }
+    }
+    Ok(flags
+        .into_iter()
+        .map(|flag| crate::api::segments::expand_flag_with_segments(flag, &segment_map))
+        .collect())
 }
 
 #[cfg(test)]

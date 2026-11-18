@@ -101,7 +101,7 @@ pub async fn create_user(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
 
-    let password_hash = hash_password(&req.password)?;
+    let password_hash = hash_password(&req.password).await?;
 
     let row = sqlx::query(
         "INSERT INTO users (name, email, role, password_hash) VALUES ($1, $2, $3, $4) \

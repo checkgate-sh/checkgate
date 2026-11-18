@@ -169,6 +169,13 @@ pub async fn create_token(
         }
         Some(_) => return Err(StatusCode::UNPROCESSABLE_ENTITY),
     };
+    // Nor may a token mint one that outlives it: an expiring PAT creating a
+    // non-expiring one would turn a time-limited credential into a permanent one.
+    if let Some(Some(caller_expiry)) = crate::auth::pat_expires_at(&ctx)
+        && expires_at.is_none_or(|requested| requested > caller_expiry)
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
 
     let token = generate_token();
     let hash = hash_token(&token);
@@ -212,6 +219,9 @@ pub async fn revoke_token(
     ctx: AuthContext,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, StatusCode> {
+    // Revoking is a write: a leaked read-only token must not be able to
+    // delete the user's other (read-write) tokens.
+    crate::auth::check_write_scope_ctx(&ctx)?;
     let user_id = current_user_id(&state.db, &ctx).await?;
 
     let result = sqlx::query("DELETE FROM personal_access_tokens WHERE id = $1 AND user_id = $2")

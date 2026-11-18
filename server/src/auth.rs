@@ -38,6 +38,9 @@ pub(crate) struct PatIdentity {
     pub claims: SessionClaims,
     /// `"read_only"` or `"read_write"`.
     pub scope: String,
+    /// When the token expires; `None` for a token that never does. A token
+    /// created with this one may not outlive it.
+    pub expires_at: Option<time::OffsetDateTime>,
 }
 
 /// Extract the SDK key from a request — Bearer header takes priority over the
@@ -77,7 +80,7 @@ pub(crate) fn hash_token(token: &str) -> String {
 async fn resolve_pat(db: &sqlx::PgPool, token: &str) -> Result<Option<PatIdentity>, ()> {
     let hash = hash_token(token);
     let row = sqlx::query(
-        "SELECT pat.id, pat.scope, u.id AS user_id, u.email, u.name, u.role \
+        "SELECT pat.id, pat.scope, pat.expires_at, u.id AS user_id, u.email, u.name, u.role \
          FROM personal_access_tokens pat JOIN users u ON u.id = pat.user_id \
          WHERE pat.token_hash = $1 AND (pat.expires_at IS NULL OR pat.expires_at > NOW())",
     )
@@ -108,6 +111,7 @@ async fn resolve_pat(db: &sqlx::PgPool, token: &str) -> Result<Option<PatIdentit
             role: row.get("role"),
         },
         scope: row.get("scope"),
+        expires_at: row.get("expires_at"),
     }))
 }
 
@@ -192,6 +196,15 @@ pub(crate) fn pat_scope(ctx: &AuthContext) -> Option<&str> {
         return None;
     }
     ctx.pat.as_ref().map(|p| p.scope.as_str())
+}
+
+/// For a request authenticated by a personal access token, that token's
+/// expiry (`Some(None)` if it never expires); `None` for a session or SDK key.
+pub(crate) fn pat_expires_at(ctx: &AuthContext) -> Option<Option<time::OffsetDateTime>> {
+    if ctx.session.is_some() {
+        return None;
+    }
+    ctx.pat.as_ref().map(|p| p.expires_at)
 }
 
 /// The SDK key that authenticated this request, if any.

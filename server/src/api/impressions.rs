@@ -253,7 +253,7 @@ async fn list_impressions(
 ) -> Result<Json<ImpressionListResponse>, StatusCode> {
     super::flags::check_env_access(&state.db, &jar, &env_id).await?;
     let limit = q.limit.clamp(1, 200);
-    let offset = q.offset.max(0);
+    let offset = q.offset.clamp(0, super::flags::MAX_PAGE_OFFSET);
 
     // Unified parameterized query — NULL params act as "no filter".
     // $2=flag_key, $3=user_id, $4=value, $5=since_id

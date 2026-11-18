@@ -331,3 +331,28 @@ describe('snapshot consistency', () => {
     client.disconnect()
   })
 })
+
+// --- Missing EventSource polyfill ------------------------------------------
+
+describe('without a global EventSource', () => {
+  test('connect() falls back to polling and settles instead of hanging', async () => {
+    vi.stubGlobal('EventSource', undefined)
+    vi.stubGlobal('fetch', (url) => {
+      fetchCalls.push({ url })
+      return Promise.resolve({
+        ok: true, status: 200, headers: { get: () => 'env-1' },
+        json: async () => [{ key: 'checkout', is_enabled: true }],
+      })
+    })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const client = newClient({ reportImpressions: false })
+    await client.connect()
+    expect(client.isPolling()).toBe(true)
+    expect(client.isReady()).toBe(true)
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+    expect(fetchCalls.some((c) => c.url.endsWith('/flags/snapshot'))).toBe(true)
+    expect(errors.mock.calls.some(([m]) => String(m).includes('No global EventSource'))).toBe(true)
+    client.disconnect()
+    errors.mockRestore()
+  })
+})

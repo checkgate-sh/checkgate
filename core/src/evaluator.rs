@@ -256,12 +256,25 @@ fn pick_weighted_variant(
 /// forever rather than erroring.
 const MAX_PREREQUISITE_DEPTH: usize = 10;
 
+/// Prerequisite evaluations allowed within one top-level evaluation; once
+/// spent, remaining prerequisites count as unsatisfied (fail closed, like the
+/// depth guard). The depth guard alone does not bound the work: prerequisites
+/// that are all satisfied never short-circuit, so a chain of flags that each
+/// list the next one N times costs N^depth evaluations — 8 duplicates over 10
+/// levels is ~134 million, minutes of CPU in every SDK for one `isEnabled`.
+/// Real configurations use a handful; 1 000 caps the worst case at roughly a
+/// hundred microseconds. The server also rejects such configurations on write
+/// (duplicate or excessive prerequisites); this bound protects SDKs from data
+/// saved before that check, or written by other means.
+const MAX_PREREQUISITE_EVALUATIONS: u32 = 1_000;
+
 /// Evaluate a flag and return both the on/off result and the resolved variant value.
 /// Use this for non-boolean flags (string / integer / JSON variants). `store` is
 /// used to resolve the flag's prerequisites (if any) — pass the same store the
 /// flag itself was looked up from.
 pub fn evaluate_variant(flag: &Flag, user_context: &UserContext, store: &FlagStore) -> EvalResult {
-    evaluate_variant_at_depth(flag, user_context, store, 0)
+    let mut budget = MAX_PREREQUISITE_EVALUATIONS;
+    evaluate_variant_at_depth(flag, user_context, store, 0, &mut budget)
 }
 
 fn evaluate_variant_at_depth(
@@ -269,12 +282,13 @@ fn evaluate_variant_at_depth(
     user_context: &UserContext,
     store: &FlagStore,
     depth: usize,
+    budget: &mut u32,
 ) -> EvalResult {
     if !flag.is_enabled {
         return disabled_result(flag);
     }
 
-    if !prerequisites_satisfied(flag, user_context, store, depth) {
+    if !prerequisites_satisfied(flag, user_context, store, depth, budget) {
         return disabled_result(flag);
     }
 
@@ -327,13 +341,16 @@ fn evaluate_variant_at_depth(
 
 /// Checks that every prerequisite of `flag` is satisfied, recursively evaluating each
 /// prerequisite flag via `store`. Fails closed: a prerequisite referencing a flag that
-/// no longer exists, or a chain deeper than `MAX_PREREQUISITE_DEPTH` (guards against
-/// cycles, e.g. A requires B, B requires A), is treated as unsatisfied.
+/// no longer exists, a chain deeper than `MAX_PREREQUISITE_DEPTH` (guards against
+/// cycles, e.g. A requires B, B requires A), or a prerequisite reached after the
+/// evaluation's `MAX_PREREQUISITE_EVALUATIONS` budget is spent, is treated as
+/// unsatisfied. Stops at the first unsatisfied prerequisite.
 fn prerequisites_satisfied(
     flag: &Flag,
     user_context: &UserContext,
     store: &FlagStore,
     depth: usize,
+    budget: &mut u32,
 ) -> bool {
     if flag.prerequisites.is_empty() {
         return true;
@@ -342,7 +359,11 @@ fn prerequisites_satisfied(
         return false;
     }
 
-    flag.prerequisites.iter().all(|prereq| {
+    for prereq in &flag.prerequisites {
+        let Some(remaining) = budget.checked_sub(1) else {
+            return false;
+        };
+        *budget = remaining;
         let Some(prereq_flag) = store.get_flag(&prereq.flag_key) else {
             return false;
         };
@@ -351,12 +372,17 @@ fn prerequisites_satisfied(
             user_context,
             store,
             depth.saturating_add(1),
+            budget,
         );
-        match &prereq.required_value {
+        let satisfied = match &prereq.required_value {
             Some(required) => result.enabled && &result.value == required,
             None => result.enabled,
+        };
+        if !satisfied {
+            return false;
         }
-    })
+    }
+    true
 }
 
 /// Evaluate a flag and return a simple boolean. Delegates to `evaluate_variant`.
@@ -369,6 +395,7 @@ pub fn evaluate(flag: &Flag, user_context: &UserContext, store: &FlagStore) -> b
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     fn bool_flag(
         key: &str,
@@ -845,6 +872,216 @@ mod tests {
         };
         // Must terminate (not stack overflow / hang) and fail closed.
         assert!(!evaluate(flag_a.as_ref(), &ctx, &store));
+    }
+
+    // ---------------------------------------------------------------------
+    // Rollout stability: determinism, monotonicity, pinned buckets, and
+    // evaluation while the store is being updated.
+    // ---------------------------------------------------------------------
+
+    fn rollout_flag(key: &str, percentage: u32) -> Flag {
+        bool_flag(key, true, Some(percentage), vec![])
+    }
+
+    fn user(key: &str) -> UserContext {
+        UserContext {
+            key: key.into(),
+            attributes: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn rollout_buckets_are_pinned_across_releases() {
+        // (flag key, user key, bucket = murmur3_x86_32("{flag}:{user}") % 100).
+        // A user is in the rollout iff bucket < percentage. These values are
+        // what every release since bucketing was introduced has computed; if
+        // this test fails, upgrading would move users in or out of rollouts.
+        let pinned = [
+            ("new-checkout", "user-1", 31),
+            ("new-checkout", "user-2", 89),
+            ("dark-mode", "alice@example.com", 52),
+            ("dark-mode", "", 79),
+            ("", "user-1", 17),
+            ("search-v2", "8f14e45f-ceea-467f-a0e6-5e7d1c2b9a31", 72),
+            ("caf\u{e9}", "\u{1F680}", 14),
+        ];
+        let store = FlagStore::new();
+        for (flag_key, user_key, bucket) in pinned {
+            let ctx = user(user_key);
+            assert!(
+                !evaluate(&rollout_flag(flag_key, bucket), &ctx, &store),
+                "{flag_key}/{user_key} enabled at {bucket}%"
+            );
+            assert!(
+                evaluate(&rollout_flag(flag_key, bucket + 1), &ctx, &store),
+                "{flag_key}/{user_key} disabled at {}%",
+                bucket + 1
+            );
+        }
+    }
+
+    #[test]
+    fn rollout_is_deterministic_and_monotonic_in_percentage() {
+        // Exhaustive over every percentage for 2 000 users: raising the
+        // percentage never removes a user, lowering it never adds one, and the
+        // result never depends on the store instance or on attributes the
+        // flag does not target.
+        let store_a = FlagStore::new();
+        let store_b = FlagStore::new();
+        for i in 0..2_000 {
+            let key = format!("user-{i}");
+            let plain = user(&key);
+            let mut decorated = user(&key);
+            decorated
+                .attributes
+                .insert("plan".into(), format!("plan-{}", i % 7));
+            let mut previous = false;
+            for percentage in 0..=100 {
+                let flag = rollout_flag("monotonic", percentage);
+                let enabled = evaluate(&flag, &plain, &store_a);
+                assert_eq!(enabled, evaluate(&flag, &plain, &store_a), "repeat");
+                assert_eq!(enabled, evaluate(&flag, &plain, &store_b), "store");
+                assert_eq!(enabled, evaluate(&flag, &decorated, &store_a), "attrs");
+                assert!(!previous || enabled, "{key} dropped at {percentage}%");
+                previous = enabled;
+            }
+            assert!(previous, "{key} not enabled at 100%");
+        }
+    }
+
+    #[test]
+    fn rollout_share_tracks_the_percentage() {
+        for percentage in [1u32, 10, 25, 50, 90] {
+            let flag = rollout_flag("share", percentage);
+            let store = FlagStore::new();
+            let on = (0..20_000)
+                .filter(|i| evaluate(&flag, &user(&format!("u{i}")), &store))
+                .count();
+            let expected = 200 * percentage as usize;
+            let tolerance = expected / 10 + 60;
+            assert!(
+                on.abs_diff(expected) <= tolerance,
+                "{percentage}%: {on} of 20000"
+            );
+        }
+    }
+
+    #[test]
+    fn concurrent_updates_never_produce_a_mixed_result() {
+        // Writers flip the flag between two complete versions while readers
+        // evaluate. Each evaluation sees one version or the other (a flag is
+        // swapped as one `Arc`), never a blend — e.g. B's rules with A's
+        // rollout.
+        let store = FlagStore::new();
+        let version_a = {
+            let mut f = rollout_flag("live", 30);
+            f.rules = vec![string_rule("plan", Operator::Equals, &["pro"])];
+            f
+        };
+        let version_b = rollout_flag("live", 70);
+        store.upsert_flag(version_a.clone());
+
+        let users: Vec<UserContext> = (0..200)
+            .map(|i| {
+                ctx_attr(
+                    &format!("u{i}"),
+                    "plan",
+                    if i % 3 == 0 { "pro" } else { "free" },
+                )
+            })
+            .collect();
+        let empty = FlagStore::new();
+        let allowed: Vec<(bool, bool)> = users
+            .iter()
+            .map(|u| {
+                (
+                    evaluate(&version_a, u, &empty),
+                    evaluate(&version_b, u, &empty),
+                )
+            })
+            .collect();
+
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for i in 0..20_000 {
+                    store.upsert_flag(if i % 2 == 0 {
+                        version_b.clone()
+                    } else {
+                        version_a.clone()
+                    });
+                }
+                stop.store(true, std::sync::atomic::Ordering::Release);
+            });
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    while !stop.load(std::sync::atomic::Ordering::Acquire) {
+                        for (u, (a, b)) in users.iter().zip(&allowed) {
+                            let flag = store.get_flag("live").unwrap();
+                            let got = evaluate(&flag, u, &store);
+                            assert!(got == *a || got == *b, "{}: {got}", u.key);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /// Builds `ladder-0 … ladder-{levels-1}`: `ladder-0` has no prerequisites,
+    /// and every other level lists the level below it `fan_out` times. Every
+    /// prerequisite is satisfied, so `all()` never short-circuits and naive
+    /// recursion evaluates `fan_out^(levels-1)` leaves.
+    fn prerequisite_ladder(store: &FlagStore, levels: usize, fan_out: usize) -> Arc<Flag> {
+        store.upsert_flag(flag_with_prerequisites("ladder-0", true, vec![]));
+        for level in 1..levels {
+            let below = format!("ladder-{}", level - 1);
+            let prerequisites = (0..fan_out)
+                .map(|_| Prerequisite {
+                    flag_key: below.clone(),
+                    required_value: None,
+                })
+                .collect();
+            store.upsert_flag(flag_with_prerequisites(
+                &format!("ladder-{level}"),
+                true,
+                prerequisites,
+            ));
+        }
+        store.get_flag(&format!("ladder-{}", levels - 1)).unwrap()
+    }
+
+    #[test]
+    fn test_prerequisite_fan_out_is_bounded_and_fails_closed() {
+        // 10 levels × 8 duplicate prerequisites = 8^9 ≈ 134 million leaf
+        // evaluations without a budget: minutes of CPU in every SDK for one
+        // `isEnabled`, from a configuration any editor can save.
+        let store = FlagStore::new();
+        let top = prerequisite_ladder(&store, MAX_PREREQUISITE_DEPTH, 8);
+        let ctx = UserContext {
+            key: "u".into(),
+            attributes: HashMap::new(),
+        };
+        let started = std::time::Instant::now();
+        assert!(!evaluate(top.as_ref(), &ctx, &store));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn test_prerequisite_diamonds_within_budget_still_evaluate() {
+        // Doubling at every level over 9 levels is 2 + 4 + … + 256 = 510
+        // prerequisite evaluations: inside the budget, so a shared dependency
+        // reached by many paths still evaluates normally.
+        let store = FlagStore::new();
+        let top = prerequisite_ladder(&store, 9, 2);
+        let ctx = UserContext {
+            key: "u".into(),
+            attributes: HashMap::new(),
+        };
+        assert!(evaluate(top.as_ref(), &ctx, &store));
     }
 
     fn num_rule(attr: &str, op: Operator, values: &[&str]) -> TargetingRule {
