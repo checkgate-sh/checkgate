@@ -75,12 +75,38 @@ const enabled = client.isEnabled('new-onboarding', userId, {
 | `serverUrl` | `string` | Yes | Base URL of your Checkgate server |
 | `sdkKey` | `string` | No | SDK key for authentication |
 | `reconnectDelayMs` | `number` | No | SSE reconnect delay in ms (default: 5000) |
+| `connectTimeoutMs` | `number` | No | Retry a stream attempt without `connected` after this long (default: 30000) |
+| `streamIdleTimeoutMs` | `number` | No | Reconnect a stream silent this long (default: 3 × the announced heartbeat; `0` disables) |
 
-### `client.connect(): void`
+### `client.connect(): Promise<void>`
 
-Initiates the SSE connection in the background. Flags are loaded as they arrive; `isEnabled()` returns `false` for unknown flags during bootstrap.
+Opens the SSE connection and resolves once the server has replayed the full flag set (the `ready`
+event), like the Node and web SDKs. You may call it without awaiting: evaluations return `false`
+for unknown flags until the bootstrap completes, and a rejection is never reported as unhandled.
 
-Unlike the web SDK, `connect()` does not return a Promise — it fires and forgets, consistent with React Native's event-driven model.
+### Connection health
+
+`client.getStatus()` returns `{ state, lastSyncAt, error }`:
+
+| `state` | Meaning |
+|---|---|
+| `'connecting'` | First connection attempt in progress |
+| `'streaming'` | Live stream; flags are current |
+| `'reconnecting'` | Stream lost; retrying with backoff (flags: last known) |
+| `'polling'` | Stream keeps failing; polling `/flags/snapshot` |
+| `'auth_failed'` | The server rejected the SDK key (401/403); not retrying |
+| `'closed'` | After `disconnect()` |
+
+`lastSyncAt` is when the client last confirmed its flags are current (a bootstrap, a poll, or any
+event on a live stream, the server's heartbeats included), in ms since the epoch. Flags are always
+served from the last known state; `Date.now() - lastSyncAt` is how old they may be. A stream that
+receives nothing for 3 × the server's heartbeat interval (45 s by default) is dropped and
+reconnected, so a silently dead connection (lost NAT mapping, half-open TCP) no longer looks healthy.
+
+A rejected key is not retried: `connect()` rejects with a `CheckgateAuthError` (`err.status` is 401 or 403; the
+key is never in the message), the last known flags keep being served, and calling `connect()` again
+retries. `connect()` also rejects if `disconnect()` is called before it completes. While the server is
+unreachable it keeps retrying; race it with a timeout if startup cannot wait.
 
 ### `client.isEnabled(flagKey, userKey, attributes): boolean`
 

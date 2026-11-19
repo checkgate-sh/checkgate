@@ -9,7 +9,12 @@
 //! - a closed or failed stream reconnects with exponential backoff and
 //!   jitter, and after `poll_fallback_threshold` consecutive failures the
 //!   client also polls `GET /flags/snapshot` (which carries no revisions, so
-//!   it clears them, as the Node SDK does) until a stream connects again.
+//!   it clears them, as the Node SDK does) until a stream connects again;
+//! - an attempt that has not seen `connected` within `connect_timeout` is
+//!   abandoned, and a connected stream that announced `heartbeat_ms` is
+//!   abandoned after `idle_heartbeats` intervals without a complete frame
+//!   (servers that announce nothing get no idle deadline);
+//! - HTTP 401/403, from the stream or a poll, is terminal: the client stops.
 //!
 //! Delays are shortened so tests run quickly; the logic is unchanged.
 #![allow(dead_code, reason = "each test binary uses a different subset")]
@@ -30,6 +35,10 @@ pub struct SdkOptions {
     /// Where snapshots are polled, if not the stream's server (a proxy may
     /// block only long-lived connections).
     pub poll_base: Option<String>,
+    /// From the start of an attempt until `connected`.
+    pub connect_timeout: Duration,
+    /// Heartbeat intervals a connected stream may stay silent.
+    pub idle_heartbeats: u32,
 }
 
 impl Default for SdkOptions {
@@ -40,6 +49,8 @@ impl Default for SdkOptions {
             poll_fallback_threshold: 3,
             poll_interval: Duration::from_millis(500),
             poll_base: None,
+            connect_timeout: Duration::from_secs(5),
+            idle_heartbeats: 3,
         }
     }
 }
@@ -69,6 +80,14 @@ pub struct SdkState {
     pub stale_dropped: u64,
     /// Every `env_id` a change event was received for.
     pub seen_envs: HashSet<String>,
+    /// The interval the server announced on the last `connected`.
+    pub heartbeat_ms: Option<u64>,
+    pub heartbeats: u64,
+    /// Stream attempts made, and how many a deadline abandoned.
+    pub attempts: u32,
+    pub deadline_trips: u32,
+    /// Set when the server rejected the key: the client has stopped.
+    pub auth_rejected: Option<u16>,
     staged: Option<(HashMap<String, Value>, HashMap<String, Known>)>,
 }
 
@@ -196,10 +215,16 @@ fn on_frame(state: &Mutex<SdkState>, event: &str, data: &str) {
             s.connects += 1;
             s.streaming = true;
             s.polling = false;
-            s.env_id = serde_json::from_str::<Value>(data)
-                .ok()
+            let payload = serde_json::from_str::<Value>(data).ok();
+            s.env_id = payload
+                .as_ref()
                 .and_then(|v| v["environment_id"].as_str().map(str::to_string));
+            s.heartbeat_ms = payload
+                .as_ref()
+                .and_then(|v| v["heartbeat_ms"].as_u64())
+                .filter(|ms| *ms > 0);
         }
+        "heartbeat" => s.heartbeats += 1,
         "ready" => {
             if let Some((flags, revisions)) = s.staged.take() {
                 s.flags = flags;
@@ -213,39 +238,76 @@ fn on_frame(state: &Mutex<SdkState>, event: &str, data: &str) {
     }
 }
 
-/// Reads one `/stream` connection to its end. Returns whether the server
-/// accepted it (sent `connected`).
+/// How one `/stream` attempt ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Attempt {
+    /// The server sent `connected`; the stream later ended or went silent.
+    Connected,
+    /// Refused, failed or abandoned before `connected`.
+    Failed,
+    /// HTTP 401/403: the key is rejected.
+    Rejected(u16),
+}
+
+fn is_auth_failure(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 401 | 403)
+}
+
+/// Reads one `/stream` connection to its end, or until it misses a deadline.
 async fn stream_once(
     client: &reqwest::Client,
     base: &str,
     key: &str,
+    opts: &SdkOptions,
     state: &Mutex<SdkState>,
-) -> bool {
-    let Ok(resp) = client
+) -> Attempt {
+    state.lock().unwrap().attempts += 1;
+    let mut deadline = tokio::time::Instant::now() + opts.connect_timeout;
+    let sent = client
         .get(format!("{base}/stream"))
         .bearer_auth(key)
         .header("Accept", "text/event-stream")
-        .send()
-        .await
-    else {
-        return false;
+        .send();
+    let Ok(Ok(resp)) = tokio::time::timeout_at(deadline, sent).await else {
+        return Attempt::Failed;
     };
+    if is_auth_failure(resp.status()) {
+        return Attempt::Rejected(resp.status().as_u16());
+    }
     if !resp.status().is_success() {
-        return false;
+        return Attempt::Failed;
     }
     let mut body = resp.bytes_stream();
     let mut buf = String::new();
     let (mut event, mut data) = (String::new(), String::new());
     let mut connected = false;
-    while let Some(Ok(chunk)) = body.next().await {
+    let mut idle: Option<Duration> = None;
+    loop {
+        let Ok(next) = tokio::time::timeout_at(deadline, body.next()).await else {
+            state.lock().unwrap().deadline_trips += 1;
+            break;
+        };
+        let Some(Ok(chunk)) = next else { break };
         buf.push_str(&String::from_utf8_lossy(&chunk));
         while let Some(nl) = buf.find('\n') {
             let line = buf[..nl].trim_end_matches('\r').to_string();
             buf.drain(..=nl);
             if line.is_empty() {
+                // Any complete frame, comments included, is proof of life.
+                if let Some(idle) = idle {
+                    deadline = tokio::time::Instant::now() + idle;
+                }
                 if !event.is_empty() || !data.is_empty() {
-                    connected |= event == "connected";
                     on_frame(state, &event, &data);
+                    if event == "connected" {
+                        connected = true;
+                        idle = state.lock().unwrap().heartbeat_ms.map(|ms| {
+                            Duration::from_millis(ms).saturating_mul(opts.idle_heartbeats)
+                        });
+                        // No heartbeat announced: no idle deadline.
+                        deadline = tokio::time::Instant::now()
+                            + idle.unwrap_or(Duration::from_secs(24 * 3600));
+                    }
                     event.clear();
                     data.clear();
                 }
@@ -256,10 +318,20 @@ async fn stream_once(
             }
         }
     }
-    connected
+    if connected {
+        Attempt::Connected
+    } else {
+        Attempt::Failed
+    }
 }
 
-async fn poll_once(client: &reqwest::Client, base: &str, key: &str, state: &Mutex<SdkState>) {
+/// Returns the status when the server rejected the key.
+async fn poll_once(
+    client: &reqwest::Client,
+    base: &str,
+    key: &str,
+    state: &Mutex<SdkState>,
+) -> Option<u16> {
     let Ok(resp) = client
         .get(format!("{base}/flags/snapshot"))
         .bearer_auth(key)
@@ -267,13 +339,16 @@ async fn poll_once(client: &reqwest::Client, base: &str, key: &str, state: &Mute
         .send()
         .await
     else {
-        return;
+        return None;
     };
+    if is_auth_failure(resp.status()) {
+        return Some(resp.status().as_u16());
+    }
     if !resp.status().is_success() {
-        return;
+        return None;
     }
     let Ok(flags) = resp.json::<Vec<Value>>().await else {
-        return;
+        return None;
     };
     let mut s = state.lock().unwrap();
     s.flags = flags
@@ -283,6 +358,7 @@ async fn poll_once(client: &reqwest::Client, base: &str, key: &str, state: &Mute
     s.revisions.clear();
     s.polls += 1;
     s.ready = true;
+    None
 }
 
 async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkState>>) {
@@ -292,7 +368,7 @@ async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkSt
         .unwrap();
     let mut failures: u32 = 0;
     loop {
-        let connected = stream_once(&client, &base, &key, &state).await;
+        let attempt = stream_once(&client, &base, &key, &opts, &state).await;
         {
             let mut s = state.lock().unwrap();
             s.staged = None;
@@ -300,8 +376,17 @@ async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkSt
                 s.disconnects += 1;
             }
             s.streaming = false;
+            if let Attempt::Rejected(status) = attempt {
+                s.auth_rejected = Some(status);
+                s.polling = false;
+                return;
+            }
         }
-        failures = if connected { 1 } else { failures + 1 };
+        failures = if attempt == Attempt::Connected {
+            1
+        } else {
+            failures + 1
+        };
 
         let base_delay = opts
             .reconnect_base
@@ -314,7 +399,12 @@ async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkSt
             state.lock().unwrap().polling = true;
             while tokio::time::Instant::now() < wake {
                 let poll_base = opts.poll_base.as_deref().unwrap_or(&base);
-                poll_once(&client, poll_base, &key, &state).await;
+                if let Some(status) = poll_once(&client, poll_base, &key, &state).await {
+                    let mut s = state.lock().unwrap();
+                    s.auth_rejected = Some(status);
+                    s.polling = false;
+                    return;
+                }
                 let left = wake.saturating_duration_since(tokio::time::Instant::now());
                 tokio::time::sleep(opts.poll_interval.min(left)).await;
             }

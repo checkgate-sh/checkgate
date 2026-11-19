@@ -30,7 +30,12 @@ import 'checkgate_bindings.dart';
 /// before any line is interpreted. Splitting each chunk on `\n` instead lost
 /// the second half of every line that straddled two reads, which dropped
 /// flags from large bootstraps and could lose the `ready` event entirely.
-Stream<MapEntry<String, String>> parseSseEvents(Stream<List<int>> bytes) async* {
+///
+/// [onFrame] runs at the end of every frame, including frames that carry no
+/// event (an SSE comment such as an older server's keep-alive): the client's
+/// proof that the stream is alive.
+Stream<MapEntry<String, String>> parseSseEvents(Stream<List<int>> bytes,
+    {void Function()? onFrame}) async* {
   var eventName = '';
   final data = StringBuffer();
   await for (final line
@@ -40,6 +45,7 @@ Stream<MapEntry<String, String>> parseSseEvents(Stream<List<int>> bytes) async* 
     } else if (line.startsWith('data:')) {
       data.write(line.substring(5).trim());
     } else if (line.isEmpty) {
+      onFrame?.call();
       if (data.isNotEmpty) {
         yield MapEntry(eventName, data.toString());
         data.clear();
@@ -47,6 +53,73 @@ Stream<MapEntry<String, String>> parseSseEvents(Stream<List<int>> bytes) async* 
       eventName = '';
     }
   }
+}
+
+/// HTTP statuses that mean the SDK key itself is rejected: retrying cannot help.
+const Set<int> _authFailureStatuses = {401, 403};
+
+/// A healthy stream is never silent for longer than the server's heartbeat
+/// interval; it is declared dead after this many intervals without a byte.
+const int _idleHeartbeats = 3;
+
+/// The keep-alive interval of servers that do not announce one (before
+/// 0.1.31). They send it as an SSE comment, which this client sees as bytes.
+const Duration _legacyKeepAlive = Duration(seconds: 15);
+
+/// The server rejected the SDK key with HTTP 401 or 403. The client stops
+/// retrying (a rejected key does not become valid by asking again) and keeps
+/// serving the flags it already has. Call [CheckgateClient.connect] again to
+/// retry, e.g. after the key was restored.
+class CheckgateAuthException implements Exception {
+  CheckgateAuthException(this.statusCode);
+
+  /// The HTTP status the server answered with.
+  final int statusCode;
+
+  @override
+  String toString() => 'CheckgateAuthException: the server rejected the SDK '
+      'key (HTTP $statusCode). Not retrying; check the key, then call '
+      'connect() again.';
+}
+
+/// Where the client stands with the server; see [CheckgateClient.status].
+enum CheckgateConnectionState {
+  /// [CheckgateClient.connect] has not been called.
+  idle,
+
+  /// First connection attempt in progress.
+  connecting,
+
+  /// Live stream; flags are current.
+  streaming,
+
+  /// The stream was lost; retrying with backoff.
+  reconnecting,
+
+  /// The stream keeps failing; polling `GET /flags/snapshot` meanwhile.
+  polling,
+
+  /// The SDK key was rejected; not retrying.
+  authFailed,
+
+  /// [CheckgateClient.close] was called.
+  closed,
+}
+
+/// Connection health, for detecting stale flags.
+class CheckgateStatus {
+  const CheckgateStatus(this.state, this.lastSyncAt, this.error);
+
+  final CheckgateConnectionState state;
+
+  /// When the client last confirmed its flags are current: a completed
+  /// bootstrap or poll, or any traffic on a live stream (heartbeats
+  /// included). `null` before the first. Flags are served from the last
+  /// known state in every state; their age is `DateTime.now() - lastSyncAt`.
+  final DateTime? lastSyncAt;
+
+  /// The error behind [CheckgateConnectionState.authFailed], otherwise null.
+  final Object? error;
 }
 
 /// Optional persistence adapter. Implement with your storage of choice
@@ -90,6 +163,33 @@ class CheckgateClient {
 
   /// Optional persistence adapter for offline flag evaluation.
   final CheckgateStorage? storage;
+
+  /// A stream attempt that has not received the server's `connected` event
+  /// within this time is abandoned and retried.
+  final Duration connectTimeout;
+
+  /// A connected stream that receives nothing (heartbeats included) for this
+  /// long is treated as dead and reconnected. Default (null): 3 × the
+  /// heartbeat interval the server announces, 45 s by default. [Duration.zero]
+  /// disables it.
+  final Duration? streamIdleTimeout;
+
+  // Connection health (see [status]).
+  CheckgateConnectionState _state = CheckgateConnectionState.idle;
+  DateTime? _lastSyncAt;
+  Object? _lastError;
+
+  /// Bumped by [connect] and [close]: an SSE loop from an earlier session
+  /// sees the change and exits, so a quick close() + connect() never leaves
+  /// two loops running.
+  int _loopGeneration = 0;
+
+  /// Ends the current stream attempt (its byte stream errors), for the
+  /// watchdog and for [close].
+  void Function()? _abortStream;
+  Timer? _watchdog;
+  DateTime? _deadline;
+  Duration _idleTimeout = Duration.zero;
 
   // The native evaluation engine, loaded lazily on connect() so constructing a
   // client is cheap and side-effect-free (and unit-testable without the native
@@ -157,33 +257,56 @@ class CheckgateClient {
     this.pollFallbackThreshold = 3,
     this.pollInterval = const Duration(seconds: 30),
     this.storage,
+    this.connectTimeout = const Duration(seconds: 30),
+    this.streamIdleTimeout,
     http.Client? httpClient,
+    CheckgateBindings? bindings,
   }) {
-    // Test seam: an injected client lets unit tests exercise the
-    // impression/event reporting paths with a mock, without a real connection.
+    // Test seams: an injected client lets unit tests exercise the
+    // impression/event reporting paths with a mock, without a real connection;
+    // injected bindings load the engine from an explicit library (host tests).
     _httpClient = httpClient;
+    _bindings = bindings;
   }
 
   /// Open the SSE stream. The returned future completes once the server has
   /// replayed the full flag set and sent the "ready" event — consistent with
   /// the Node and Web SDKs. The server sends the full flag state on connect,
   /// so no separate REST bootstrap call is needed.
-  Future<void> connect() {
-    if (_ready) return Future<void>.value();
+  ///
+  /// Completes with a [CheckgateAuthException] if the server rejects the SDK
+  /// key (HTTP 401/403), and with a [StateError] if [close] is called first.
+  /// While the server is unreachable it keeps retrying; add a timeout if the
+  /// caller cannot wait. Flags already loaded keep being served either way.
+  Future<void> connect() => _connect(loadEngine: true);
+
+  Future<void> _connect({required bool loadEngine}) {
+    if (_ready && _state != CheckgateConnectionState.authFailed) {
+      return Future<void>.value();
+    }
     if (_connecting) return _readyCompleter!.future;
 
     _connecting = true;
     _closed = false;
-    _readyCompleter = Completer<void>();
+    _lastError = null;
+    _state = _ready
+        ? CheckgateConnectionState.reconnecting
+        : CheckgateConnectionState.connecting;
+    final generation = ++_loopGeneration;
+    final completer = Completer<void>();
+    _readyCompleter = completer;
+    // A caller that never awaits must not get an uncaught async error; one
+    // that awaits still receives it.
+    completer.future.ignore();
     // Load the native engine lazily (once), and open an HTTP client unless one
     // was injected for testing.
-    _bindings ??= CheckgateBindings.open();
+    if (loadEngine) _bindings ??= CheckgateBindings.open();
     _httpClient ??= http.Client();
     // Hydrate from the persisted snapshot so evaluations work offline
     // immediately, then open the live stream.
     _hydrateFromCache().whenComplete(() {
-      if (!_closed) {
-        _startSseLoop(_httpClient!, Uri.parse('$serverUrl/stream'), {
+      if (!_closed && generation == _loopGeneration) {
+        _startSseLoop(generation, _httpClient!, Uri.parse('$serverUrl/stream'), {
           'Authorization': 'Bearer $sdkKey',
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache',
@@ -195,6 +318,16 @@ class CheckgateClient {
 
   /// Whether the initial bootstrap has completed and flags are ready to evaluate.
   bool get isReady => _ready;
+
+  /// Connection health, for detecting stale flags.
+  CheckgateStatus get status => CheckgateStatus(_state, _lastSyncAt, _lastError);
+
+  void _markReady() {
+    _lastSyncAt = DateTime.now();
+    _ready = true;
+    final completer = _readyCompleter;
+    if (completer != null && !completer.isCompleted) completer.complete();
+  }
 
   /// Registers a listener invoked whenever a flag changes after the initial
   /// bootstrap (created, updated, or deleted). The flag's key is passed to the
@@ -248,32 +381,149 @@ class CheckgateClient {
     s.write(_cacheKey, jsonEncode(_flagCache)).catchError((_) {});
   }
 
-  void _startSseLoop(
-      http.Client client, Uri uri, Map<String, String> headers) async {
-    while (!_closed) {
+  bool _loopLive(int generation) => !_closed && generation == _loopGeneration;
+
+  void _startSseLoop(int generation, http.Client client, Uri uri,
+      Map<String, String> headers) async {
+    while (_loopLive(generation)) {
       try {
         final request = http.Request('GET', uri);
         request.headers.addAll(headers);
-        final response = await client.send(request);
+        // Until `connected` arrives only the connect deadline applies; it
+        // also bounds waiting for the response headers.
+        _idleTimeout = Duration.zero;
+        final response =
+            await client.send(request).timeout(connectTimeout);
+        if (!_loopLive(generation)) break;
 
+        if (_authFailureStatuses.contains(response.statusCode)) {
+          _failAuth(response.statusCode);
+          break;
+        }
         if (response.statusCode != 200) {
           throw Exception('SSE connect failed: ${response.statusCode}');
         }
 
-        await for (final event in parseSseEvents(response.stream)) {
-          if (_closed) break;
+        await for (final event in parseSseEvents(_watched(response.stream),
+            onFrame: _touchStream)) {
+          if (!_loopLive(generation)) break;
           _handleSseEvent(event.key, event.value);
         }
       } catch (e) {
-        if (_closed) break;
+        if (!_loopLive(generation)) break;
+      } finally {
+        _stopWatchdog();
       }
 
       // A replay cut short never replaces the live snapshot.
       _staged = null;
       _stagedRevisions = null;
-      if (_closed) break;
+      if (!_loopLive(generation)) break;
       // Stream dropped — wait with exponential backoff + jitter before retrying.
-      await Future<void>.delayed(_nextReconnectDelay());
+      final delay = _nextReconnectDelay();
+      _state = _polling
+          ? CheckgateConnectionState.polling
+          : (_ready
+              ? CheckgateConnectionState.reconnecting
+              : CheckgateConnectionState.connecting);
+      await Future<void>.delayed(delay);
+    }
+  }
+
+  /// Passes [bytes] through and fails the stream with a [TimeoutException]
+  /// once it misses its deadline: [connectTimeout] until `connected`, then
+  /// the idle timeout, pushed out by every complete frame (SSE comments
+  /// included; see [parseSseEvents]). Bytes alone do not count: a stream that
+  /// trickles without ever finishing a frame is as useless as a silent one.
+  /// A dropped NAT mapping or a half-open TCP connection otherwise looks
+  /// healthy until the OS gives up, hours later.
+  Stream<List<int>> _watched(Stream<List<int>> bytes) {
+    late final StreamController<List<int>> out;
+    StreamSubscription<List<int>>? sub;
+    void abort(Object error) {
+      sub?.cancel();
+      sub = null;
+      if (!out.isClosed) {
+        out.addError(error);
+        out.close();
+      }
+    }
+
+    out = StreamController<List<int>>(
+      onListen: () {
+        sub = bytes.listen(
+          out.add,
+          onError: out.addError,
+          onDone: () {
+            if (!out.isClosed) out.close();
+          },
+        );
+      },
+      onCancel: () => sub?.cancel(),
+    );
+    _abortStream = () => abort(StateError('stream closed'));
+    _armWatchdog(connectTimeout, () => abort(TimeoutException(
+        'No event from the stream within its deadline', connectTimeout)));
+    return out.stream;
+  }
+
+  void Function()? _onStreamDead;
+
+  void _armWatchdog(Duration after, void Function() onDead) {
+    _onStreamDead = onDead;
+    _deadline = DateTime.now().add(after);
+    _watchdog?.cancel();
+    _watchdog = Timer(after, _checkDeadline);
+  }
+
+  void _checkDeadline() {
+    _watchdog = null;
+    final deadline = _deadline;
+    if (deadline == null) return;
+    final left = deadline.difference(DateTime.now());
+    if (left > Duration.zero) {
+      _watchdog = Timer(left, _checkDeadline);
+      return;
+    }
+    _onStreamDead?.call();
+  }
+
+  /// Records that the current stream is alive and pushes its deadline out.
+  void _touchStream() {
+    if (_idleTimeout > Duration.zero && _deadline != null) {
+      _deadline = DateTime.now().add(_idleTimeout);
+    }
+    if (_state == CheckgateConnectionState.streaming && _staged == null) {
+      _lastSyncAt = DateTime.now();
+    }
+  }
+
+  void _stopWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = null;
+    _deadline = null;
+    _onStreamDead = null;
+    _abortStream = null;
+  }
+
+  /// The server rejected the SDK key: stop every retry (stream and poll),
+  /// keep serving the flags already loaded, and settle connect().
+  void _failAuth(int statusCode) {
+    final err = CheckgateAuthException(statusCode);
+    _loopGeneration++; // ends the SSE loop
+    _abortStream?.call();
+    _stopWatchdog();
+    _stopPollFallback();
+    _staged = null;
+    _stagedRevisions = null;
+    _reconnectAttempts = 0;
+    _connecting = false;
+    _state = CheckgateConnectionState.authFailed;
+    _lastError = err;
+    final completer = _readyCompleter;
+    _readyCompleter = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(err);
     }
   }
 
@@ -345,20 +595,21 @@ class CheckgateClient {
         Uri.parse('$serverUrl/flags/snapshot'),
         headers: {'Authorization': 'Bearer $sdkKey'},
       ).timeout(_pollTimeout);
+      if (generation != _syncGeneration || _closed) return;
+      if (_authFailureStatuses.contains(response.statusCode)) {
+        _failAuth(response.statusCode);
+        return;
+      }
       if (response.statusCode != 200) return;
 
       final flags = jsonDecode(response.body) as List<dynamic>;
       if (generation != _syncGeneration || _closed) return;
       _applySnapshot(flags);
       _hydrated = true;
-
-      if (!_ready) {
-        _ready = true;
-        final completer = _readyCompleter;
-        if (completer != null && !completer.isCompleted) {
-          completer.complete();
-        }
+      if (_state != CheckgateConnectionState.streaming) {
+        _state = CheckgateConnectionState.polling;
       }
+      _markReady();
     } catch (_) {
       // Best-effort: network/parse failures are retried on the next interval tick.
     }
@@ -416,13 +667,27 @@ class CheckgateClient {
 
       // Capture the environment id so impressions route to the right endpoint.
       // Older servers send "true" (no id) — parsing simply yields no id.
+      Object? payload;
       try {
-        final payload = jsonDecode(data);
-        _envId = payload is Map<String, dynamic>
-            ? payload['environment_id'] as String?
-            : null;
+        payload = jsonDecode(data);
       } catch (_) {
-        _envId = null;
+        payload = null;
+      }
+      _envId = payload is Map<String, dynamic>
+          ? payload['environment_id'] as String?
+          : null;
+      // From now on the stream must keep talking; see [streamIdleTimeout].
+      final heartbeatMs =
+          payload is Map<String, dynamic> ? payload['heartbeat_ms'] : null;
+      _idleTimeout = _idleTimeoutFor(heartbeatMs);
+      if (_idleTimeout > Duration.zero && _deadline != null) {
+        _deadline = DateTime.now().add(_idleTimeout);
+        _watchdog?.cancel();
+        _watchdog = Timer(_idleTimeout, _checkDeadline);
+      } else if (_idleTimeout == Duration.zero) {
+        _watchdog?.cancel();
+        _watchdog = null;
+        _deadline = null;
       }
       _startImpressionTimer();
       return;
@@ -439,11 +704,8 @@ class CheckgateClient {
       _applySnapshot(staged.values.toList(), revisions);
       _hydrated = true;
       _persistCache(); // save the freshly-bootstrapped full set for offline use
-      _ready = true;
-      final completer = _readyCompleter;
-      if (completer != null && !completer.isCompleted) {
-        completer.complete();
-      }
+      _state = CheckgateConnectionState.streaming;
+      _markReady();
       return;
     }
 
@@ -768,12 +1030,20 @@ class CheckgateClient {
   /// Test-only: run one poll-fallback request, as the poll timer does.
   Future<void> debugPollSnapshot() => _pollSnapshot();
 
+  /// Test-only: [connect] without loading the native engine (flags are
+  /// tracked in [debugFlags] only, evaluations return defaults).
+  Future<void> debugConnectWithoutEngine() => _connect(loadEngine: false);
+
   /// Test-only: the raw flags the client currently evaluates against.
   Map<String, Map<String, dynamic>> get debugFlags => _flagCache;
 
   /// Cancel the SSE stream and release the HTTP client.
   void close() {
     _closed = true;
+    _loopGeneration++;
+    _abortStream?.call();
+    _stopWatchdog();
+    _state = CheckgateConnectionState.closed;
     _stopPollFallback();
     _flushImpressions();
     _flushEvents();
@@ -787,10 +1057,32 @@ class CheckgateClient {
     _staged = null;
     _stagedRevisions = null;
     _connecting = false;
+    // A connect() still waiting would otherwise never complete.
+    final completer = _readyCompleter;
     _readyCompleter = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(
+          StateError('close() was called before connect() completed.'));
+    }
     // Reset backoff state so a later connect() doesn't inherit a stale attempt
     // count from this session (which could trigger poll fallback prematurely).
     _reconnectAttempts = 0;
+  }
+}
+
+extension on CheckgateClient {
+  /// How long a connected stream may stay silent: an explicit
+  /// [CheckgateClient.streamIdleTimeout], else [_idleHeartbeats] times the
+  /// heartbeat interval the server announced, else (servers before 0.1.31,
+  /// whose 15 s keep-alive comments this client does see) the same multiple
+  /// of 15 s.
+  Duration _idleTimeoutFor(Object? heartbeatMs) {
+    final override = streamIdleTimeout;
+    if (override != null) return override;
+    final interval = heartbeatMs is int && heartbeatMs > 0
+        ? Duration(milliseconds: heartbeatMs)
+        : _legacyKeepAlive;
+    return interval * _idleHeartbeats;
   }
 }
 

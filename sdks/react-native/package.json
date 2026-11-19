@@ -1,7 +1,7 @@
 {
   "name": "@checkgate/react-native",
   "version": "0.1.31",
-  "description": "Checkgate feature-flag SDK for React Native \u2014 local evaluation via Rust JSI.",
+  "description": "Checkgate feature-flag SDK for React Native — local evaluation via Rust JSI.",
   "main": "index.js",
   "repository": {
     "type": "git",
@@ -41,6 +41,7 @@
     "rust"
   ],
   "devDependencies": {
+    "react-native-sse": "^1.2.1",
     "vitest": "^4.1.12"
   }
 }

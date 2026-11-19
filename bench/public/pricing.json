@@ -1,0 +1,50 @@
+{
+  "schema": "checkgate-pricing/v1",
+  "accessed": "2026-11-19",
+  "region": "AWS us-east-1 (N. Virginia), on-demand, Linux, single-AZ",
+  "hours_per_month": 730,
+  "caveat": "List prices as reported by third-party price aggregators on the access date (AWS's own pricing pages could not be read programmatically). Prices change; check the AWS pricing pages for your region before budgeting. Taxes, support plans, reserved or spot discounts, backups beyond the free allowance, and TLS/load-balancer costs are not included.",
+  "items": {
+    "server": {
+      "sku": "EC2 t4g.small (2 vCPU burstable, 2 GiB)",
+      "usd_per_hour": 0.0168,
+      "note": "Burstable: 20 % of each vCPU (0.4 vCPU in total) is the sustained baseline; more consumes CPU credits. t4g is arm64 (Graviton); the benchmark measured CPU on an x86_64 host, so the fit against the baseline is a projection, not a measurement on this instance.",
+      "sources": ["https://cloud.cloudquell.com/aws/ec2/t4g.small/", "https://cloud-credits.org/prices/ec2/t4g-small", "https://cloudprice.net/aws/ec2/instances/t4g.small"]
+    },
+    "server_disk": {
+      "sku": "EBS gp3, 8 GB root volume",
+      "gb": 8,
+      "usd_per_gb_month": 0.08,
+      "sources": ["https://aws.amazon.com/ebs/pricing", "https://www.factualminds.com/blog/amazon-ebs-pricing-orphaned-volumes-snapshots/"]
+    },
+    "database": {
+      "sku": "RDS for PostgreSQL db.t4g.micro (2 vCPU burstable, 1 GiB), single-AZ",
+      "usd_per_hour": 0.016,
+      "sources": ["https://codewithsql.com/cloud-databases/aws/rds/pricing", "https://selfhost.dev/blog/aws-rds-cost-breakdown-2026/", "https://www.bytebase.com/dbcost/rds/instance/db.t4g.micro/"]
+    },
+    "database_storage": {
+      "sku": "RDS gp3 storage, 20 GB (the RDS minimum)",
+      "gb": 20,
+      "usd_per_gb_month": 0.115,
+      "sources": ["https://bminfotrade.com/blog/cloud-computing/aws-rds-pricing-2026-mysql-postgresql-and-sql-server-costs", "https://codewithsql.com/cloud-databases/aws/rds/pricing"]
+    },
+    "redis": {
+      "sku": "ElastiCache for Redis OSS cache.t4g.micro (0.5 GiB), one node",
+      "usd_per_hour": 0.016,
+      "sources": ["https://calculator.holori.com/aws/elasticache/cache.t4g.micro", "https://instances.vantage.sh/aws/elasticache/cache.t4g.micro"]
+    },
+    "egress": {
+      "sku": "Data transfer out to the internet",
+      "free_gb_per_month": 100,
+      "usd_per_gb": 0.09,
+      "note": "Rate for the first 10 TB a month after the free 100 GB.",
+      "sources": ["https://egresscost.com/aws/data-transfer-pricing", "https://www.eon.io/blog/aws-data-transfer-pricing"]
+    }
+  },
+  "assumptions": {
+    "flag_changes_per_day": 100,
+    "stream_reconnects_per_client_per_day": 4,
+    "days_per_month": 30.42,
+    "why": "Traffic that depends on how an application is used rather than on Checkgate: how often flags change, and how often each client's stream is re-established (app restarts, deploys, network changes). Each reconnect re-sends the full flag set. Change them to fit your deployment; the measured per-event costs do not change."
+  }
+}

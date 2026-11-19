@@ -36,12 +36,21 @@ use tracing::{info, warn};
 ///   so a reconnect wave cannot take every pool connection from the REST API.
 ///   A request that waits longer than `SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS`
 ///   (default 10) for a slot gets 503 with `Retry-After`.
+/// - A stream that has been quiet for `SSE_HEARTBEAT_INTERVAL_SECS` (default
+///   15, 1–300) gets an `event: heartbeat`. The interval is announced in the
+///   `connected` event (`heartbeat_ms`), so SDKs can treat a stream that
+///   stays silent for several intervals as dead and reconnect.
 pub struct SseLimits {
     max_connections: Option<usize>,
     active: AtomicUsize,
     bootstrap: Arc<Semaphore>,
     bootstrap_wait: Duration,
+    heartbeat: Duration,
 }
+
+/// Bounds of `SSE_HEARTBEAT_INTERVAL_SECS`. Below 1 s the heartbeat is load,
+/// not liveness; above 300 s common proxies close the idle stream first.
+const HEARTBEAT_SECS_RANGE: std::ops::RangeInclusive<u64> = 1..=300;
 
 impl SseLimits {
     pub fn from_env(db_max_connections: u32) -> Result<Self, String> {
@@ -70,6 +79,14 @@ impl SseLimits {
             return Err("SSE_BOOTSTRAP_CONCURRENCY must be at least 1".into());
         }
         let wait = read("SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS", 10)?;
+        let heartbeat = read("SSE_HEARTBEAT_INTERVAL_SECS", 15)?;
+        if !HEARTBEAT_SECS_RANGE.contains(&heartbeat) {
+            return Err(format!(
+                "SSE_HEARTBEAT_INTERVAL_SECS must be between {} and {}, got {heartbeat}",
+                HEARTBEAT_SECS_RANGE.start(),
+                HEARTBEAT_SECS_RANGE.end()
+            ));
+        }
         let to_usize = |v: u64| usize::try_from(v).unwrap_or(usize::MAX);
         Ok(Self {
             max_connections: (max > 0).then(|| to_usize(max)),
@@ -78,6 +95,7 @@ impl SseLimits {
                 to_usize(concurrency).min(Semaphore::MAX_PERMITS),
             )),
             bootstrap_wait: Duration::from_secs(wait),
+            heartbeat: Duration::from_secs(heartbeat),
         })
     }
 
@@ -326,13 +344,19 @@ pub async fn sse_handler(
     let mut rx = rx;
     let shutdown = state.lifecycle.shutdown.clone();
     let spread = state.sync.config.resync_spread;
+    let heartbeat = state.sse_limits.heartbeat;
+    let heartbeat_ms = u64::try_from(heartbeat.as_millis()).unwrap_or(u64::MAX);
 
     let stream = async_stream::stream! {
         // Announce the resolved environment so SDK clients know where to report
         // impressions (POST /api/environments/{environment_id}/impressions).
         // `null` for session-auth (dashboard) connections, which do not report.
+        // `heartbeat_ms` is the longest this stream stays silent while healthy:
+        // SDKs derive their dead-stream deadline from it. SDKs that predate it
+        // ignore the field.
         let connected_payload = serde_json::json!({
             "environment_id": environment_id.clone(),
+            "heartbeat_ms": heartbeat_ms,
         })
         .to_string();
         yield Ok(Event::default().event("connected").data(connected_payload));
@@ -402,11 +426,22 @@ pub async fn sse_handler(
         drop(guard);
     };
 
+    // The keep-alive is a named event, not a comment: `EventSource` (browsers,
+    // the Node `eventsource` package, React Native polyfills) never surfaces
+    // comments, so a comment cannot tell an SDK that the stream is alive. The
+    // timer restarts after every event, so a busy stream sends none. SDKs that
+    // predate it have no `heartbeat` listener and ignore it.
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive-text"),
+            .interval(heartbeat)
+            .event(heartbeat_event()),
     ))
+}
+
+/// The event a quiet stream sends every heartbeat interval. It carries data
+/// because `EventSource` does not dispatch an event whose data is empty.
+fn heartbeat_event() -> Event {
+    Event::default().event("heartbeat").data("{}")
 }
 
 /// GET /flags/snapshot — SDK-key-authed, segment-expanding full flag snapshot.
@@ -549,6 +584,35 @@ mod tests {
                 .then(|| "0".into()))
             .is_err()
         );
+    }
+
+    #[test]
+    fn heartbeat_interval_defaults_and_bounds() {
+        let at = |v: &str| {
+            let v = v.to_string();
+            SseLimits::from_lookup(10, move |n| {
+                (n == "SSE_HEARTBEAT_INTERVAL_SECS").then(|| v.clone())
+            })
+        };
+        assert_eq!(
+            SseLimits::from_lookup(10, |_| None).unwrap().heartbeat,
+            Duration::from_secs(15)
+        );
+        assert_eq!(at("1").unwrap().heartbeat, Duration::from_secs(1));
+        assert_eq!(at("300").unwrap().heartbeat, Duration::from_secs(300));
+        for bad in ["0", "301", "-1", "fast"] {
+            assert!(at(bad).is_err(), "{bad} must be rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn heartbeat_is_a_named_event_with_data() {
+        // `EventSource` drops comments and events without data, so both the
+        // name and a data line must be on the wire.
+        let events = futures_util::stream::iter([Ok::<_, Infallible>(heartbeat_event())]);
+        let body = Sse::new(events).into_response().into_body();
+        let bytes = axum::body::to_bytes(body, 1024).await.unwrap();
+        assert_eq!(&bytes[..], b"event: heartbeat\ndata: {}\n\n");
     }
 
     #[test]

@@ -1,0 +1,47 @@
+{
+  "source": "docker stats, ~1 s samples over the whole repetition",
+  "containers": {
+    "cg-gate-pg": {
+      "samples": 162,
+      "cpu_pct_p50": 1.9,
+      "cpu_pct_p90": 2.6,
+      "cpu_pct_max": 15.0,
+      "mem_mib_max": 201.3
+    },
+    "cg-gate-redis": {
+      "samples": 162,
+      "cpu_pct_p50": 1.2,
+      "cpu_pct_p90": 1.4,
+      "cpu_pct_max": 1.5,
+      "mem_mib_max": 18.8
+    },
+    "postgres": {
+      "samples": 162,
+      "cpu_pct_p50": 7.0,
+      "cpu_pct_p90": 14.3,
+      "cpu_pct_max": 19.0,
+      "mem_mib_max": 47.1
+    },
+    "redis": {
+      "samples": 162,
+      "cpu_pct_p50": 1.7,
+      "cpu_pct_p90": 7.0,
+      "cpu_pct_max": 7.8,
+      "mem_mib_max": 18.8
+    },
+    "sdk": {
+      "samples": 162,
+      "cpu_pct_p50": 2.0,
+      "cpu_pct_p90": 2.9,
+      "cpu_pct_max": 19.5,
+      "mem_mib_max": 43.0
+    },
+    "server": {
+      "samples": 162,
+      "cpu_pct_p50": 2.6,
+      "cpu_pct_p90": 3.6,
+      "cpu_pct_max": 5.9,
+      "mem_mib_max": 4.0
+    }
+  }
+}

@@ -1,5 +1,7 @@
 # Release readiness: v0.1.31
 
+> **Superseded by [RC2-RELEASE-READINESS.md](RC2-RELEASE-READINESS.md)** (2026-11-19). RC2 fixed R4, R6, R19 and the Flutter import (F1), executed the R2 fault test, ran every SDK end to end, and refreshed the benchmarks and README graphics. This page is kept as the record of the first decision.
+
 | | |
 |---|---|
 | Candidate | `feat/v0.1.31-production-readiness` (from `dev` `f38f02e` = `v0.1.30`) |

@@ -214,6 +214,7 @@ The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects
 | `SSE_MAX_CONNECTIONS` | `10000` | Open SSE streams per instance; `0` = unlimited. Beyond it: `503` + `Retry-After` |
 | `SSE_BOOTSTRAP_CONCURRENCY` | `DB_MAX_CONNECTIONS / 2` | Concurrent SSE bootstraps and snapshot reads |
 | `SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS` | `10` | Wait for a bootstrap slot before `503` |
+| `SSE_HEARTBEAT_INTERVAL_SECS` | `15` | Quiet time before a stream gets a `heartbeat` event (1–300). SDKs reconnect after 3 missed intervals; keep it below your proxy's idle timeout |
 | `SSE_RESYNC_SPREAD_MS` | `5000` | Window over which resynced streams are closed |
 | `TCP_USER_TIMEOUT_SECS` | `60` | Linux: abort connections whose data stays unacknowledged this long; `0` disables |
 | `REDIS_CHANNEL` | `checkgate_updates` | Redis Pub/Sub channel for change events |
@@ -384,7 +385,7 @@ Checkgate keeps no flag state in server memory: SSE bootstrap, snapshot polling 
 
 No sticky sessions are needed: every instance relays every change to its own
 SSE clients, and a reconnecting client may land on any instance. Keep the idle
-timeout above 30 s (keep-alives are sent every 15 s), health-check
+timeout above 30 s (heartbeats are sent after 15 s of silence, `SSE_HEARTBEAT_INTERVAL_SECS`), health-check
 `/health/ready`, and set the deregistration delay to about
 `SHUTDOWN_DRAIN_DELAY_SECS`. See
 [Deployment, failure and recovery](./operations/failure-recovery.md#load-balancers).

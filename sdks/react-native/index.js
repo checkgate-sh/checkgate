@@ -39,6 +39,52 @@ function isStaleEvent(known, revision, isUpsert) {
     return revision < known.revision;
 }
 
+/** HTTP statuses that mean the SDK key itself is rejected: retrying cannot help. */
+const AUTH_FAILURE_STATUSES = new Set([401, 403]);
+
+/**
+ * A healthy stream is never silent for longer than the server's heartbeat
+ * interval; it is declared dead after this many intervals without an event.
+ */
+const IDLE_HEARTBEATS = 3;
+
+/**
+ * Raised (as the `connect()` rejection and in `getStatus().error`) when the
+ * server rejects the SDK key with HTTP 401 or 403. The client stops retrying:
+ * a rejected key does not become valid by asking again. Flags already loaded
+ * keep being served. Call `connect()` again to retry, e.g. after the key was
+ * restored.
+ */
+export class CheckgateAuthError extends Error {
+    constructor(status) {
+        super(`[Checkgate] The server rejected the SDK key (HTTP ${status}). ` +
+            'Not retrying; check the key, then call connect() again.');
+        this.name = 'CheckgateAuthError';
+        this.status = status;
+    }
+}
+
+/**
+ * The HTTP status carried by a stream error event, if it carries one
+ * (`react-native-sse` reports `xhrStatus`; 0 means no response).
+ */
+function errorStatus(event) {
+    if (!event) return undefined;
+    const code = typeof event.code === 'number' ? event.code : event.xhrStatus;
+    return typeof code === 'number' && code > 0 ? code : undefined;
+}
+
+/**
+ * How long a connected stream may stay silent before it is considered dead:
+ * an explicit `streamIdleTimeoutMs` (0 disables), else IDLE_HEARTBEATS times
+ * the heartbeat interval the server announced. Servers before 0.1.31 announce
+ * none and send no heartbeat events, so a quiet stream is not timed out.
+ */
+function idleTimeoutFor(heartbeatMs, override) {
+    if (typeof override === 'number' && override >= 0) return override;
+    return typeof heartbeatMs === 'number' && heartbeatMs > 0 ? heartbeatMs * IDLE_HEARTBEATS : 0;
+}
+
 export class CheckgateNativeClient {
     /**
      * @param {Object} options
@@ -49,6 +95,12 @@ export class CheckgateNativeClient {
      * @param {number} [options.pollFallbackThreshold=3] - Consecutive failed SSE reconnects
      *        before falling back to polling GET /flags/snapshot. Set to Infinity to disable.
      * @param {number} [options.pollIntervalMs=30000] - Poll interval while in fallback mode.
+     * @param {number} [options.connectTimeoutMs=30000] - A stream attempt that has not
+     *        received the server's "connected" event within this time is abandoned and retried.
+     * @param {number} [options.streamIdleTimeoutMs] - A connected stream with no event
+     *        (including heartbeats) for this long is treated as dead and reconnected.
+     *        Default: 3 × the heartbeat interval the server announces (45 s by default);
+     *        no idle timeout against servers older than 0.1.31. `0` disables it.
      * @param {boolean} [options.reportImpressions=true] - Report evaluation events for analytics
      * @param {number} [options.impressionBatchSize=50] - Flush after this many buffered events
      * @param {number} [options.impressionFlushIntervalMs=10000] - Periodic flush interval
@@ -62,6 +114,8 @@ export class CheckgateNativeClient {
         maxReconnectDelayMs = 30000,
         pollFallbackThreshold = 3,
         pollIntervalMs = 30000,
+        connectTimeoutMs = 30000,
+        streamIdleTimeoutMs = undefined,
         reportImpressions = true,
         impressionBatchSize = 50,
         impressionFlushIntervalMs = 10000,
@@ -81,8 +135,23 @@ export class CheckgateNativeClient {
         this._revisions = new Map();
         this._connectPromise = null;
         this._resolveReady = null;
+        this._rejectReady = null;
         this._changeListeners = [];
         this.sse = null;
+
+        // Connection health (see getStatus()). The watchdog closes a stream
+        // that has gone silent: a dropped NAT mapping or a half-open TCP
+        // connection otherwise looks healthy until the OS gives up (hours).
+        this.connectTimeoutMs = connectTimeoutMs;
+        this.streamIdleTimeoutMs = streamIdleTimeoutMs;
+        this._state = 'idle';
+        this._lastSyncAt = null;
+        this._lastError = null;
+        this._idleTimeoutMs = 0;
+        this._watchdog = null;
+        this._watchdogFireAt = 0;
+        this._watchdogDeadline = 0;
+        this._credentialCheck = null;
         // The internal module exposed by the C++ JSI installation
         this.bridge = loadJsiBridge();
 
@@ -128,10 +197,15 @@ export class CheckgateNativeClient {
      * "ready" event — consistent with the Node and Web SDKs. Calling connect()
      * again while a connection is in progress returns the same pending promise.
      *
+     * Rejects with a `CheckgateAuthError` if the server rejects the SDK key
+     * (HTTP 401/403), and with an error if disconnect() is called first. While
+     * the server is unreachable it keeps retrying; race it with a timeout if
+     * the caller cannot wait. Flags already loaded keep being served either way.
+     *
      * @returns {Promise<void>}
      */
     connect() {
-        if (this._ready) return Promise.resolve();
+        if (this._ready && this._state !== 'auth_failed') return Promise.resolve();
         if (this._connectPromise) return this._connectPromise;
 
         if (!this.bridge) {
@@ -142,9 +216,15 @@ export class CheckgateNativeClient {
         }
 
         this._userClosed = false;
-        this._connectPromise = new Promise((resolve) => {
+        this._lastError = null;
+        this._state = this._ready ? 'reconnecting' : 'connecting';
+        this._connectPromise = new Promise((resolve, reject) => {
             this._resolveReady = resolve;
+            this._rejectReady = reject;
         });
+        // A caller that does not await connect() must not get an unhandled
+        // rejection; one that awaits still sees it.
+        this._connectPromise.catch(() => {});
         // Hydrate from the persisted snapshot so evaluations work offline
         // immediately, then open the live stream.
         this._hydrateFromCache().finally(() => {
@@ -159,6 +239,38 @@ export class CheckgateNativeClient {
      */
     isReady() {
         return this._ready;
+    }
+
+    /**
+     * Connection health, for detecting stale flags.
+     *
+     * - `state`: `'idle'` (never connected), `'connecting'`, `'streaming'`
+     *   (live stream, flags current), `'reconnecting'`, `'polling'` (stream
+     *   unavailable, polling the snapshot), `'auth_failed'` (key rejected; not
+     *   retrying) or `'closed'` (after disconnect()).
+     * - `lastSyncAt`: when the client last confirmed its flags are current
+     *   (a completed bootstrap or poll, or any event on a live stream,
+     *   heartbeats included), in ms since the epoch; `null` before the first.
+     * - `error`: the error behind `'auth_failed'`, otherwise `null`.
+     *
+     * Flags keep being served from the last known state in every state; how
+     * old they may be is `Date.now() - lastSyncAt`.
+     *
+     * @returns {{ state: string, lastSyncAt: number|null, error: Error|null }}
+     */
+    getStatus() {
+        return { state: this._state, lastSyncAt: this._lastSyncAt, error: this._lastError };
+    }
+
+    _markReady() {
+        this._lastSyncAt = Date.now();
+        this._ready = true;
+        // Also settles a connect() issued after an auth failure, when the
+        // client was already ready once.
+        const resolve = this._resolveReady;
+        this._resolveReady = null;
+        this._rejectReady = null;
+        if (resolve) resolve();
     }
 
     /**
@@ -221,9 +333,7 @@ export class CheckgateNativeClient {
     }
 
     _connectDeltas() {
-        if (this.sse) {
-            this.sse.close();
-        }
+        this._closeStream();
 
         // React Native has no built-in EventSource: the app installs one that
         // accepts `headers` (e.g. `react-native-sse`) and assigns it to
@@ -240,15 +350,33 @@ export class CheckgateNativeClient {
             this._startPollFallback();
             return;
         }
-        this.sse = new EventSource(`${this.serverUrl}/stream`, {
-            headers: this.sdkKey ? { 'Authorization': `Bearer ${this.sdkKey}` } : {}
+        const es = new EventSource(`${this.serverUrl}/stream`, {
+            headers: this.sdkKey ? { 'Authorization': `Bearer ${this.sdkKey}` } : {},
+            // react-native-sse otherwise waits 500 ms before every connection
+            // attempt; this client already schedules its own reconnects.
+            timeoutBeforeConnection: 0,
+        });
+
+        this.sse = es;
+        let connected = false;
+        // Until "connected" arrives, only the connect deadline applies.
+        this._idleTimeoutMs = 0;
+        this._armWatchdog(this.connectTimeoutMs);
+
+        // Every handler ignores events from a stream that has been replaced or
+        // closed, and counts any event as proof that this one is alive.
+        const on = (name, handler) => es.addEventListener(name, (e) => {
+            if (this.sse !== es) return;
+            this._touch();
+            handler(e);
         });
 
         // Server sends "connected" before the full-state dump on every (re)connect.
         // The replay is staged and only replaces the live flag set on "ready", so
         // evaluations keep using the last complete snapshot while it streams in,
         // and a replay cut short by a dropped connection never goes live.
-        this.sse.addEventListener('connected', (e) => {
+        on('connected', (e) => {
+            connected = true;
             this._staged = new Map();
             this._stagedRevisions = new Map();
             // A successful connection resets the backoff schedule and ends any
@@ -259,17 +387,26 @@ export class CheckgateNativeClient {
 
             // Capture the environment id so impressions route to the right endpoint.
             // Older servers send "true" (no id) — parsing simply yields no id.
+            let payload = null;
             try {
-                const payload = JSON.parse(e.data);
-                this._envId = payload && payload.environment_id ? payload.environment_id : null;
+                payload = JSON.parse(e.data);
             } catch {
-                this._envId = null;
+                payload = null;
             }
+            this._envId = payload && payload.environment_id ? payload.environment_id : null;
+            // From now on the stream must keep talking: the server sends a
+            // heartbeat whenever it has been quiet for `heartbeat_ms`.
+            this._idleTimeoutMs = idleTimeoutFor(payload && payload.heartbeat_ms, this.streamIdleTimeoutMs);
+            if (this._idleTimeoutMs > 0) this._armWatchdog(this._idleTimeoutMs);
+            else this._disarmWatchdog();
             this._startImpressionTimer();
         });
 
+        // Liveness only; _touch() has already recorded it.
+        on('heartbeat', () => {});
+
         // Server sends "ready" once the full flag set has been replayed.
-        this.sse.addEventListener('ready', () => {
+        on('ready', () => {
             const staged = this._staged;
             if (!staged) return;
             const revisions = this._stagedRevisions;
@@ -281,16 +418,11 @@ export class CheckgateNativeClient {
             this._hydrated = true;
             // Persist the freshly-bootstrapped full flag set for offline use.
             this._persistCache();
-            if (!this._ready) {
-                this._ready = true;
-                if (this._resolveReady) {
-                    this._resolveReady();
-                    this._resolveReady = null;
-                }
-            }
+            this._state = 'streaming';
+            this._markReady();
         });
 
-        this.sse.addEventListener('update', (e) => {
+        on('update', (e) => {
             let event;
             try {
                 event = JSON.parse(e.data);
@@ -301,11 +433,95 @@ export class CheckgateNativeClient {
             this._applyDelta(event);
         });
 
-        this.sse.onerror = () => {
+        es.addEventListener('error', (e) => {
+            if (this.sse !== es) return;
+            const status = errorStatus(e);
+            if (AUTH_FAILURE_STATUSES.has(status)) {
+                this._failAuth(status);
+                return;
+            }
             // Take over reconnection so we can apply exponential backoff instead
-            // of the EventSource's fixed retry cadence.
+            // of the polyfill's own retry cadence.
             this._scheduleReconnect();
-        };
+        });
+    }
+
+    /** Records that the current stream is alive, and pushes its deadline out. */
+    _touch() {
+        const now = Date.now();
+        if (this._idleTimeoutMs > 0) this._watchdogDeadline = now + this._idleTimeoutMs;
+        // A live, bootstrapped stream with no news means the flags are current.
+        if (this._state === 'streaming' && !this._staged) this._lastSyncAt = now;
+    }
+
+    /** Declares the current stream dead `ms` from now unless _touch() moves that. */
+    _armWatchdog(ms) {
+        const deadline = Date.now() + ms;
+        this._watchdogDeadline = deadline;
+        if (this._watchdog && this._watchdogFireAt <= deadline) return;
+        if (this._watchdog) clearTimeout(this._watchdog);
+        this._scheduleWatchdog(ms);
+    }
+
+    _scheduleWatchdog(ms) {
+        this._watchdogFireAt = Date.now() + ms;
+        this._watchdog = setTimeout(() => {
+            this._watchdog = null;
+            if (!this.sse || this._watchdogDeadline === 0) return;
+            const left = this._watchdogDeadline - Date.now();
+            if (left > 0) {
+                this._scheduleWatchdog(left);
+                return;
+            }
+            console.warn('[Checkgate] Stream silent past its deadline — treating it as dead and reconnecting.');
+            this._scheduleReconnect();
+        }, ms);
+    }
+
+    _disarmWatchdog() {
+        this._watchdogDeadline = 0;
+        if (this._watchdog) {
+            clearTimeout(this._watchdog);
+            this._watchdog = null;
+        }
+    }
+
+    _closeStream() {
+        this._disarmWatchdog();
+        const es = this.sse;
+        this.sse = null;
+        if (!es) return;
+        es.close();
+        // react-native-sse re-opens a stream that is closed while it dispatches
+        // the stream's error (it schedules the retry after the listeners ran,
+        // and open() does not check for CLOSED). Closing it again on the next
+        // tick cancels that retry, so a replaced stream cannot come back.
+        setTimeout(() => es.close(), 0);
+    }
+
+    /**
+     * The server rejected the SDK key: stop every retry (stream and poll),
+     * keep serving the flags already loaded, and settle connect().
+     */
+    _failAuth(status) {
+        const err = new CheckgateAuthError(status);
+        console.error(err.message);
+        this._closeStream();
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+        this._stopPollFallback();
+        this._staged = null;
+        this._stagedRevisions = null;
+        this._reconnectAttempts = 0;
+        this._state = 'auth_failed';
+        this._lastError = err;
+        const reject = this._rejectReady;
+        this._resolveReady = null;
+        this._rejectReady = null;
+        this._connectPromise = null;
+        if (reject) reject(err);
     }
 
     /**
@@ -349,11 +565,8 @@ export class CheckgateNativeClient {
      * was closed by the caller or a reconnect is already pending.
      */
     _scheduleReconnect() {
-        if (this._userClosed || this._reconnectTimer) return;
-        if (this.sse) {
-            this.sse.close();
-            this.sse = null;
-        }
+        if (this._userClosed || this._reconnectTimer || this._state === 'auth_failed') return;
+        this._closeStream();
 
         const base = this.reconnectDelayMs * Math.pow(2, this._reconnectAttempts);
         const capped = Math.min(this.maxReconnectDelayMs, base);
@@ -369,6 +582,7 @@ export class CheckgateNativeClient {
         if (this._reconnectAttempts >= this.pollFallbackThreshold) {
             this._startPollFallback();
         }
+        this._state = this._polling ? 'polling' : (this._ready ? 'reconnecting' : 'connecting');
 
         console.warn(`[Checkgate] Stream disconnected — reconnecting in ${Math.round(delay)}ms.`);
         this._reconnectTimer = setTimeout(() => {
@@ -440,6 +654,11 @@ export class CheckgateNativeClient {
                 headers: this.sdkKey ? { 'Authorization': `Bearer ${this.sdkKey}` } : {},
             });
             if (!res.ok) {
+                if (generation !== this._syncGeneration || this._userClosed) return;
+                if (AUTH_FAILURE_STATUSES.has(res.status)) {
+                    this._failAuth(res.status);
+                    return;
+                }
                 console.warn(`[Checkgate] Poll fallback request failed: HTTP ${res.status}`);
                 return;
             }
@@ -451,14 +670,8 @@ export class CheckgateNativeClient {
             this._applySnapshot(flags);
             this._hydrated = true;
             this._startImpressionTimer();
-
-            if (!this._ready) {
-                this._ready = true;
-                if (this._resolveReady) {
-                    this._resolveReady();
-                    this._resolveReady = null;
-                }
-            }
+            if (!this.sse) this._state = 'polling';
+            this._markReady();
         } catch (err) {
             if (generation === this._syncGeneration && !this._userClosed) {
                 console.warn('[Checkgate] Poll fallback request failed:', err && err.message);
@@ -692,6 +905,7 @@ export class CheckgateNativeClient {
     disconnect() {
         // Stop managed reconnection before tearing down the stream.
         this._userClosed = true;
+        this._state = 'closed';
         if (this._reconnectTimer) {
             clearTimeout(this._reconnectTimer);
             this._reconnectTimer = null;
@@ -703,16 +917,17 @@ export class CheckgateNativeClient {
             clearInterval(this._flushTimer);
             this._flushTimer = null;
         }
-        if (this.sse) {
-            this.sse.close();
-            this.sse = null;
-        }
+        this._closeStream();
         // Reset readiness so a later connect() re-establishes the stream.
         this._ready = false;
         this._staged = null;
         this._stagedRevisions = null;
+        // A connect() still waiting would otherwise never settle.
+        const reject = this._rejectReady;
         this._connectPromise = null;
         this._resolveReady = null;
+        this._rejectReady = null;
         this._reconnectAttempts = 0;
+        if (reject) reject(new Error('[Checkgate] disconnect() was called before connect() completed.'));
     }
 }

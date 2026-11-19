@@ -1,6 +1,18 @@
 ## 0.1.31 (2026-11-18)
 
-- Release 0.1.31.
+- The library is in `lib/`, so `import 'package:checkgate_flutter/checkgate_flutter.dart'`
+  resolves. Earlier releases shipped it at the package root, where no app could
+  import it.
+- A stream that receives no complete frame (event or keep-alive) for 3 × the
+  server's announced heartbeat (45 s by default) is treated as dead and
+  reconnected; a response that takes longer than `connectTimeout` (30 s) too.
+- HTTP 401/403 from the stream or a poll is terminal: retries stop, `connect()`
+  completes with a `CheckgateAuthException` (status only), flags already loaded
+  are kept, and `connect()` retries.
+- `status` reports the connection state, the last confirmed sync and the error.
+- `close()` completes a pending `connect()` with a `StateError`, and ends the
+  previous SSE loop even if `connect()` follows immediately.
+- Documented how to build and link the native engine; it is not bundled.
 
 ## 0.1.30 (2026-11-11)
 

@@ -1,0 +1,37 @@
+{
+  "comment": "Seeds every pull request runs. Append any seed the extended suite fails on (CONFORMANCE_SEEDS=1-500), with a note, so it stays a regression test.",
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "regressions": [
+    {
+      "seed": 11,
+      "sdk": "flutter",
+      "found": "2026-11-18",
+      "note": "A stream that trickled bytes without completing a frame kept the Flutter client attached (liveness counted bytes); now counts complete frames, as the JS SDKs do."
+    }
+  ],
+  "known_failures": [
+    {
+      "seeds": [
+        173,
+        184
+      ],
+      "finding": "R20",
+      "found": "2026-11-19",
+      "sdks": "173: node, web, react-native, flutter; 184: web (depends on timing)",
+      "note": "A delayed stream replay applied at ready can roll back flags polled meanwhile; pre-existing (v0.1.30 fails 173). Not in `seeds` until fixed; move them there with the fix. See docs/releases/v0.1.31/RELIABILITY-REVIEW.md."
+    }
+  ]
+}

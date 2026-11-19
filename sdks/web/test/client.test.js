@@ -327,3 +327,47 @@ describe('snapshot consistency', () => {
     client.disconnect()
   })
 })
+
+describe('connection lifecycle (v0.1.31 RC2)', () => {
+  test('disconnect() during initialisation opens no stream and settles connect()', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const client = newClient({ reportImpressions: false, storage: null })
+    const pending = client.connect()
+    client.disconnect()
+    await expect(pending).rejects.toThrow(/disconnect\(\) was called/)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(client.sse).toBe(null)
+  })
+
+  test('one engine per client: flags survive disconnect() and reconnect', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const client = newClient({ reportImpressions: false, storage: null })
+    let pending = client.connect()
+    await new Promise((r) => setTimeout(r, 0))
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1]])
+    await pending
+    const core = client.core
+    client.disconnect()
+    pending = client.connect()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(client.core).toBe(core)
+    // The replay finds the flag unchanged; it must still evaluate.
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1]])
+    await pending
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+    client.disconnect()
+  })
+
+  test('an unexplained stream failure asks the snapshot endpoint; 401 ends retries', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 401 }))
+    const client = newClient({ reportImpressions: false, storage: null })
+    const pending = client.connect()
+    await new Promise((r) => setTimeout(r, 0))
+    client.sse.listeners.error({ type: 'error' })
+    await expect(pending).rejects.toMatchObject({ name: 'CheckgateAuthError', status: 401 })
+    expect(client.getStatus().state).toBe('auth_failed')
+    expect(client._reconnectTimer).toBe(null)
+    client.disconnect()
+  })
+})

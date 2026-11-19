@@ -18,7 +18,11 @@ against a v0.1.30 server.
 | Reconnection backoff (capped, jittered) | unit | unit | unit | unit |
 | Poll fallback race (stale poll after reconnect) | unit | unit (`an outstanding poll cannot overwrite state after SSE takes over`) | unit | **new** unit (R3) |
 | Missing flag → default | yes (`false` / `null` / given default) | yes | yes | yes |
-| Invalid credentials (401) | retries forever (R6) | retries forever | retries forever | retries forever |
+| Invalid credentials (401/403) | **RC2:** terminal; `connect()` rejects `CheckgateAuthError`; last flags kept | same (status found by one snapshot check) | same | same (`CheckgateAuthException`) |
+| Silently dead stream | **RC2:** replaced after 3 × `heartbeat_ms` (45 s) | same | same | same (complete frames, incl. comments) |
+| Connection health | **RC2:** `getStatus()` | `getStatus()` | `getStatus()` | `status` |
+| Live e2e against a server (RC2) | pass | pass | pass (JS + real polyfill; WASM engine) | pass (Dart VM + FFI); **iOS simulator: pass** |
+| Randomized fault suite (RC2) | pass | pass | pass | pass |
 | Network failure | reconnect, then poll fallback | same | same; **polls if no `EventSource`** (R5) | same |
 | Shutdown / cleanup | `disconnect()` flushes impressions | `disconnect()` | `disconnect()` | `close()` flushes impressions and events |
 
@@ -50,7 +54,13 @@ left for a future release.
 | React Native | Same attribute fix. Without an `EventSource` polyfill, the SDK logs an error and polls (it used to hang `connect()`); **install `react-native-sse`** (README). |
 | Flutter | Large bootstraps no longer lose flags or the `ready` event (`connect()` could hang). A slow poll can no longer roll back newer stream state, and polls time out after 30 s. Same attribute fix. |
 
-## Not verified locally
+## RC2 update
+
+See SDK-CONNECTION-RELIABILITY.md, SSE-FAULT-INJECTION.md and
+SDK-END-TO-END-VALIDATION.md. The rows marked RC2 supersede the rest of this
+table; the "Not verified" list below is from the first candidate.
+
+## Not verified locally (first candidate)
 
 - iOS and Android device builds of the React Native and Flutter SDKs (CI runs
   the Android native build; iOS needs a macOS runner with Xcode and is not in

@@ -46,6 +46,7 @@ jobs:
       - name: Scripts parse
         run: |
           bash -n bench/public/run.sh
+          bash -n bench/public/compare.sh
           for f in bench/public/sdk/*.mjs; do node --check "$f"; done
           docker compose -f bench/public/compose.yml --profile tools config --quiet
 
@@ -202,6 +203,11 @@ jobs:
       - name: Multi-instance reliability tests
         run: cargo test -p server --test reliability -- --nocapture
 
+      # SSE liveness, revoked keys, randomized faults (seeds 1-3) and the
+      # segment-read-failure fault injection (server/tests/sse_faults.rs).
+      - name: SSE fault-injection tests
+        run: cargo test -p server --test sse_faults -- --nocapture
+
       - name: Upload reliability artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -216,7 +222,7 @@ jobs:
   # live SSE connection against a running server (the full application loop).
   # ---------------------------------------------------------------------------
   sdk-node-e2e:
-    name: Node SDK e2e (live SSE)
+    name: SDK e2e (live SSE)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -286,6 +292,27 @@ jobs:
           kill $SRV 2>/dev/null || true
           if [ $RC -ne 0 ]; then echo "=== server log ==="; cat server.log; fi
           exit $RC
+
+      # Every SDK's real client, transport and engine against a real server:
+      # bootstrap, live updates, reconnect, half-open detection, poll
+      # fallback, invalid and revoked keys, shutdown (sdks/conformance/live.mjs).
+      - name: Toolchains for the web and Flutter engines
+        run: |
+          rustup target add wasm32-unknown-unknown
+          npm install -g wasm-pack@0.15.1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Live end-to-end, every SDK
+        env:
+          PGPASSWORD: postgres
+          REDIS_URL: redis://localhost:6379/5
+        run: |
+          psql -h localhost -U postgres -c 'CREATE DATABASE checkgate_live'
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/checkgate_live \
+            scripts/sdk-live-e2e.sh all
 
   # ---------------------------------------------------------------------------
   # Docker image — build it and smoke-test both deployment modes (all-in-one
@@ -419,8 +446,9 @@ jobs:
         run: node --test
 
   # ---------------------------------------------------------------------------
-  # Node SDK — client-logic unit tests (native core + eventsource are mocked,
-  # so no native build or install is needed)
+  # Node SDK — client-logic unit tests (the native core is mocked, so no native
+  # build). The fault-injection suite uses the real `eventsource` transport,
+  # the SDK's one runtime dependency.
   # ---------------------------------------------------------------------------
   sdk-node:
     name: Node SDK tests
@@ -431,6 +459,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+
+      - name: Install the runtime dependency
+        working-directory: sdks/nodejs
+        run: npm ci --omit=dev --ignore-scripts
 
       - name: Run tests
         working-directory: sdks/nodejs
@@ -492,7 +524,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Flutter SDK — Dart client-logic unit tests (native FFI is lazy-loaded and an
-  # http.Client is injected, so no native library is needed)
+  # http.Client is injected, so no native library is needed), then the shared
+  # SSE fault-injection suite against the real engine
   # ---------------------------------------------------------------------------
   sdk-flutter:
     name: Flutter SDK tests
@@ -511,6 +544,34 @@ jobs:
       - name: Run tests
         working-directory: sdks/flutter/dart
         run: flutter test
+
+      # The shared SSE fault-injection suite (sdks/conformance), driving the
+      # Dart client with the real Rust engine loaded from a host build.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the engine for the host
+        run: cargo build -p flutter
+
+      - name: SSE fault injection (CI seeds)
+        env:
+          CHECKGATE_FLUTTER_LIB: ${{ github.workspace }}/target/debug/libflutter.so
+          CONFORMANCE_TRACE_DIR: ${{ github.workspace }}/conformance-traces
+        run: node --test --test-concurrency=1 sdks/conformance/flutter.mjs
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: conformance-traces-flutter
+          path: conformance-traces
+          retention-days: 30
 
   # ---------------------------------------------------------------------------
   # Go integrations — shared client, Terraform provider, Kubernetes operator

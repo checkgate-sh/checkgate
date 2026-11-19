@@ -8,8 +8,11 @@ Flags are evaluated **in-process** (no network round-trip). The SDK opens a pers
 
 ```yaml
 dependencies:
-  checkgate_flutter: ^0.1.0
+  checkgate_flutter: ^0.1.31
 ```
+
+The package does not bundle a compiled engine: build it and link it into your
+app as described in [Linking the native engine](https://checkgate-sh.github.io/checkgate/sdks/flutter#linking-the-native-engine).
 
 ## Usage
 

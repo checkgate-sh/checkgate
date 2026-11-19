@@ -1,7 +1,8 @@
 # Public benchmark suite
 
-The harness behind the performance section of the root README and
-[docs/performance/benchmarks.md](../../docs/performance/benchmarks.md). It measures three things:
+The harness behind the two benchmark sections of the root README,
+[docs/performance/benchmarks.md](../../docs/performance/benchmarks.md) and
+[docs/performance/cost-efficiency.md](../../docs/performance/cost-efficiency.md). It measures:
 
 | Metric | Harness | Where it runs |
 |---|---|---|
@@ -9,6 +10,7 @@ The harness behind the performance section of the root README and
 | Evaluation latency, Node SDK public API | `bench/public/sdk/eval.mjs` | host |
 | Server throughput per CPU and RAM | `server/examples/throughput.rs` against a resource-limited server | Docker Compose |
 | Flag-update propagation | `bench/public/sdk/propagation.mjs` with real `@checkgate/node` clients | Docker Compose |
+| Connected-client cost: SSE vs polling | `bench/public/sdk/connections.mjs` with raw protocol clients | Docker Compose |
 
 ## Requirements
 
@@ -24,12 +26,14 @@ bench/public/run.sh all            # everything, about 75 minutes
 bench/public/run.sh eval           # Criterion + Node SDK evaluation, 3 runs each
 bench/public/run.sh server         # throughput, 3 fresh stacks
 bench/public/run.sh propagation    # propagation, 3 fresh stacks
+bench/public/run.sh cost           # 100–10,000 clients streaming, and polling every 10/30/60 s
 bench/public/run.sh environment    # environment.json
-bench/public/run.sh summarize      # summary.json and the README graphic
+bench/public/run.sh summarize      # summary.json, cost-summary.json and the README graphics
+bench/public/compare.sh v0.1.30    # this tree and v0.1.30, same harness, runs alternated
 python3 bench/public/scripts/validate.py   # what CI checks
 ```
 
-Results go to `docs/performance/results/v0.1.30/` (set `OUT` to change it):
+Results go to `docs/performance/results/v<workspace version>/` (set `OUT` to change it):
 
 ```text
 environment.json          host, Docker VM, toolchains, commit, image digests, limits
@@ -39,11 +43,29 @@ raw/criterion-runN.txt    Criterion output
 raw/evaluation-rust-runN.json, evaluation-node-runN.json
 raw/throughput-runN.json, throughput-runN.containers.json
 raw/propagation-runN.json, propagation-runN.containers.json
+raw/cost-sse-N-runR.json, cost-poll-N-Is-runR.json (+ .containers.json)
 raw/failed/               anything from a run that failed (kept, never deleted)
+cost-summary.json         connected-client cost: measured, calculated, priced (generated)
+baseline-v<ref>/          the same layout for the baseline measured by compare.sh
 ```
 
-The README graphic, `assets/benchmarks/performance-{light,dark}.svg`, is generated
-from `summary.json` by `scripts/render_svg.py`. Don't edit the SVGs by hand. CI
+`compare.sh <ref>` checks the baseline out in a temporary worktree, copies this
+harness into it, builds one image set per side (`BENCH_IMAGE_TAG`) and release
+builds of the Node addon on both, then alternates repetitions: environment,
+then for each repetition eval, server and propagation for this tree, then the
+same for the baseline. `summarize` adds the comparison to `summary.json`.
+
+`cost` runs each profile on a fresh stack: SSE at every `COST_CLIENTS` count
+(ramp, 60 s idle, 30 updates, a mass reconnect), and polling at every
+`COST_POLL_INTERVALS` interval for the same counts. A profile that does not
+complete keeps its output in `raw/failed/` and is reported as not sustained.
+`COST_MODES=sse` or `COST_MODES=poll` runs only one kind. Polling staleness
+counts, for each change, the first poll of each client that returned it or a
+newer one. Prices and the traffic assumptions are in `bench/public/pricing.json`.
+
+The README graphics, `assets/benchmarks/performance-{light,dark}.svg` and
+`assets/benchmarks/cost-{light,dark}.svg`, are generated from `summary.json` and
+`cost-summary.json` by `scripts/render_svg.py`. Don't edit the SVGs by hand. CI
 re-renders them and fails if they differ.
 
 ## Environment (`compose.yml`)

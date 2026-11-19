@@ -1,0 +1,48 @@
+name: Dependency submission (Go)
+
+# GitHub's static parser does not resolve these Go modules (each one reaches
+# the shared client through a `replace` to a local path), so the dependency
+# graph kept an old google.golang.org/grpc (v1.82.1) and Dependabot kept three
+# alerts open long after go.mod moved to a patched v1.85.0. Submitting the
+# graph that `go` itself resolves keeps the alerts accurate.
+#
+# Alerts are raised against the default branch, so this runs there.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "integrations/**/go.mod"
+      - "integrations/**/go.sum"
+      - ".github/workflows/dependency-submission.yml"
+  workflow_dispatch:
+
+# The Dependency Submission API requires write access to the repository
+# contents; nothing else is granted.
+permissions:
+  contents: write
+
+jobs:
+  go:
+    name: Submit ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - integrations/checkgate-go
+          - integrations/terraform-provider-checkgate
+          - integrations/kubernetes-operator
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: Submit the resolved module graph
+        uses: actions/go-dependency-submission@v2
+        with:
+          go-mod-path: ${{ matrix.module }}/go.mod
