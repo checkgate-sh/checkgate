@@ -57,3 +57,12 @@ bench/public/.work/
 # Output of the local A/B scripts (bench/ab/); results worth keeping are
 # copied into internal_docs/releases/<version>/results/.
 bench/ab/out/
+
+# Test output that CI and the reliability workflow write at the repository
+# root (CHECKGATE_TEST_ARTIFACTS server logs and recovery traces,
+# CONFORMANCE_TRACE_DIR fault traces), so a local run with the same settings
+# leaves nothing to commit. The fault seeds and scenarios themselves are
+# source (sdks/conformance/, server/tests/) and stay tracked.
+/reliability-artifacts/
+/conformance-traces/
+/artifacts/

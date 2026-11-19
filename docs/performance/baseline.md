@@ -31,8 +31,8 @@ regressions, not capacity guarantees — re-measure on your hardware.
 
 ## Control plane
 
-Raw results: [`results/2026-10-29-loadgen-run1.json`](./results/2026-10-29-loadgen-run1.json),
-[`results/2026-10-29-loadgen-run2.json`](./results/2026-10-29-loadgen-run2.json).
+Raw results: [`results/2026-10-29-loadgen-run1.json`](https://github.com/checkgate-sh/checkgate/blob/main/docs/performance/results/2026-10-29-loadgen-run1.json),
+[`results/2026-10-29-loadgen-run2.json`](https://github.com/checkgate-sh/checkgate/blob/main/docs/performance/results/2026-10-29-loadgen-run2.json).
 Values below are run 1 / run 2.
 
 ### SSE connections (2 instances, 101 flags per bootstrap)
@@ -86,7 +86,7 @@ bootstrap slots; the server-side read time averaged 8.2–8.4 ms.
 
 ## Evaluation core
 
-Raw output: [`results/2026-10-29-criterion.txt`](./results/2026-10-29-criterion.txt)
+Raw output: [`results/2026-10-29-criterion.txt`](https://github.com/checkgate-sh/checkgate/blob/main/docs/performance/results/2026-10-29-criterion.txt)
 (full run; the concurrent group re-run after the harness fix described in the
 methodology). Times are Criterion's mean estimate (95 % CI within ±1 %).
 
@@ -154,7 +154,7 @@ flags 20 times left 2 KB more retained memory — no growth per replacement.
 
 To attribute the write cost, one run (100 connections, 100 updates) was
 repeated with PostgreSQL's `synchronous_commit=off` (reset afterwards; raw
-result [`results/2026-10-29-loadgen-synchronous-commit-off.json`](./results/2026-10-29-loadgen-synchronous-commit-off.json)):
+result [`results/2026-10-29-loadgen-synchronous-commit-off.json`](https://github.com/checkgate-sh/checkgate/blob/main/docs/performance/results/2026-10-29-loadgen-synchronous-commit-off.json)):
 
 | | `synchronous_commit=on` (default) | `off` |
 |---|---|---|
@@ -175,6 +175,6 @@ default.
   every database statement and to the publish.
 - The CPU governor was `powersave`, so absolute times are conservative.
 - 10 000+ connection profiles and multi-hour soak runs were not run here;
-  the [extended workflow](https://github.com/checkgate-sh/checkgate/blob/dev/.github/workflows/reliability.yml)
+  the [extended workflow](https://github.com/checkgate-sh/checkgate/blob/main/.github/workflows/reliability.yml)
   runs the load and soak jobs on CI runners.
 - SDK binding overhead (Node N-API, wasm, JSI, Dart FFI) is not measured.
