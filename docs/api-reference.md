@@ -226,6 +226,14 @@ A refused request gets `429 Too Many Requests` with a `Retry-After` header
 }
 ```
 
+Impression and event ingestion additionally has a **quota per credential**
+(each SDK key, and each user ingesting with a session or token), shared by all
+instances: 20,000 requests and 60,000 rows per minute by default, where a row
+counts as one unit, or one unit per started KiB of body if that is larger. A
+request over either budget gets the same `429` response (`Retry-After` at most
+61 s) and none of its rows are stored. See
+[Self-Hosting → Per-key ingest quota](./self-hosting.md#per-key-ingest-quota).
+
 ---
 
 ## Projects
@@ -936,7 +944,19 @@ Reports a batch of flag evaluation events from an SDK client. Accepts an SDK key
 
 **Response** `204 No Content`
 
-**Response** `413 Payload Too Large` — batch exceeds 500 items.
+| Status | When | Rows stored |
+|---|---|---|
+| `400` / `422` | Body is not valid JSON / not an array of impression objects | None |
+| `403` | The SDK key is bound to another environment, or the user cannot write to it | None |
+| `413` | More than 500 items, or a body over 256 KiB | None |
+| `415` | `Content-Type` is not JSON | None |
+| `429` | Per-address rate limit or [per-key ingest quota](#rate-limits) exceeded; `Retry-After` says when to retry | None |
+
+Rows with an empty `flag_key` or one longer than 100 characters are skipped;
+the rest of the batch is stored. Rows are kept for
+`ANALYTICS_RETENTION_DAYS` (default 90) after they are received, longer while a
+running or paused experiment uses them
+([Self-Hosting → Analytics retention](./self-hosting.md#analytics-retention)).
 
 ---
 
@@ -1269,7 +1289,9 @@ Accepts an SDK key bound to `env_id`, or a user (session or `read_write` token) 
 
 **Response** `404 Not Found` — environment does not exist.
 
-**Response** `413 Payload Too Large` — batch exceeds 500 items.
+The other error responses (`400`, `403`, `413`, `415`, `422`, `429`) are the
+same as for [impression ingest](#ingest-impressions), and none of them stores
+any row. Events share the impressions' per-key quota and retention.
 
 ---
 
