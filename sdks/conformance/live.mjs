@@ -70,7 +70,13 @@ async function session() {
 /** An HTTP proxy in front of the server, with faults and per-key request counts. */
 async function startProxy() {
     const target = new URL(BASE);
-    const state = { mode: 'pass', blockStream: false, open: new Set(), requests: new Map() };
+    const state = {
+        mode: 'pass', blockStream: false, open: new Set(), requests: new Map(),
+        // `{ holdMs, gapMs }`: new `/stream` responses are held, then trickled
+        // out one chunk per gap (a slow or buffering link). Counted once the
+        // server answered, i.e. once it has read the stream's replay.
+        slowStream: null, streamResponses: 0,
+    };
     const server = http.createServer((req, res) => {
         const auth = req.headers.authorization || new URL(req.url, 'http://x').searchParams.get('sdk_key') || '';
         const key = auth.replace(/^Bearer /, '');
@@ -81,10 +87,24 @@ async function startProxy() {
         }
         const up = http.request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers: req.headers }, (upRes) => {
             res.writeHead(upRes.statusCode, upRes.headers);
-            const conn = { req, res, upRes, stalled: false };
+            const conn = { req, res, upRes, stalled: false, slow: null, nextAt: 0 };
             state.open.add(conn);
-            upRes.on('data', (chunk) => { if (!conn.stalled) res.write(chunk); });
-            upRes.on('end', () => { state.open.delete(conn); res.end(); });
+            if (req.url.startsWith('/stream') && upRes.statusCode === 200) {
+                state.streamResponses++;
+                if (state.slowStream) {
+                    conn.slow = state.slowStream;
+                    conn.nextAt = Date.now() + conn.slow.holdMs;
+                }
+            }
+            // Writes (and the end) in order, each at its release time.
+            const later = (fn) => {
+                if (!conn.slow) return fn();
+                const at = Math.max(conn.nextAt, Date.now());
+                conn.nextAt = at + conn.slow.gapMs;
+                setTimeout(fn, at - Date.now());
+            };
+            upRes.on('data', (chunk) => later(() => { if (!conn.stalled && !res.destroyed) res.write(chunk); }));
+            upRes.on('end', () => later(() => { state.open.delete(conn); res.end(); }));
             upRes.on('error', () => { state.open.delete(conn); res.destroy(); });
             res.on('close', () => { state.open.delete(conn); upRes.destroy(); });
         });
@@ -98,10 +118,31 @@ async function startProxy() {
         /** Open streams go silent with their sockets left open (a dropped NAT mapping). */
         stall() { for (const c of state.open) c.stalled = true; },
         set blockStream(v) { state.blockStream = v; },
+        set slowStream(v) { state.slowStream = v; },
+        streamResponses: () => state.streamResponses,
         streams: () => [...state.open].filter((c) => c.req.url.startsWith('/stream')).length,
         requestsFor: (key) => state.requests.get(key) || 0,
         close: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }),
     };
+}
+
+/**
+ * JSON with object keys sorted: stream events serialize a flag from its stored
+ * `jsonb` (keys sorted), the snapshot from the flag type (declaration order).
+ */
+function canonical(value) {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
+}
+
+/** The server's flags for an SDK key, straight from `/flags/snapshot`. */
+async function serverFlags(sdkKey) {
+    const res = await fetch(`${BASE}/flags/snapshot?v=2`, { headers: { Authorization: `Bearer ${sdkKey}` } });
+    const body = await res.json();
+    return new Map((Array.isArray(body) ? body : body.flags).map((f) => [f.key, f]));
 }
 
 async function waitFor(what, ms, probe) {
@@ -188,6 +229,102 @@ async function runSdk(name, s) {
             proxy.blockStream = false;
             await waitFor('stream resumes', RECOVER_MS * 2, async () => (await adapter.status(client)).state === 'streaming');
             return { pollMs: ms };
+        });
+
+        await check('concurrent updates arrive in order and converge', async () => {
+            // Four flags written concurrently, each by a sequential series (so
+            // its commit order is known: `description` counts up), plus an
+            // unordered burst on a fifth. Per flag, the client must never go
+            // back in the series, and must end on the server's state.
+            const keys = [0, 1, 2, 3].map((i) => `${p}-conc${i}`);
+            const burst = `${p}-burst`;
+            for (const key of [...keys, burst]) {
+                assert.equal((await create(key, { is_enabled: true, description: '0' })).status, 200);
+            }
+            await waitFor('created flags arrive', RECOVER_MS, async () => {
+                const have = await adapter.flags(client);
+                return [...keys, burst].every((k) => have.has(k));
+            });
+            let sampling = true;
+            const regressions = [];
+            const last = new Map();
+            const sampler = (async () => {
+                while (sampling) {
+                    const have = await adapter.flags(client);
+                    for (const key of keys) {
+                        const n = Number(have.get(key) && have.get(key).description);
+                        if (n < (last.get(key) || 0)) regressions.push(`${key}: ${last.get(key)} -> ${n}`);
+                        last.set(key, Math.max(n, last.get(key) || 0));
+                    }
+                    await sleep(10);
+                }
+            })();
+            const series = keys.map(async (key) => {
+                for (let i = 1; i <= 8; i++) {
+                    assert.equal((await patch(key, { description: String(i), rollout_percentage: (i * 37) % 101 })).status, 200);
+                }
+            });
+            const bursts = Array.from({ length: 6 }, (_, i) => patch(burst, { rollout_percentage: i * 10 }));
+            await Promise.all([...series, ...bursts]);
+            const truth = await serverFlags(s.sdkKey);
+            const differing = async () => {
+                const have = await adapter.flags(client);
+                return [...keys, burst].filter((k) => canonical(have.get(k)) !== canonical(truth.get(k)))
+                    .map((k) => `${k}: client ${JSON.stringify(have.get(k))}, server ${JSON.stringify(truth.get(k))}`);
+            };
+            let ms;
+            try {
+                ms = await waitFor('client holds the server state', RECOVER_MS, async () => (await differing()).length === 0);
+            } catch (err) {
+                throw new Error(`${err.message}: ${(await differing()).join(' | ')}`);
+            }
+            sampling = false;
+            await sampler;
+            assert.deepEqual(regressions, [], 'no flag went back in its series');
+            return { convergeMs: ms };
+        });
+
+        await check('a delayed replay never rolls back a newer poll (R20)', async () => {
+            // The client polls (stream blocked). The next stream's replay is
+            // read by the server, then held in the proxy while a flag changes
+            // and another is deleted; polls deliver both. When the old replay
+            // finally arrives, neither may go back, not even briefly.
+            const changed = `${p}-r20`;
+            const deleted = `${p}-r20del`;
+            await create(changed, { is_enabled: false, description: 'before' });
+            await create(deleted, { is_enabled: true });
+            await waitFor('flags arrive', RECOVER_MS, async () => (await adapter.flags(client)).has(deleted));
+            proxy.blockStream = true;
+            proxy.sever();
+            await waitFor('client polls', RECOVER_MS, async () => (await adapter.status(client)).state === 'polling');
+            const answered = proxy.streamResponses();
+            proxy.slowStream = { holdMs: 2000, gapMs: 50 };
+            proxy.blockStream = false;
+            await waitFor('a stream replay is read', RECOVER_MS, async () => proxy.streamResponses() > answered);
+            assert.equal((await patch(changed, { is_enabled: true, description: 'after' })).status, 200);
+            assert.equal((await api('DELETE', `${flags}/${deleted}`, { token: s.admin })).status, 204);
+            const pollMs = await waitFor('a poll delivers both', RECOVER_MS, async () => {
+                const have = await adapter.flags(client);
+                return have.get(changed) && have.get(changed).description === 'after' && !have.has(deleted);
+            });
+            // Sample until the delayed stream has taken over ("ready" applied)
+            // and for a second after, so the replay and the live events behind
+            // it are all observed.
+            const rollbacks = [];
+            const t0 = Date.now();
+            let streamingAt = null;
+            while (Date.now() - t0 < 15000) {
+                const have = await adapter.flags(client);
+                if (!have.get(changed) || have.get(changed).description !== 'after') rollbacks.push(`${changed} at +${Date.now() - t0} ms`);
+                if (have.has(deleted)) rollbacks.push(`${deleted} back at +${Date.now() - t0} ms`);
+                if (streamingAt === null && (await adapter.status(client)).state === 'streaming') streamingAt = Date.now();
+                if (streamingAt !== null && Date.now() - streamingAt > 1000) break;
+                await sleep(5);
+            }
+            proxy.slowStream = null;
+            assert.ok(streamingAt !== null, 'the delayed stream took over within 15 s');
+            assert.deepEqual(rollbacks.slice(0, 5), [], 'state went back to the delayed replay');
+            return { pollMs, replayAppliedAfterMs: streamingAt - t0 };
         });
 
         await check('invalid key: connect() rejects and retries stop', async () => {

@@ -165,6 +165,41 @@ export const NAMED = {
         steps: [{ op: 'fault', kind: 'slowSnapshot' }, { op: 'fault', kind: 'unavailable' },
             { op: 'upsert', flag: { key: 'alpha', is_enabled: false, rules: [] } }, { op: 'wait', ms: 300 }],
     },
+    // R20 (RC3): a stream's replay is read when it opens; if its bytes arrive
+    // after polls delivered newer state, "ready" must not bring that state
+    // back, not even until the live events behind the replay catch up. Two
+    // distinct failure sequences of the RC2 extended tier: changed flags going
+    // back (seed 173) and a deleted flag reappearing (seed 184).
+    'a delayed replay does not roll back newer polled flags (R20, seed 173)': {
+        initial: [{ key: 'alpha', is_enabled: true, rules: [] }, { key: 'beta', is_enabled: false, rules: [] },
+            { key: 'gamma', is_enabled: true, rollout_percentage: 20, rules: [] }],
+        steps: [{ op: 'fault', kind: 'unavailable' }, { op: 'wait', ms: 300 },
+            { op: 'fault', kind: 'delayOn', ms: 60 }, { op: 'fault', kind: 'holdNextStream', ms: 300 },
+            { op: 'waitHeld' },
+            { op: 'upsert', flag: { key: 'alpha', is_enabled: false, rules: [] } },
+            { op: 'upsert', flag: { key: 'beta', is_enabled: true, rules: [] } },
+            { op: 'upsert', flag: { key: 'gamma', is_enabled: true, rollout_percentage: 80, rules: [] } },
+            { op: 'wait', ms: 1200 }, { op: 'fault', kind: 'delayOff' }, { op: 'wait', ms: 300 }],
+    },
+    'a delayed replay does not resurrect a flag deleted meanwhile (R20, seed 184)': {
+        initial: [{ key: 'alpha', is_enabled: true, rules: [] }, { key: 'beta', is_enabled: true, rules: [] }],
+        steps: [{ op: 'fault', kind: 'unavailable' }, { op: 'wait', ms: 300 },
+            { op: 'fault', kind: 'delayOn', ms: 60 }, { op: 'fault', kind: 'holdNextStream', ms: 300 },
+            { op: 'waitHeld' },
+            { op: 'delete', key: 'alpha' },
+            { op: 'wait', ms: 1200 }, { op: 'fault', kind: 'delayOff' }, { op: 'wait', ms: 300 }],
+    },
+    'poll fallback against a pre-0.1.31 server (no snapshot revisions) converges': {
+        // The server ignores `?v=2` and sends a bare array: the SDK must apply
+        // it as before (no ordering guarantee across poll and stream, R20 is
+        // possible there) and still fall back, poll, and converge.
+        server: { legacySnapshot: true },
+        initial: [{ key: 'alpha', is_enabled: true, rules: [] }, { key: 'beta', is_enabled: true, rules: [] }],
+        steps: [{ op: 'fault', kind: 'unavailable' }, { op: 'wait', ms: 150 },
+            { op: 'upsert', flag: { key: 'alpha', is_enabled: false, rules: [] } }, { op: 'delete', key: 'beta' },
+            { op: 'wait', ms: 400 }, { op: 'upsert', flag: { key: 'gamma', is_enabled: true, rules: [] } },
+            { op: 'wait', ms: 300 }],
+    },
     'revoked key stops retrying and recovers on connect()': {
         initial: [{ key: 'alpha', is_enabled: true, rules: [] }],
         steps: [{ op: 'revoke' }, { op: 'wait', ms: 600 }, { op: 'restore' }],
@@ -307,6 +342,13 @@ export async function runScenario(adapter, scenario, { label = String(scenario.s
                 case 'delete': server.delete(step.key); break;
                 case 'wait': await new Promise((r) => setTimeout(r, step.ms)); break;
                 case 'mark': if (step.name === 'stall') stallAt = Date.now(); break;
+                case 'waitHeld': {
+                    // Until the held stream has opened, so its replay predates what follows.
+                    const until = Date.now() + 3000;
+                    while (!server.heldStreamOpened && Date.now() < until) await new Promise((r) => setTimeout(r, 5));
+                    if (!server.heldStreamOpened) fail('setup: the held stream never opened');
+                    break;
+                }
                 case 'revoke': {
                     server.setAcceptedKey(null);
                     server.severAll();
@@ -339,9 +381,10 @@ export async function runScenario(adapter, scenario, { label = String(scenario.s
                         case 'stale': server.staleAfterNextReady(); break;
                         case 'fragmentOn': server.fragment = true; break;
                         case 'fragmentOff': server.fragment = false; break;
-                        case 'delayOn': server.writeDelayMs = 30; break;
+                        case 'delayOn': server.writeDelayMs = step.ms ?? 30; break;
                         case 'delayOff': server.writeDelayMs = 0; break;
                         case 'slowSnapshot': server.snapshotDelayMs = 400; break;
+                        case 'holdNextStream': server.holdNextStream(step.ms); break;
                         case 'restart':
                             server.mode = 'refuse';
                             server.severAll();

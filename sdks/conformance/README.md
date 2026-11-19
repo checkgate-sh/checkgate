@@ -23,7 +23,10 @@ and can, between any two bytes: close every stream, stall them silently with the
 socket open (half-open, lost heartbeats), cut an event or a bootstrap replay
 mid-frame, duplicate an event, replay an older revision after a reconnect,
 fragment writes to one byte each, delay them, refuse connections (restart), answer
-503, delay snapshot responses, and reject the key (401).
+503, delay snapshot responses, hold a new stream's bytes after reading its replay
+(so polls overtake it: R20), and reject the key (401). `/flags/snapshot?v=2`
+answers with revisions and tombstones as a 0.1.31 server does; with
+`legacySnapshot` it answers the bare array of older servers.
 
 `scenario.mjs` samples the client every 25 ms and requires:
 
@@ -37,7 +40,8 @@ fragment writes to one byte each, delay them, refuse connections (restart), answ
 | I6 | `connect()` settles: resolves, or rejects on a rejected key |
 | I7 | after faults heal, the client serves exactly the server's flags within `CONVERGE_MS` |
 
-plus, in named scenarios: a silent stream is replaced within 3 heartbeats + 400 ms;
+plus, in named scenarios: a delayed replay never rolls back or resurrects what newer
+polls delivered (R20, the deterministic forms of seeds 173 and 184); a silent stream is replaced within 3 heartbeats + 400 ms;
 a quiet healthy stream (new or pre-0.1.31 server) is never replaced; a revoked key
 reaches `auth_failed`, makes no further requests, and recovers on `connect()`.
 
@@ -57,6 +61,9 @@ CONFORMANCE_SEEDS=1-500 CONFORMANCE_TRACE_DIR=/tmp/traces CONFORMANCE_REPORT=/tm
 
 # Reproduce one failure
 CONFORMANCE_SEEDS=11 node --test sdks/conformance/flutter.mjs
+
+# Timeline of one seed or named scenario against the Node SDK (or an older build)
+node sdks/conformance/trace-r20.mjs 173 [path/to/sdks/nodejs/index.js]
 ```
 
 A failure prints the seed, the violations and the step trace, and writes them to

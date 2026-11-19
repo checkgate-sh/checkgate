@@ -43,7 +43,17 @@ trap 'kill $SRV 2>/dev/null || true' EXIT
 for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$PORT/health" >/dev/null && break; sleep 1; done
 
 rc=0
-CHECKGATE_URL="http://127.0.0.1:$PORT" CHECKGATE_SETUP_TOKEN="$SETUP_TOKEN" \
+SESSION="$(mktemp)"; rm -f "$SESSION"
+CHECKGATE_URL="http://127.0.0.1:$PORT" CHECKGATE_SETUP_TOKEN="$SETUP_TOKEN" CHECKGATE_E2E_SESSION="$SESSION" \
   node sdks/conformance/live.mjs "$WHICH" || rc=$?
 if [ "$rc" -ne 0 ]; then echo "=== server log (tail) ==="; tail -50 "$LOG"; fi
+
+# Server restart (SIGKILL) with each SDK connected: a second instance on the
+# same database, started and killed by the check itself.
+if [ "$WHICH" = all ]; then SDKS="node web react-native flutter"; else SDKS="$WHICH"; fi
+for sdk in $SDKS; do
+  CHECKGATE_SERVER_BIN="$ROOT/target/debug/server" CHECKGATE_E2E_SESSION="$SESSION" \
+    RESTART_PORT=$((PORT + 1)) DATABASE_URL="$DATABASE_URL" REDIS_URL="$REDIS_URL" \
+    node sdks/conformance/live-restart.mjs "$sdk" || rc=1
+done
 exit "$rc"
