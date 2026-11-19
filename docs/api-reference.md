@@ -264,7 +264,7 @@ POST /api/projects
 Content-Type: application/json
 ```
 
-Admin only. Creates a new project and seeds it with Production, Staging, and Development environments plus one SDK key for the Production environment.
+Admin only. Creates a new, empty project: add its environments (`POST /api/projects/{project_id}/environments`) and SDK keys before creating flags. (Only the first project, created at setup, is seeded with environments and an SDK key.)
 
 **Request Body**
 
@@ -428,21 +428,6 @@ Content-Type: application/json
 
 ---
 
-### Update Environment
-
-```http
-PATCH /api/projects/{project_id}/environments/{env_id}
-Content-Type: application/json
-```
-
-```json
-{ "name": "Canary East", "color": "#8b5cf6" }
-```
-
-**Response** `200 OK` — returns the updated environment.
-
----
-
 ### Delete Environment
 
 ```http
@@ -489,8 +474,11 @@ Flag endpoints remain environment-scoped via `{env_id}` (UUID). The environment 
 ### List Flags
 
 ```http
-GET /api/environments/{env_id}/flags
+GET /api/environments/{env_id}/flags?limit=200&offset=0&include_archived=false&tag=checkout
 ```
+
+All query parameters are optional: `limit` (default 200, capped at 500), `offset` (capped at
+1,000,000), `include_archived` (default `false`), and `tag` (only flags carrying that exact tag).
 
 **Response** `200 OK`
 
@@ -571,6 +559,12 @@ Applies a JSON merge patch. Only the provided fields are updated; omitted fields
 **Response** `202 Accepted` — the environment has `require_approval` set; the patch was validated and queued as a pending [change request](#change-requests) instead of applied. Returns the created change request, not the flag (which is unchanged).
 
 **Response** `404 Not Found` — flag does not exist.
+
+**Response** `422 Unprocessable Entity` — the flag is over a configuration limit (since 0.1.31;
+stored flags keep working, only writes are checked): more than 500 rules; the same segment
+referenced twice, or more than 50 distinct segments; a prerequisite on the flag itself, listed
+twice, or more than 50 prerequisites; more than 100 variants. The same applies to
+[Create or Replace a Flag](#create-or-replace-a-flag). Segments are limited to 500 rules.
 
 ---
 
@@ -1571,6 +1565,33 @@ Editor role or above. Only changes that have not yet executed can be deleted.
 
 Webhooks POST a JSON payload to an external URL when flags change in an environment. Delivery attempts are recorded in a per-webhook delivery log. All webhook routes require **admin** role. The `secret` is never returned after creation — responses expose only a `has_secret` boolean.
 
+**Delivery.** Each event is a `POST` with `Content-Type: application/json` and
+`User-Agent: Checkgate-Webhooks/1.0`:
+
+```json
+{
+  "event": "flag.updated",
+  "environment_id": "<uuid>",
+  "flag_key": "new-checkout-flow",
+  "flag": { "key": "new-checkout-flow", "is_enabled": true, "...": "..." },
+  "actor_email": "admin@example.com",
+  "metadata": null,
+  "timestamp": "<unix seconds>"
+}
+```
+
+Events include `flag.created`, `flag.updated`, `flag.deleted`, `flag.promoted`,
+`flag.scheduled_change_applied`, and `change_request.opened` / `approved` / `rejected`.
+
+- **Signature.** With a `secret`, the request carries
+  `X-Checkgate-Signature: sha256=<hex>`: HMAC-SHA256 of the raw request body, keyed with the
+  secret. Verify it against the exact bytes received, with a constant-time comparison.
+- **Retries.** Up to 3 attempts, 1 s and then 5 s apart, only when the request fails to complete
+  (connection or timeout errors). Any HTTP response, including a non-2xx one, is recorded and not
+  retried.
+- **Redirects are not followed** (a 3xx is recorded as the result), and at most 1 KiB of each
+  response body is stored in the delivery log.
+
 ### List Webhooks
 
 ```http
@@ -1829,8 +1850,11 @@ If the SSE connection drops, clients should reconnect with exponential backoff. 
 3. Server sends `ready` → SDK swaps the staged copy in as a whole, and resolves `connect()` if it
    hadn't already
 
-This guarantees consistency even after missed updates during the disconnected period, and a
+This brings the SDK back to the server's state after updates missed while disconnected, and a
 replay cut short by another disconnect never replaces a complete flag set with a partial one.
+With a 0.1.31 server and SDK, a replay is also merged per flag with anything newer learned
+meanwhile; ordering is per flag, not across flags
+([configuration consistency](/operations/configuration-consistency)).
 
 The server also closes streams itself to force this resync when it may have missed updates:
 after its Redis subscription is re-established, once Redis is reachable again after a failed
@@ -1899,7 +1923,7 @@ Returns the same flags with the revision of each and the environment's recent de
 
 Everything comes from one consistent read. Official SDKs from 0.1.31 request this format so they
 can merge a poll with a stream replay per flag and never go back to an older version
-([configuration consistency](https://github.com/checkgate-sh/checkgate/blob/main/docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md) is the design).
+([configuration consistency](/operations/configuration-consistency) describes the guarantee and its limits).
 Revisions are ordered per flag only; do not compare the revisions of different flags.
 
 Intended as a fallback for SDK clients when the SSE connection at `/stream` cannot be

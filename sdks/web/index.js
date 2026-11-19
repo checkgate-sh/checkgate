@@ -25,7 +25,7 @@ function isStaleEvent(known, revision, isUpsert) {
 
 /**
  * The state after a complete flag set: a stream replay on "ready", or a poll
- * snapshot. See docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md.
+ * snapshot. See docs/operations/configuration-consistency.md.
  *
  * The server read `incoming` (key → flag) after the client sent the request,
  * when the client's learn counter stood at `startedAt`. Everything the client
@@ -143,7 +143,8 @@ export class CheckgateWeb {
     /**
      * @param {Object} options
      * @param {string} options.serverUrl - Base URL of your Checkgate server
-     * @param {string} [options.sdkKey] - SDK key (sent as Authorization: Bearer)
+     * @param {string} [options.sdkKey] - SDK key (stream: `?sdk_key=` query parameter,
+     *        since EventSource cannot set headers; polls: Authorization: Bearer)
      * @param {number} [options.reconnectDelayMs=3000] - Reconnect delay on SSE disconnect
      * @param {number} [options.maxReconnectDelayMs=30000] - Maximum backoff delay between reconnects
      * @param {number} [options.pollFallbackThreshold=3] - Consecutive failed SSE reconnects

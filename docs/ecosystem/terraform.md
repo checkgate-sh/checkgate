@@ -7,6 +7,21 @@ description: "Manage Checkgate feature flags and segments as code with the terra
 
 `terraform-provider-checkgate` manages Checkgate feature flags and segments as code with **Terraform or OpenTofu**. Review flag changes in a pull request, roll them out through your normal plan/apply pipeline, and keep every environment's flag configuration reproducible.
 
+## Installing the provider
+
+The provider is not yet published to the Terraform or OpenTofu registry. Build it from
+`integrations/terraform-provider-checkgate` (`go build -o terraform-provider-checkgate`) and point
+Terraform at the binary with a `dev_overrides` block in your CLI configuration (`~/.terraformrc`):
+
+```hcl
+provider_installation {
+  dev_overrides {
+    "checkgate-sh/checkgate" = "/path/to/directory/containing/the/binary"
+  }
+  direct {}
+}
+```
+
 ## Provider configuration
 
 ```hcl

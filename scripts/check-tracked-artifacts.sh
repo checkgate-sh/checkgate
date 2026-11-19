@@ -20,8 +20,9 @@ pattern+='|^docs/\.vitepress/dist/|^server/public/'
 # Generated or local-only files.
 pattern+='|\.(node|tsbuildinfo|dill|pyc)$|(^|/)native-binding\.(js|d\.ts)$'
 pattern+='|(^|/)\.DS_Store$|(^|/)checkgate-setup-token$|(^|/)\.env$'
-# Internal reports and working notes stay local.
-pattern+='|^internal_docs/'
+# Internal reports and working notes stay local, and the docs/ tree holds
+# only the public VitePress site.
+pattern+='|^internal_docs/|^docs/releases/'
 
 offending="$(git ls-files | grep -E "$pattern" || true)"
 if [ -n "$offending" ]; then

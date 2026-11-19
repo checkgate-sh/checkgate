@@ -87,8 +87,10 @@ the connector) — that invalidates it immediately, whether or not the Checkgate
 
 ## Delivery & troubleshooting
 
-Delivery is **fire-and-forget** — it never blocks the API response that triggered it. A failed POST
-is retried with 1s / 5s / 15s backoff, and every attempt is recorded:
+Delivery is **fire-and-forget** — it never blocks the API response that triggered it. A POST that
+fails to complete (connection or timeout error) is tried up to 3 times, 1 s and then 5 s apart; an
+HTTP error response is recorded and not retried. Redirects are not followed. Every attempt is
+recorded:
 
 ```bash
 curl -H "Authorization: Bearer $CHECKGATE_TOKEN" \

@@ -62,7 +62,7 @@ found*, rebuild the app (and re-run `pod install` on iOS).
 
 ## Quick Start
 
-Plug the incredibly fast evaluating `CheckgateProvider` context or native clients directly into your React Native app.
+Create one `CheckgateNativeClient` for your app and evaluate flags synchronously through JSI.
 
 ```javascript
 import { CheckgateNativeClient } from '@checkgate/react-native'

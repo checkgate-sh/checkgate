@@ -23,9 +23,9 @@ lookup — no network on the evaluation path. The detailed view:
 │                                                                  │
 │  ┌──────────────────────────┐         ┌────────────────────────┐ │
 │  │  REST API                │         │  SSE Stream  /stream   │ │
-│  │  /api/projects/{id}/     │         │  per environment,      │ │
-│  │    environments/{id}/    │         │  scoped by SDK key     │ │
-│  │      flags               │         └────────────────────────┘ │
+│  │  /api/environments/      │         │  per environment,      │ │
+│  │    {env_id}/flags        │         │  scoped by SDK key     │ │
+│  │                          │         └────────────────────────┘ │
 │  └──────────────────────────┘          ▲ bootstrap    ▲ deltas   │
 │           │                            │              │          │
 │           ▼                            │              │          │
@@ -73,7 +73,9 @@ The server is a single Rust binary built with **Axum**. It is responsible for:
   per environment (the server keeps no flag cache of its own)
 - Exposing a **REST API** for CRUD operations (project- and environment-scoped)
 - Broadcasting flag changes to connected SDKs via **SSE** (`/stream`), scoped per environment
-- Publishing change events to **Redis** pub/sub for multi-instance deployments
+- Publishing change events to **Redis** pub/sub, which every instance (including the one that
+  made the change) subscribes to before pushing to its own SSE clients. Redis is required: the
+  server does not start without it
 - Tracking flag evaluation events (**impressions**) from SDK clients
 
 ### Write Path
@@ -119,8 +121,9 @@ DELETE  /api/projects/{project_id}/members/{user_id}
 # Environments (project-scoped)
 GET     /api/projects/{project_id}/environments
 POST    /api/projects/{project_id}/environments
-PATCH   /api/projects/{project_id}/environments/{env_id}
 DELETE  /api/projects/{project_id}/environments/{env_id}
+POST    /api/projects/{project_id}/environments/{env_id}/default
+POST    /api/projects/{project_id}/environments/{env_id}/require-approval
 
 # SDK Keys (project-scoped, environment-targeted)
 GET     /api/projects/{project_id}/keys
@@ -143,7 +146,7 @@ POST /api/environments/{env_id}/impressions
 The core is a Rust library (`core/`) compiled into each SDK:
 
 - **`FlagStore`** — thread-safe `DashMap` holding an SDK's in-memory flags (one environment per SDK instance)
-- **`evaluate(flag, user_context)`** — pure function, no I/O, no allocations on the hot path
+- **`evaluate(flag, user_context)`** — pure function, no I/O; boolean evaluation does not allocate, while string and JSON variant values are cloned into the result
 
 ### Evaluation Logic
 
@@ -192,18 +195,18 @@ This means a single Checkgate installation can serve multiple projects with mult
 
 1. SDK connects to `GET /stream` with `Authorization: Bearer sk_live_...`
 2. Server looks up the key → resolves `environment_id`
-3. Server sends `connected` event — SDK clears its local store
+3. Server sends `connected` (with `heartbeat_ms`) — the SDK starts staging a replay; it keeps serving the flags it holds
 4. Server bootstraps the SDK by replaying all current flags for that environment
-5. Server sends `ready` — SDK resolves its `connect()` promise
+5. Server sends `ready` — the SDK applies the staged replay in one step (per-flag revisions decide against anything newer it learned meanwhile) and resolves `connect()`
 6. Server sends a `heartbeat` event after 15 seconds of silence (`SSE_HEARTBEAT_INTERVAL_SECS`); SDKs reconnect a stream silent for 3 intervals
 7. On flag change, only clients in the matching environment receive the update
-8. On reconnect, the SDK clears its local store and re-bootstraps from scratch, then receives `ready` again
+8. On reconnect, the same replay is staged and applied on `ready`; the SDK never serves an empty or partial store in between (see [Configuration consistency](/operations/configuration-consistency))
 
 ### Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `connected` | `{"environment_id": "<uuid>" \| null}` | Connection established; SDK resets its store |
+| `connected` | `{"environment_id": "<uuid>" \| null, "heartbeat_ms": 15000}` | Connection established; the SDK stages the replay that follows |
 | `update` | JSON string | A flag was upserted or deleted in this environment |
 | `ready` | flag count (string) | Bootstrap replay complete; SDK resolves `connect()` |
 | `heartbeat` | `{}` | After 15 s of silence; SDKs treat 3 missed intervals as a dead stream |
@@ -237,7 +240,7 @@ SDK keys are stored in PostgreSQL, managed per-project from the **Project Settin
 |---|---|
 | Read flags, impressions | Any authenticated user with project access |
 | Write flags | `editor` or `admin` (project member) |
-| Manage environments, SDK keys, project members | `admin` (project member) |
+| Manage environments, SDK keys, project members | Workspace `admin` |
 | Manage workspace users, create/delete projects | Workspace `admin` |
 
 Workspace admins bypass all per-project membership checks.

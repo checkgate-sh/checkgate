@@ -1,7 +1,8 @@
 // Instrumented run of one seed against the Node SDK: prints, in order, every
 // stream request, poll response, `connected`, `ready` swap and applied delta
-// with the revisions involved. Used to document R20
-// (docs/releases/v0.1.31/RC3-R20-ROOT-CAUSE.md); not part of any suite.
+// with the revisions involved. Used to diagnose R20, a delayed stream replay
+// rolling back polled flags (fixed in 0.1.31; see
+// docs/operations/configuration-consistency.md); not part of any suite.
 //
 //   node sdks/conformance/trace-r20.mjs 173 [path/to/sdks/nodejs/index.js]
 //   node sdks/conformance/trace-r20.mjs 'name:seed 184' …   (a named scenario)

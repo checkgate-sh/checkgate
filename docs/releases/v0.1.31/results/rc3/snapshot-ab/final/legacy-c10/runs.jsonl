@@ -1,6 +1,0 @@
-{"label":"base","round":1,"server_cpu_s":28.23,"rss_kib_end": 30944,"load":"{ 10.94 14.53 32.92 }"}
-{"label":"cand","round":1,"server_cpu_s":29.36,"rss_kib_end": 30840,"load":"{ 10.88 14.15 32.14 }"}
-{"label":"base","round":2,"server_cpu_s":29.38,"rss_kib_end": 30672,"load":"{ 11.38 14.00 31.57 }"}
-{"label":"cand","round":2,"server_cpu_s":29.06,"rss_kib_end": 30800,"load":"{ 11.13 13.67 30.84 }"}
-{"label":"base","round":3,"server_cpu_s":24.51,"rss_kib_end": 10296,"load":"{ 13.08 13.94 30.43 }"}
-{"label":"cand","round":3,"server_cpu_s":26.63,"rss_kib_end": 10720,"load":"{ 12.68 13.74 29.79 }"}

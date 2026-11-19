@@ -116,10 +116,10 @@ npm install @checkgate/react-native
 ```
 
 **One package.** The Rust core is embedded through **JSI**, so evaluation is a
-direct synchronous call into native code with no bridge hop and no JSON
-serialization per call. Native compilation happens inside your app's Xcode /
-Gradle build via the included podspec and CMakeLists — there's no separate
-binary to fetch.
+direct synchronous call into native code with no bridge hop. The Rust engine is
+compiled inside your app's Xcode / Gradle build, so the build machine needs a
+Rust toolchain (and `cargo-ndk` for Android). Android's native build is verified
+in CI; iOS is not certified for 0.1.31.
 
 See the [React Native SDK reference](/sdks/react-native).
 
@@ -129,8 +129,10 @@ See the [React Native SDK reference](/sdks/react-native).
 flutter pub add checkgate_flutter
 ```
 
-**One package.** The same core is bound through **Dart FFI**. Note this is a
-pub.dev package — the `@checkgate/*` npm packages are not involved.
+**One package**, bound to the same core through **Dart FFI**. No compiled engine
+is bundled: you build the Rust engine and link it into your app (verified on the
+iOS simulator for 0.1.31). Note this is a pub.dev package — the `@checkgate/*`
+npm packages are not involved.
 
 See the [Flutter SDK reference](/sdks/flutter).
 

@@ -23,7 +23,7 @@ Checkgate takes a different approach: **local evaluation**.
 1. Your server runs the Checkgate control plane (a single Rust binary)
 2. Each SDK connects once via SSE and receives the full flag set
 3. All evaluation happens **in-process, in memory** — no network calls
-4. When flags change, the server pushes deltas via SSE instantly
+4. When flags change, the server pushes deltas via SSE, typically within tens of milliseconds
 
 The result: **in-process flag evaluation** (well under a microsecond in the Rust core) with real-time updates and zero external dependencies at evaluation time.
 
@@ -34,7 +34,7 @@ Checkgate is a complete feature-flag platform, not just a toggle store:
 - **Multivariate flags** — boolean, string, integer, and JSON flags, with per-rule return values and weighted variant distributions (60/30/10 splits) for A/B/n tests.
 - **Targeting & rollouts** — attribute-based [targeting rules](/guide/concepts#targeting-rules) (string and numeric operators), reusable [segments](/guide/segments), sticky percentage rollouts, and [prerequisite flags](/guide/concepts#prerequisite-flags).
 - **Analytics & experimentation** — impression tracking, [exposure dashboards](/guide/experimentation#exposure-dashboards), and an [A/B testing beta](/guide/experimentation#a-b-testing) that measures conversion goals and reports statistical significance.
-- **Governance** — [RBAC](/guide/concepts#users-and-roles), an [audit log](/guide/governance#audit-log), [change-request approvals](/guide/governance#change-requests), [scheduled changes](/guide/governance#scheduled-changes), and personal access tokens.
+- **Governance** — [RBAC](/guide/concepts#users-and-roles), an [audit log](/guide/governance#audit-log), [change-request approvals](/guide/governance#change-requests-approvals), [scheduled changes](/guide/governance#scheduled-changes), and personal access tokens.
 - **A full ecosystem** — native SDKs (Node.js, Web/WASM, React Native, Flutter), a [type-safe codegen CLI](/ecosystem/cli), [edge evaluation](/ecosystem/edge), [SSR/bootstrap helpers](/ecosystem/ssr), and infrastructure-as-code via a [Terraform provider](/ecosystem/terraform) and [Kubernetes operator](/ecosystem/kubernetes).
 
 ## How It Compares
@@ -43,7 +43,7 @@ Checkgate is a complete feature-flag platform, not just a toggle store:
 |---|---|---|
 | Evaluation location | In-process (local) | Remote HTTP / local with proprietary SDK |
 | Evaluation latency | 0.1–0.5 µs in the Rust core, a few µs through the Node.js SDK ([benchmarks](/performance/benchmarks)) | A network round trip per check when evaluated remotely |
-| Update propagation | SSE push: p50 13–38 ms, p99 21–98 ms for 1–1,000 clients ([benchmarks](/performance/benchmarks)) | Polling or streaming, depending on the SDK |
+| Update propagation | SSE push: p50 12–39 ms for 1–1,000 clients; p99 55–198 ms pooled, 84 ms median run at 1,000 ([benchmarks](/performance/benchmarks)) | Polling or streaming, depending on the SDK |
 | Self-hosted | Yes | No (or enterprise-only) |
 | Open source | Apache 2.0 | Closed source |
 | Vendor lock-in | None | High |

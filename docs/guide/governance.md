@@ -66,7 +66,8 @@ Keep a growing flag set tidy with dashboard-only metadata that never affects eva
 - **Tags** — free-form labels for search and filtering.
 - **Owner email** — who's responsible for the flag.
 - **Archival** — a reversible soft-delete that hides a flag from the default list with zero
-  evaluation impact (archived flags are simply excluded from what SDKs receive).
+  evaluation impact: SDKs keep receiving and evaluating an archived flag exactly as before, so
+  archive a flag only once no code reads it (or delete it to stop serving it).
 
 These live on a metadata wrapper and are never sent to SDKs or over SSE.
 
@@ -79,8 +80,8 @@ and ownership are ignored). Each difference offers a one-click sync, complementi
 
 ## Personal access tokens
 
-For CI/CD, Terraform, and scripts, mint a **personal access token** instead of using an
-admin-equivalent SDK key:
+For CI/CD, Terraform, and scripts, mint a **personal access token**. SDK keys are public and can
+only reach the SDK endpoints (stream, snapshot, reading flags, impressions and events):
 
 - A token acts as its owning user (same role, same project memberships) and can be capped to
   **`read_only`**.

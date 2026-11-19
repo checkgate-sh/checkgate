@@ -20,8 +20,11 @@ polling instead, is on a separate page:
 
 Measured on 2026-11-18 at commit
 [`66cbfec`](https://github.com/checkgate-sh/checkgate/commit/66cbfec6f25c47992e7210150cdd1c25ee770d00)
-(the v0.1.31 release candidate; later commits on the branch change CI and
-benchmark tooling only). **v0.1.30 was measured again in the same session**,
+(an earlier v0.1.31 release candidate). A later candidate added the revisioned
+snapshot (`?v=2`) and per-flag ordering in the SDKs; an alternating A/B of
+that change measured no difference in the paths published here (the bare
+`/flags/snapshot`, Node SDK evaluation), and propagation was not re-run
+because the live-event path did not change. **v0.1.30 was measured again in the same session**,
 from its release commit
 [`8ef6452`](https://github.com/checkgate-sh/checkgate/commit/8ef6452196ae313f103af9d812e635467348763f),
 by `bench/public/compare.sh`: same harness, machine and limits, the two
@@ -127,9 +130,7 @@ the table shows the median batch mean, median of 3 runs.
 
 **Why.** v0.1.30 converted the whole attribute object into Rust on every call,
 about 1.3 µs per attribute, before looking at the flag. v0.1.31 looks the flag
-up first and reads only the attributes its rules reference
-([PERFORMANCE-OPTIMIZATIONS.md](https://github.com/checkgate-sh/checkgate/blob/main/docs/releases/v0.1.31/PERFORMANCE-OPTIMIZATIONS.md),
-O1). Flags that reference no attribute gain most (boolean, rollout); flags with
+up first and reads only the attributes its rules reference. Flags that reference no attribute gain most (boolean, rollout); flags with
 many rules gain least, because they read more attributes. Results are unchanged
 (360,000 differential calls, 0 differing results), with one documented
 difference: a non-string attribute that no rule references no longer throws.
@@ -167,9 +168,9 @@ What the numbers show:
 
 - **v0.1.31 serves each snapshot with less CPU at 100–1,000 clients (−11 % to
   −21 %).** v0.1.31 decodes each stored flag straight into its final type and
-  reads flags and segments in one statement (O2, O3). The isolated A/B run for
-  those changes measured −33 % CPU per request at 10 clients
-  ([PERFORMANCE-COMPARISON.md](https://github.com/checkgate-sh/checkgate/blob/main/docs/releases/v0.1.31/PERFORMANCE-COMPARISON.md)).
+  reads flags and segments in one statement. An isolated A/B run of
+  those changes (`bench/ab/snapshot-ab.sh`) measured −33 % CPU per request at
+  10 clients ([recorded result](https://github.com/checkgate-sh/checkgate/blob/d737617/docs/releases/v0.1.31/PERFORMANCE-COMPARISON.md)).
   At 10 clients this session shows no difference: both versions' ranges are
   wide (421–650 and 412–529 req/s at the same 0.9 cores of CPU), so how much
   work a vCPU-second buys on this laptop varied more than the change.
@@ -221,7 +222,7 @@ v0.1.30's runs at every client count (at 1,000 clients: 73–86 ms against
 - In the same two runs the **PATCH response itself** was slow: its p99 at 1,000
   clients was 210 and 32 ms, against 20–28 ms in every other run of either
   version. The write path (HTTP, PostgreSQL commit) does not involve the SDKs,
-  and RC2 did not change it.
+  and v0.1.31 did not change it.
 - The first runs started with the host still loaded from the image builds
   (15-minute load average 15.8 and 7.5, against 2.9–4.7 for runs 3–6).
   v0.1.30's first run, at a load of 11, has the same kind of outlier at 1
@@ -242,8 +243,8 @@ re-aggregated; none was. That decision was made after seeing the first
 results, so it is stated here. All six runs are kept and the pooled p99 is
 published as measured, because the aggregation rule was fixed before the runs. The median of the run p99s
 (84 against 76 ms at 1,000 clients) is shown next to it. A rerun on a
-dedicated Linux host is the way to settle the remaining 11 %; it is listed as
-a follow-up in RC2-RELEASE-READINESS.md.
+dedicated Linux host is the way to settle the remaining 11 %; until then it
+is a known limitation of v0.1.31 (see the changelog).
 
 Also from these runs:
 

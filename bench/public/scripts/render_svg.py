@@ -209,7 +209,7 @@ def fmt_int(v):
 
 def fmt_bytes(b):
     if b >= 1e9:
-        return f"{sig3(b / 1e9):g} GB"
+        return f"{sig3(b / 1e9):,g} GB"
     if b >= 1e6:
         return f"{sig3(b / 1e6):g} MB"
     if b >= 1e3:
@@ -304,10 +304,10 @@ def render_cost(cost, theme):
             wbar = max(2, round(120 * gb / gmax))
             out.append(f'<rect x="{bx + 92}" y="{y - 12}" width="{wbar}" height="14" rx="3" '
                        f'fill="{t["accent"] if name == "SSE" else t["bar2"]}"/>')
-            label = f"{sig3(gb):g} GB" if gb >= 1 else f"{int(round(gb * 1000))} MB"
+            label = f"{sig3(gb):,g} GB" if gb >= 1 else f"{int(round(gb * 1000))} MB"
             out.append(text(bx + 92 + wbar + 8, y, label, 13, t["ink"]))
         out.append(text(bx + 300, y, fmt_ms(fresh) + ("" if ok else " *"), 13, t["ink"]))
-        desc_bits.append(f"{name} at {fmt_int(focus)} clients: {('%g GB' % sig3(gb)) if gb is not None else 'n/a'} a month, "
+        desc_bits.append(f"{name} at {fmt_int(focus)} clients: {f'{sig3(gb):,g} GB' if gb is not None else 'n/a'} a month, "
                          f"{fmt_int(reqs) if reqs is not None else 'n/a'} requests a month, freshness p50 {fmt_ms(fresh)}"
                          + ("" if ok else " (not sustained)"))
         y += 28
@@ -341,7 +341,7 @@ def render_cost(cost, theme):
         desc_bits.append(f"projected ${usd:,.2f} a month for {label} streaming")
         y += 22
         if len(g) > 1:
-            out.append(text(cx, y, "same infrastructure at each of these counts", 11.5, t["muted"]))
+            out.append(text(cx, y, "same infrastructure; not deployed on AWS", 11.5, t["muted"]))
             y += 24
         else:
             y += 6

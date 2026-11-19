@@ -4,8 +4,8 @@ Thanks for your interest in contributing. This document covers how to get set up
 
 ## Prerequisites
 
-- Rust 1.88+
-- Node.js 18+ (SDKs, CLI, docs)
+- Rust (the toolchain pinned in `rust-toolchain.toml`, installed automatically by rustup)
+- Node.js 20+ (SDKs, CLI, docs; CI uses 22)
 - Bun 1.4+ (dashboard)
 - Docker and Docker Compose (for integration tests)
 - `wasm-pack` (browser SDK)
@@ -16,10 +16,24 @@ Thanks for your interest in contributing. This document covers how to get set up
 ```bash
 git clone https://github.com/checkgate-sh/checkgate.git
 cd checkgate
-docker compose up -d       # start Postgres + Redis
 cargo build --workspace    # verify everything compiles
-cargo test --workspace     # run all tests
+cargo test --workspace     # unit tests; integration suites skip without a database
 ```
+
+The server's integration tests need a PostgreSQL and a Redis to run against:
+
+```bash
+docker run -d --name cg-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=checkgate_test \
+  -p 5432:5432 postgres:16
+docker run -d --name cg-test-redis -p 6379:6379 redis:7
+export CHECKGATE_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/checkgate_test
+export CHECKGATE_TEST_REDIS_URL=redis://localhost:6379
+export CHECKGATE_REQUIRE_INTEGRATION=1   # fail instead of skipping if the URLs are missing
+cargo test --workspace
+```
+
+(The repository's `docker-compose.yml` runs the all-in-one Checkgate image, not a bare
+PostgreSQL + Redis for tests.)
 
 ## Project layout
 
@@ -28,7 +42,7 @@ core/               Rust evaluation engine (shared across all SDKs)
 server/             Axum HTTP server (REST API + SSE stream)
 sdks/
   nodejs/           NAPI native addon
-  browser/          wasm-bindgen / wasm-pack
+  web/              wasm-bindgen / wasm-pack
   react-native/     JSI C++ bridge
   flutter/          dart:ffi binding
 dashboard/          Vite + React control-plane UI (Bun)
@@ -54,7 +68,7 @@ which does not understand the vitest setup in `src/setupTests.ts`.
 
 1. Fork the repo and create a branch from `main`.
 2. Keep changes focused — one logical change per PR.
-3. Run `cargo fmt --all` and `cargo clippy --workspace -- -D warnings` before pushing.
+3. Run `cargo fmt --all` and `cargo clippy --workspace --all-targets --all-features -- -D warnings` before pushing.
 4. Add or update tests for any changed behaviour in `core/`.
 5. Update relevant docs under `docs/` if the public API or behaviour changes.
 

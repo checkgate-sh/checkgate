@@ -19,33 +19,31 @@ yarn add @checkgate/web
 
 ## Quick Start
 
-Initialize the browser client with your Checkgate server URL and client-side access key:
+Create the client with your Checkgate server URL and an SDK key (SDK keys are
+public by design; the stream sends it as a `?sdk_key=` query parameter):
 
 ```typescript
 import { CheckgateWeb } from '@checkgate/web'
 
 const checkgate = new CheckgateWeb({
-  url: 'https://checkgate.your-company.com',
-  clientKey: 'pk_frontend_xxxxxxxx',
+  serverUrl: 'https://checkgate.your-company.com',
+  sdkKey: 'sk_live_xxxxxxxx',
 })
 
-async function init() {
-  // Establish an SSE connection with the Checkgate Server
-  await checkgate.connect()
+// Loads the WebAssembly core and the flag set over SSE.
+await checkgate.connect()
 
-  // Provide user-specific context dynamically
-  const isEnabled = checkgate.isEnabled('beta-feature', { 
-    userId: '12345',
-    plan: 'enterprise'
-  })
-
-  if (isEnabled) {
-    // Render the new beta ui...
-  }
+// Evaluated in the browser: flag key, a stable user key, string attributes.
+if (checkgate.isEnabled('beta-feature', 'user-12345', { plan: 'enterprise' })) {
+  // Render the new beta UI…
 }
-
-init()
 ```
+
+TypeScript declarations are included. Until flags are loaded (by `connect()`,
+the default `localStorage` cache, or a `bootstrap` payload from
+`@checkgate/ssr`), `isEnabled()` returns `false`. Impressions (flag key, user
+key, result) are reported by default; pass `reportImpressions: false` to turn
+them off.
 
 ## Connection health
 
@@ -73,8 +71,8 @@ Use the **same `userKey`** you pass to `getVariant()`/`isEnabled()` so conversio
 attribute to the right variant.
 
 ## Why Checkgate WebAssembly?
-* **Zero Loading Screens:** By evaluating rule sets synchronously via WASM, UI components never have to wait or display spinners.
-* **Live SSE:** Toggling a flag on the dashboard natively updates the frontend without refreshing the browser tab.
+* **Synchronous evaluation:** once flags are loaded, every check is a local WASM call, with no request per decision. Seed it from `@checkgate/ssr` or the local cache to avoid a loading state on first paint.
+* **Live SSE:** toggling a flag in the dashboard updates the page without a reload.
 * **Open Source Alternative:** Stop paying premium per-seat pricing for basic feature gates.
 
 Learn more natively in the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

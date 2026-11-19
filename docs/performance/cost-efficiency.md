@@ -51,9 +51,13 @@ the server image are unchanged.
   p99 about one interval (5 s / 10 s at 10 s, 30 s / 59 s at 60 s), at every
   client count that was sustained.
 - **Projected cost.** The fixed infrastructure (server, PostgreSQL, Redis,
-  storage) is $38.56 a month at these list prices, and one server at this size
-  carried every streaming profile, so streaming costs the same from 100 to
-  10,000 clients; its traffic stays under the 100 GB free egress allowance.
+  storage) is $38.56 a month at these list prices. One server limited to
+  1 vCPU / 512 MiB carried every streaming profile in the benchmark, so the
+  projection prices streaming the same from 100 to 10,000 clients; its traffic
+  stays under the 100 GB free egress allowance (if nothing else in the AWS
+  account uses it). **This deployment was not run on AWS**: the projection
+  assumes the resources measured on the x86_64 benchmark host carry over to
+  an arm64 t4g.small, and 10,000 streams already used 480 of 512 MiB there.
   Polling's projected cost is that same base plus egress for the snapshots,
   which is what makes it grow. Rows marked ¹ use more than the t4g.small's
   sustained CPU baseline (0.4 vCPU) and would draw down CPU credits or need a

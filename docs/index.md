@@ -20,15 +20,15 @@ hero:
 features:
   - icon: ⚡
     title: In-Process Evaluation
-    details: Flags are evaluated entirely in-process from an in-memory store — well under a microsecond in the Rust core. Zero network latency on every isEnabled() call — no HTTP round-trips, no polling.
+    details: Flags are evaluated in-process from an in-memory store — well under a microsecond in the Rust core, about 1–4 µs through the Node.js SDK. No HTTP request per isEnabled() call.
 
   - icon: 🏠
     title: Fully Self-Hosted
-    details: Deploy on your own infrastructure with Docker. Your flag data never leaves your servers. Single binary, PostgreSQL, and Redis are all you need.
+    details: Deploy on your own infrastructure with Docker — no third-party service sees your flags or users. Single binary, PostgreSQL, and Redis are all you need. (Client-side SDKs download their environment's flag rules, as with any local-evaluation SDK.)
 
   - icon: 🔄
     title: Real-Time Updates via SSE
-    details: Flag changes propagate instantly to all connected SDK clients through Server-Sent Events. No polling interval — changes land in milliseconds.
+    details: Flag changes are pushed to connected SDK clients over one persistent Server-Sent Events connection each, typically within tens of milliseconds. SDKs fall back to polling only when the stream cannot be established.
 
   - icon: 🎯
     title: Advanced Targeting Rules
