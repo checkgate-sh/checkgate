@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Integrations, { eventLabel } from './Integrations'
+import Integrations, { describeTestError, describeTestResult, eventLabel } from './Integrations'
 import { integrationsApi } from '../api'
 import type { Integration } from '../types'
 
@@ -43,6 +43,26 @@ describe('eventLabel', () => {
   it('renders dotted event names as readable text', () => {
     expect(eventLabel('flag.created')).toBe('Flag created')
     expect(eventLabel('change_request.opened')).toBe('Change request opened')
+  })
+})
+
+describe('test message feedback', () => {
+  it('describes every server outcome', () => {
+    expect(describeTestResult({ delivered: true, status_code: 200, error: null })).toEqual({
+      state: 'delivered',
+      text: 'Test message delivered (HTTP 200)',
+    })
+    expect(describeTestResult({ delivered: false, status_code: 500, error: null }).state).toBe('failed')
+    expect(describeTestResult({ delivered: false, status_code: null, error: null })).toEqual({
+      state: 'failed',
+      text: 'Test message not delivered: unknown error',
+    })
+  })
+
+  it('describes network errors and timeouts', () => {
+    expect(describeTestError(new TypeError('Failed to fetch')).text).toBe('Test message failed: Failed to fetch')
+    expect(describeTestError(new DOMException('aborted', 'AbortError')).text).toMatch(/no answer/)
+    expect(describeTestError('weird').text).toBe('Test message failed: request failed')
   })
 })
 
@@ -135,17 +155,94 @@ describe('Integrations page', () => {
     expect(await screen.findByRole('button', { name: 'Enable integration' })).toBeInTheDocument()
   })
 
-  it('sends a test message', async () => {
+  it('tests the selected integration and reports a delivery', async () => {
     const user = userEvent.setup()
-    vi.mocked(integrationsApi.test).mockResolvedValue(undefined)
+    vi.mocked(integrationsApi.test).mockResolvedValue({ delivered: true, status_code: 200, error: null })
     render(<Integrations />)
     await screen.findByText('#engineering')
 
     await user.click(screen.getByRole('button', { name: 'Send test message' }))
 
-    await waitFor(() => {
-      expect(integrationsApi.test).toHaveBeenCalledWith('env-1', 'int-1')
+    expect(await screen.findByText('Test message delivered (HTTP 200)')).toBeInTheDocument()
+    expect(integrationsApi.test).toHaveBeenCalledTimes(1)
+    expect(integrationsApi.test).toHaveBeenCalledWith('env-1', 'int-1')
+  })
+
+  it('reports a channel that rejects the message as a failure', async () => {
+    const user = userEvent.setup()
+    vi.mocked(integrationsApi.test).mockResolvedValue({ delivered: false, status_code: 404, error: null })
+    render(<Integrations />)
+    await screen.findByText('#engineering')
+
+    await user.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    expect(
+      await screen.findByText('Test message not delivered: the channel answered HTTP 404'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/delivered \(HTTP/)).not.toBeInTheDocument()
+  })
+
+  it('reports a channel that cannot be reached, with the server\'s reason', async () => {
+    const user = userEvent.setup()
+    vi.mocked(integrationsApi.test).mockResolvedValue({
+      delivered: false,
+      status_code: null,
+      error: 'timed out after 10 s',
     })
+    render(<Integrations />)
+    await screen.findByText('#engineering')
+
+    await user.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    expect(await screen.findByText('Test message not delivered: timed out after 10 s')).toBeInTheDocument()
+  })
+
+  it('reports a refused or failed request (not an admin, integration gone)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(integrationsApi.test).mockRejectedValue(new Error('Forbidden'))
+    render(<Integrations />)
+    await screen.findByText('#engineering')
+
+    await user.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    expect(await screen.findByText('Test message failed: Forbidden')).toBeInTheDocument()
+    // Usable again after a failure.
+    expect(screen.getByRole('button', { name: 'Send test message' })).toBeEnabled()
+  })
+
+  it('reports a request that timed out', async () => {
+    const user = userEvent.setup()
+    vi.mocked(integrationsApi.test).mockRejectedValue(
+      new DOMException('signal timed out', 'TimeoutError'),
+    )
+    render(<Integrations />)
+    await screen.findByText('#engineering')
+
+    await user.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    expect(
+      await screen.findByText('Test message: no answer from the server within 20 seconds.'),
+    ).toBeInTheDocument()
+  })
+
+  it('sends one message for repeated clicks while a test is in flight', async () => {
+    const user = userEvent.setup()
+    let answer: (r: { delivered: boolean; status_code: number | null; error: string | null }) => void = () => {}
+    vi.mocked(integrationsApi.test).mockReturnValue(new Promise(resolve => { answer = resolve }))
+    render(<Integrations />)
+    await screen.findByText('#engineering')
+    const button = screen.getByRole('button', { name: 'Send test message' })
+
+    await user.dblClick(button)
+    await user.click(button)
+
+    expect(await screen.findByText('Sending test message…')).toBeInTheDocument()
+    expect(button).toBeDisabled()
+    expect(integrationsApi.test).toHaveBeenCalledTimes(1)
+
+    answer({ delivered: true, status_code: 204, error: null })
+    expect(await screen.findByText('Test message delivered (HTTP 204)')).toBeInTheDocument()
+    expect(button).toBeEnabled()
   })
 
   it('removes a row after a confirmed disconnect', async () => {

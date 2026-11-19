@@ -54,6 +54,10 @@ first:
   creating or changing one answers `422`, and a hostname that resolves only
   to such addresses fails to connect. Rows stored earlier are refused at
   delivery and logged as such. Loopback and private addresses still work.
+- **Integration test messages** (`POST .../integrations/{id}/test`) answer
+  `200` with `{ delivered, status_code, error }` after one attempt (at most
+  10 s), instead of `202` before anything was sent. They now reach only the
+  tested integration, also when it is disabled or filtered.
 - **Flag reads with an SDK key** (`GET /api/environments/{env}/flags[/key]`)
   no longer include `owner_email`. The field was already omitted for flags
   without an owner. Tags are unchanged. Sessions and personal access tokens
@@ -146,6 +150,14 @@ first:
 
 ### Fixed
 
+- **Integration "Send test message" did not test the selected integration.**
+  It queued a real `flag.updated` event for the environment, so it posted to
+  every enabled integration subscribed to that event, sent nothing to a
+  disabled or filtered one, and showed success (`202`) before anything was
+  sent, including when the channel rejected the message or could not be
+  reached. It now posts to that integration only and the dashboard shows the
+  channel's answer or the reason it failed. A malformed id answered `500`; it
+  is now `404`.
 - **A delayed stream replay could roll flags back (R20, every SDK, also in
   0.1.30).** While an SDK polled during a stream outage, the next stream's
   replay (read by the server when the stream opened) could arrive after polls

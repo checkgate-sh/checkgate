@@ -283,6 +283,31 @@ async fn deliver_to_env(state: &AppState, env_id: &str, payload: Value) {
     }
 }
 
+/// The receiver's answer to one POST: its status and the start of its body.
+struct Answer {
+    status: i32,
+    body: String,
+}
+
+/// One POST of `body` to `url`, through the shared delivery client (no
+/// redirects, 10 s timeout, link-local destinations refused). The error never
+/// carries the URL: an integration URL is itself the channel's posting
+/// credential, and the API only ever shows a preview of it.
+async fn post_once(state: &AppState, url: &str, body: &[u8]) -> Result<Answer, reqwest::Error> {
+    let resp = state
+        .webhook_client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Checkgate-Integrations/1.0")
+        .body(body.to_vec())
+        .send()
+        .await
+        .map_err(reqwest::Error::without_url)?;
+    let status = i32::from(resp.status().as_u16());
+    let body = crate::webhook_fire::read_capped_body(resp).await;
+    Ok(Answer { status, body })
+}
+
 async fn deliver_with_retry(
     state: &AppState,
     integration_id: &str,
@@ -313,17 +338,11 @@ async fn deliver_with_retry(
     let backoff_secs = [1u64, 5, 15];
 
     for (attempt, &wait) in backoff_secs.iter().enumerate() {
-        let req = state
-            .webhook_client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .header("User-Agent", "Checkgate-Integrations/1.0")
-            .body(body.to_vec());
-
-        match req.send().await {
-            Ok(resp) => {
-                let status = resp.status().as_u16() as i32;
-                let body_text = crate::webhook_fire::read_capped_body(resp).await;
+        match post_once(state, url, body).await {
+            Ok(Answer {
+                status,
+                body: body_text,
+            }) => {
                 let ok = (200..300).contains(&status);
 
                 log_delivery(
@@ -345,11 +364,6 @@ async fn deliver_with_retry(
                 return;
             }
             Err(e) => {
-                // reqwest's error text ends with the request URL, and an
-                // integration URL is itself the channel's posting credential
-                // (the API only ever shows a preview of it). Strip it before
-                // the error is stored where viewers can read it, or logged.
-                let e = e.without_url();
                 let is_last = attempt == backoff_secs.len().saturating_sub(1);
                 if is_last {
                     let err_str = e.to_string();
@@ -371,6 +385,110 @@ async fn deliver_with_retry(
             }
         }
     }
+}
+
+/// What a test message did: the response of
+/// `POST /api/environments/{env}/integrations/{id}/test`.
+#[derive(Debug, serde::Serialize)]
+pub struct TestOutcome {
+    /// The receiver answered 2xx.
+    pub delivered: bool,
+    /// The receiver's HTTP status; `null` when it was never reached.
+    pub status_code: Option<i32>,
+    /// Why nothing was delivered, without the URL; `null` when delivered.
+    pub error: Option<String>,
+}
+
+/// A short, URL-free reason for a failed request: what went wrong, then the
+/// innermost cause (`connection refused`, the destination filter's reason).
+fn describe(e: &reqwest::Error) -> String {
+    let what = if e.is_timeout() {
+        "timed out after 10 s"
+    } else if e.is_connect() {
+        "could not connect"
+    } else {
+        "request failed"
+    };
+    let mut root: &dyn std::error::Error = e;
+    while let Some(next) = root.source() {
+        root = next;
+    }
+    let cause = root.to_string();
+    if e.is_timeout() || cause.is_empty() || cause == e.to_string() {
+        what.to_string()
+    } else {
+        format!("{what}: {cause}")
+    }
+}
+
+/// Sends one sample message to one integration, whether or not it is enabled
+/// or subscribed to the sample's event: the test confirms the channel wiring
+/// before a real event depends on it, and reaches nobody else. One attempt, no
+/// retries, so the caller learns the result while it waits. Logged in the
+/// integration's delivery log as event `test`.
+pub async fn send_test_message(
+    state: &AppState,
+    integration_id: &str,
+    kind: &str,
+    url: &str,
+    env_id: &str,
+    env_name: &str,
+) -> TestOutcome {
+    let payload = crate::api::webhooks::flag_event_payload(
+        "flag.updated",
+        env_id,
+        "checkgate_test_flag",
+        Some(&json!({ "is_enabled": true, "rollout_percentage": 100 })),
+        Some("checkgate"),
+        None,
+    );
+    let failed = |error: String| TestOutcome {
+        delivered: false,
+        status_code: None,
+        error: Some(error),
+    };
+    let Some(message) = format_for(kind, &payload, env_name) else {
+        return failed(format!("unknown integration kind `{kind}`"));
+    };
+    let Ok(body) = serde_json::to_vec(&message) else {
+        return failed("could not serialize the message".to_string());
+    };
+
+    let (outcome, response_body) = if crate::webhook_fire::refused_destination(url) {
+        (
+            failed(crate::webhook_fire::DESTINATION_REFUSED.to_string()),
+            None,
+        )
+    } else {
+        match post_once(state, url, &body).await {
+            Ok(Answer { status, body }) => (
+                TestOutcome {
+                    delivered: (200..300).contains(&status),
+                    status_code: Some(status),
+                    error: None,
+                },
+                Some(body),
+            ),
+            Err(e) => (failed(describe(&e)), None),
+        }
+    };
+    log_delivery(
+        &state.db,
+        integration_id,
+        "test",
+        &message,
+        outcome.status_code,
+        response_body.as_deref(),
+        outcome.error.as_deref(),
+    )
+    .await;
+    info!(
+        integration_id,
+        delivered = outcome.delivered,
+        status = ?outcome.status_code,
+        "Integration test message sent"
+    );
+    outcome
 }
 
 #[allow(clippy::too_many_arguments)]

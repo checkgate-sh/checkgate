@@ -1858,12 +1858,30 @@ Teams.
 POST /api/environments/{env_id}/integrations/{id}/test
 ```
 
-Queues a sample `flag.updated` event (flag `checkgate_test_flag`) through the normal delivery
-path. Because it is a real environment event, **every enabled integration in the environment
-that subscribes to `flag.updated` receives it**, not only `{id}`; a disabled integration receives
-nothing.
+Sends a sample message (a `flag.updated` for flag `checkgate_test_flag`, rendered for the
+integration's provider) to **this integration only**, and waits for the receiver's answer. It is
+sent even when the integration is disabled or does not subscribe to `flag.updated`, so the wiring
+can be checked before it is turned on; no other integration receives it. One attempt, no retries,
+at most 10 seconds. The attempt is recorded in the integration's delivery log with event `test`.
+Admin role required.
 
-**Response** `202 Accepted`. **`404`** if the integration does not exist in this environment.
+**Response** `200 OK`, whether or not the message was delivered:
+
+```json
+{ "delivered": false, "status_code": 404, "error": null }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `delivered` | The receiver answered with a 2xx status |
+| `status_code` | The receiver's HTTP status; `null` when it was never reached |
+| `error` | Why nothing was delivered when the receiver was not reached (for example `timed out after 10 s`, `could not connect: Connection refused (os error 111)`); never contains the URL. `null` otherwise |
+
+**`404`** if `{id}` is not an integration of this environment.
+
+Before v0.1.31 the endpoint answered `202 Accepted` without a body and queued the sample as an
+environment event, which reached every enabled integration subscribed to `flag.updated` and not
+a disabled or filtered `{id}`.
 
 ### List Integration Deliveries
 

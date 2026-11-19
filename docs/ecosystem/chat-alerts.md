@@ -46,8 +46,10 @@ https://outlook.office.com/webhook/...
 In the dashboard, open **Chat Alerts** (under the Environment section of the sidebar), pick the
 provider, paste the URL, and choose which events to receive. Admin role required.
 
-Then hit **Send test message** on the row — it fires a sample event through the *real* delivery
-path, so a message landing in the channel confirms the whole chain, not just that the URL parses.
+Then hit **Send test message** on the row. Checkgate posts a sample message to that channel only,
+through the same client and formatting as real events, and shows what the channel answered: the
+HTTP status, or why it could not be reached. It works on a disabled integration too, so you can
+check the wiring before turning it on.
 
 ## Events
 
