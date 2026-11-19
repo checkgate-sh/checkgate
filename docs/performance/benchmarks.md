@@ -29,7 +29,7 @@ from its release commit
 [`8ef6452`](https://github.com/checkgate-sh/checkgate/commit/8ef6452196ae313f103af9d812e635467348763f),
 by `bench/public/compare.sh`: same harness, machine and limits, the two
 versions' runs alternated. Every run completed and is included. Raw results:
-[`results/v0.1.31/`](https://github.com/checkgate-sh/checkgate/tree/dev/docs/performance/results/v0.1.31)
+[`results/v0.1.31/`](https://github.com/checkgate-sh/checkgate/tree/main/docs/performance/results/v0.1.31)
 (v0.1.30 under `baseline-v0.1.30/`).
 
 Comparisons below use only these two same-session sets. The v0.1.30 figures
@@ -72,7 +72,7 @@ How results are combined was fixed before the runs
 | Toolchains | Rust 1.98.0 (release profile), Node.js 22.23.4 |
 
 The full record, including image digests, is in
-[`environment.json`](https://github.com/checkgate-sh/checkgate/blob/dev/docs/performance/results/v0.1.31/environment.json).
+[`environment.json`](https://github.com/checkgate-sh/checkgate/blob/main/docs/performance/results/v0.1.31/environment.json).
 
 **Conditions on this machine.** The laptop was in desktop use, the 3.8 GiB
 Docker VM leaves little RAM on an 8 GiB host (1.7–4.4 GiB of swap in use), and
@@ -277,7 +277,7 @@ bench/public/compare.sh v0.1.30
 
 Requirements: Docker with Compose v2 (a VM with 8 vCPUs for the default CPU
 placement; see `bench/public/compose.yml` to change it), the pinned Rust
-toolchain, Node.js 22 and Python 3. [`bench/public/README.md`](https://github.com/checkgate-sh/checkgate/blob/dev/bench/public/README.md)
+toolchain, Node.js 22 and Python 3. [`bench/public/README.md`](https://github.com/checkgate-sh/checkgate/blob/main/bench/public/README.md)
 describes the datasets, the containers and what each harness checks.
 
 Results land in `docs/performance/results/v0.1.31/`:
@@ -326,7 +326,7 @@ Fixed before the runs:
 - The Node SDK numbers exclude impression reporting (on by default), which
   buffers every evaluation and sends batches over the network.
 
-Earlier results: [v0.1.30, measured 2026-11-11](https://github.com/checkgate-sh/checkgate/tree/dev/docs/performance/results/v0.1.30)
+Earlier results: [v0.1.30, measured 2026-11-11](https://github.com/checkgate-sh/checkgate/tree/main/docs/performance/results/v0.1.30)
 (a different session; not compared here). See also:
 [Benchmark methodology](./benchmark-methodology.md) for the Criterion and
 `loadgen` harnesses, and the [October 2026 baseline](./baseline.md).

@@ -17,6 +17,8 @@ pattern="(^|/)(${dirs})/"
 # Generated outputs at known locations.
 pattern+='|^sdks/flutter/dart/build/|^sdks/react-native/android/build/|^sdks/react-native/rust-core/'
 pattern+='|^docs/\.vitepress/dist/|^server/public/'
+# Test output CI writes at the root (CHECKGATE_TEST_ARTIFACTS, CONFORMANCE_TRACE_DIR).
+pattern+='|^(reliability-artifacts|conformance-traces|artifacts)/'
 # Generated or local-only files.
 pattern+='|\.(node|tsbuildinfo|dill|pyc)$|(^|/)native-binding\.(js|d\.ts)$'
 pattern+='|(^|/)\.DS_Store$|(^|/)checkgate-setup-token$|(^|/)\.env$'

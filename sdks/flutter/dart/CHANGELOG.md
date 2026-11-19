@@ -1,4 +1,4 @@
-## 0.1.31 (2026-11-18)
+## 0.1.31 (2026-11-21)
 
 - The library is in `lib/`, so `import 'package:checkgate_flutter/checkgate_flutter.dart'`
   resolves. Earlier releases shipped it at the package root, where no app could
@@ -12,6 +12,17 @@
 - `status` reports the connection state, the last confirmed sync and the error.
 - `close()` completes a pending `connect()` with a `StateError`, and ends the
   previous SSE loop even if `connect()` follows immediately.
+- A delayed stream replay no longer rolls flags back: replays and polls are
+  merged per flag by revision, so the newer version wins. Needs a 0.1.31
+  server (`/flags/snapshot?v=2`); against an older one the SDK behaves as
+  0.1.30 did.
+- Large bootstraps no longer lose flags, and `connect()` no longer hangs: SSE
+  lines cut across network reads were dropped, sometimes including `ready`.
+- A slow poll can no longer roll back newer stream state after a reconnect:
+  polls are single-flight, time out after 30 s, and are discarded once the
+  stream takes over.
+- One invalid (non-string) attribute is skipped on its own instead of erasing
+  every attribute of the user.
 - Documented how to build and link the native engine; it is not bundled.
 
 ## 0.1.30 (2026-11-11)

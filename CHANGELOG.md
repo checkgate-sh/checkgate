@@ -5,14 +5,14 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.1.31] - Unreleased
+## [0.1.31] - 2026-11-21
 
 ### Upgrading from 0.1.30
 
-No migration or configuration change is required, and rolling back to
+No database migration or configuration change is required, and rolling back to
 0.1.30 needs no database step (tested: upgrade, mixed versions and rollback on
 one database). SDKs and servers of either version work together. Check these
-first:
+first; the first one deletes data unless you configure it:
 
 - **Impressions and goal events older than 90 days are now deleted.** 0.1.30
   kept them forever. A retention job removes rows received more than
@@ -105,6 +105,13 @@ first:
   20 updates after the clients connect (a one-time warm-up cost; later updates
   are equal). Not a dedicated server, and its disk dominates the absolute
   numbers.
+- **Security findings not fully closed** (all low or informational):
+  webhook and integration URLs may still target loopback and private
+  addresses by design (restrict egress at the network layer if they must
+  not); removing a project member does not yet close that user's open
+  dashboard stream until it reconnects (revoking an SDK key does); anyone who
+  knows an account's email can still lock it for 15 minutes with 5 wrong
+  passwords; SDK keys, which are public by design, are stored unhashed.
 
 ### Added
 
