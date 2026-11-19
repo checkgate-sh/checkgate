@@ -114,6 +114,9 @@ const VALID_KINDS: &[&str] = &["slack", "teams"];
 /// port, so lookalikes like `http://127.0.0.1.evil.com/` are rejected: their
 /// host is `127.0.0.1.evil.com`, which matches nothing here.
 fn is_allowed_url(url: &str) -> bool {
+    if crate::webhook_fire::refused_destination(url) {
+        return false;
+    }
     if url.starts_with("https://") {
         return true;
     }
@@ -315,17 +318,28 @@ async fn delete_integration(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// POST /api/environments/:env_id/integrations/:id/test — send a sample message
-/// so the channel wiring can be confirmed before a real event depends on it.
+/// `POST /api/environments/{env_id}/integrations/{id}/test`: sends a sample
+/// message to this integration alone and reports what its receiver did.
+///
+/// It reaches the integration even when it is disabled or not subscribed to
+/// the sample's event, and no other integration. One attempt, bounded by the
+/// delivery client's 10 s timeout. `200` with the outcome whether or not the
+/// message was delivered; `404` for an id that is not an integration of this
+/// environment.
 async fn test_integration(
     State(state): State<AppState>,
     jar: AuthContext,
     Path((env_id, id)): Path<(String, String)>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<Json<crate::integrations::TestOutcome>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
+    if !is_uuid(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
-    let exists = sqlx::query(
-        "SELECT 1 AS ok FROM integrations WHERE id = $1::uuid AND environment_id = $2::uuid",
+    let row = sqlx::query(
+        "SELECT i.kind, i.webhook_url, e.name AS env_name \
+         FROM integrations i JOIN environments e ON e.id = i.environment_id \
+         WHERE i.id = $1::uuid AND i.environment_id = $2::uuid",
     )
     .bind(&id)
     .bind(&env_id)
@@ -334,26 +348,25 @@ async fn test_integration(
     .map_err(|e| {
         error!(error = %e, "Failed to look up integration for test");
         StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    })?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
-    if exists.is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let kind: String = row.get("kind");
+    let url: String = row.get("webhook_url");
+    let env_name: String = row.get("env_name");
+    let outcome =
+        crate::integrations::send_test_message(&state, &id, &kind, &url, &env_id, &env_name).await;
+    Ok(Json(outcome))
+}
 
-    // Reuses the normal delivery path, so a passing test exercises exactly what
-    // a real event will do — including the subscription filter.
-    let payload = super::webhooks::flag_event_payload(
-        "flag.updated",
-        &env_id,
-        "checkgate_test_flag",
-        Some(&serde_json::json!({ "is_enabled": true, "rollout_percentage": 100 })),
-        Some("checkgate"),
-        None,
-    );
-    crate::integrations::fire_integrations(state.clone(), env_id.clone(), payload);
-
-    info!(env_id = %env_id, integration_id = %id, "Integration test message queued");
-    Ok(StatusCode::ACCEPTED)
+/// A UUID in its canonical hyphenated form; anything else cannot name a row,
+/// and casting it in SQL would fail as a 500.
+fn is_uuid(s: &str) -> bool {
+    s.len() == 36
+        && s.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
 }
 
 async fn list_deliveries(
@@ -399,6 +412,23 @@ async fn list_deliveries(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_canonical_uuids_are_ids() {
+        assert!(is_uuid("00000000-0000-0000-0000-000000000000"));
+        assert!(is_uuid("f2455211-BF9F-4cc9-b60b-b1735561c129"));
+        for bad in [
+            "",
+            "not-a-uuid",
+            "f2455211bf9f4cc9b60bb1735561c129",
+            "f2455211-bf9f-4cc9-b60b-b1735561c12",
+            "f2455211-bf9f-4cc9-b60b-b1735561c1299",
+            "g2455211-bf9f-4cc9-b60b-b1735561c129",
+            "f2455211-bf9f-4cc9-b60b-b1735561c12\u{e9}",
+        ] {
+            assert!(!is_uuid(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn preview_hides_all_but_the_tail() {

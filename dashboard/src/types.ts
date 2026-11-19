@@ -284,6 +284,16 @@ export interface Integration {
   created_at: string
 }
 
+/** Result of `POST /integrations/{id}/test`: what the integration's receiver did. */
+export interface IntegrationTestResult {
+  /** The receiver answered 2xx. */
+  delivered: boolean
+  /** The receiver's HTTP status; `null` when it was never reached. */
+  status_code: number | null
+  /** Why nothing was delivered (never contains the URL); `null` when delivered. */
+  error: string | null
+}
+
 export interface IntegrationDelivery {
   id: number
   integration_id: string

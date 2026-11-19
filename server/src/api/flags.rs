@@ -274,6 +274,16 @@ fn row_to_flag_with_metadata(row: &sqlx::postgres::PgRow) -> Option<FlagWithMeta
     })
 }
 
+/// SDK keys ship in browser and mobile bundles, so anyone can read with one:
+/// they get the flag and its tags, never the owner's email address. The field
+/// is already optional (omitted for flags without an owner).
+fn for_caller(mut flag: FlagWithMetadata, sdk_key: bool) -> FlagWithMetadata {
+    if sdk_key {
+        flag.owner_email = None;
+    }
+    flag
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -306,7 +316,12 @@ async fn list_flags(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let flags: Vec<FlagWithMetadata> = rows.iter().filter_map(row_to_flag_with_metadata).collect();
+    let sdk_key = crate::auth::sdk_key(&jar).is_some();
+    let flags: Vec<FlagWithMetadata> = rows
+        .iter()
+        .filter_map(row_to_flag_with_metadata)
+        .map(|flag| for_caller(flag, sdk_key))
+        .collect();
 
     info!(
         count = flags.len(),
@@ -439,6 +454,7 @@ async fn get_flag(
     .ok_or(StatusCode::NOT_FOUND)?;
 
     let flag = row_to_flag_with_metadata(&row).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let flag = for_caller(flag, crate::auth::sdk_key(&jar).is_some());
 
     info!(env_id = %path.env_id, "Flag retrieved");
     Ok(Json(flag))

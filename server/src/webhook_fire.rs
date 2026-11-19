@@ -52,13 +52,82 @@ pub(crate) async fn read_capped_body(mut resp: reqwest::Response) -> String {
 /// server's network); the client would GET it and the response body would be
 /// stored in the delivery log, readable by project viewers. A redirect now
 /// lands in the log as its 3xx status.
+///
+/// Names are resolved through [`DestinationFilter`], so a hostname that
+/// resolves to a link-local address is refused at connect time, with no
+/// window between the check and the connection.
 pub(crate) fn delivery_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("Checkgate-Webhooks/1.0")
+        .dns_resolver(std::sync::Arc::new(DestinationFilter))
         .build()
         .unwrap_or_default()
+}
+
+/// Why a delivery to a refused destination did not happen; stored in the
+/// delivery log and returned by an integration test.
+pub(crate) const DESTINATION_REFUSED: &str =
+    "destination refused: link-local or unspecified address";
+
+/// AWS's IPv6 instance metadata endpoint (`fd00:ec2::254`).
+const AWS_METADATA_V6: std::net::Ipv6Addr =
+    std::net::Ipv6Addr::new(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254);
+
+/// Addresses no webhook or integration may reach: link-local (where cloud
+/// metadata services answer, `169.254.169.254` and `fe80::/10`), AWS's IPv6
+/// metadata address, and the unspecified address `0.0.0.0/8` / `::` (which
+/// reaches the server's own host). Loopback and private ranges stay allowed:
+/// self-hosted operators deliver to internal receivers on purpose.
+pub(crate) fn refused_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => v4.is_link_local() || matches!(v4.octets(), [0, ..]),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => refused_ip(IpAddr::V4(v4)),
+            None => v6.is_unspecified() || v6.is_unicast_link_local() || v6 == AWS_METADATA_V6,
+        },
+    }
+}
+
+/// Whether `url` names a refused address literally. Hostnames are checked
+/// after resolution by [`DestinationFilter`]; the HTTP client never resolves
+/// an IP literal, so literals are checked here, on write and before sending.
+/// The URL parser normalizes alternative IPv4 spellings (`0xa9fea9fe`,
+/// `2852039166`) to the address they denote.
+pub(crate) fn refused_destination(url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    // `host_str` is the parsed, normalized host: dotted IPv4, bracketed IPv6.
+    url.host_str()
+        .map(|h| h.trim_start_matches('[').trim_end_matches(']'))
+        .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+        .is_some_and(refused_ip)
+}
+
+/// Resolves delivery hostnames and drops refused addresses; a name that only
+/// resolves to refused addresses fails to connect.
+struct DestinationFilter;
+
+impl reqwest::dns::Resolve for DestinationFilter {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(resolve_allowed(name.as_str().to_owned()))
+    }
+}
+
+async fn resolve_allowed(
+    host: String,
+) -> Result<reqwest::dns::Addrs, Box<dyn std::error::Error + Send + Sync>> {
+    let allowed: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+        .await?
+        .filter(|addr| !refused_ip(addr.ip()))
+        .collect();
+    if allowed.is_empty() {
+        return Err(DESTINATION_REFUSED.into());
+    }
+    Ok(Box::new(allowed.into_iter()))
 }
 
 struct WebhookRow {
@@ -131,6 +200,23 @@ async fn deliver_with_retry(
     body: &[u8],
     payload: &serde_json::Value,
 ) {
+    if refused_destination(url) {
+        // Stored before this check existed; never retried.
+        warn!(
+            webhook_id,
+            "Webhook destination refused (link-local or unspecified address)"
+        );
+        log_delivery(
+            &state.db,
+            webhook_id,
+            payload,
+            None,
+            None,
+            Some(DESTINATION_REFUSED),
+        )
+        .await;
+        return;
+    }
     let backoff_secs = [1u64, 5, 15];
 
     for (attempt, &wait) in backoff_secs.iter().enumerate() {
@@ -289,5 +375,51 @@ mod tests {
             .unwrap();
         let body = read_capped_body(resp).await;
         assert_eq!(body.len(), MAX_STORED_RESPONSE_BYTES);
+    }
+
+    #[test]
+    fn link_local_and_unspecified_destinations_are_refused() {
+        for url in [
+            "http://169.254.169.254/latest/meta-data/",
+            "https://169.254.170.2/v2/credentials",
+            "http://2852039166/", // 169.254.169.254 as one decimal number
+            "http://0xa9fea9fe/", // ... and in hexadecimal
+            "http://0.0.0.0:3000/",
+            "http://0/",
+            "https://[fe80::1]/",
+            "https://[fd00:ec2::254]/latest",
+            "https://[::ffff:169.254.169.254]/",
+            "https://[::]/",
+        ] {
+            assert!(refused_destination(url), "{url}");
+        }
+        for url in [
+            "https://hooks.slack.com/services/T/B/x",
+            "http://127.0.0.1:8080/hook",
+            "http://[::1]/hook",
+            "http://localhost/hook",
+            "http://10.0.0.5/hook",
+            "http://192.168.1.10/hook",
+            "http://172.16.0.1/hook",
+            "https://100.100.100.200/",
+            "https://169.254.example.com/",
+            "not a url",
+        ] {
+            assert!(!refused_destination(url), "{url}");
+        }
+    }
+
+    #[tokio::test]
+    async fn hostnames_resolving_only_to_refused_addresses_fail_to_connect() {
+        use reqwest::dns::Resolve;
+        let resolve = |host: &str| DestinationFilter.resolve(host.parse().unwrap());
+        // An IP literal given as a name still goes through the filter.
+        let err = match resolve("169.254.169.254").await {
+            Ok(_) => panic!("a link-local address must not resolve"),
+            Err(e) => e.to_string(),
+        };
+        assert_eq!(err, DESTINATION_REFUSED);
+        let addrs: Vec<_> = resolve("127.0.0.1").await.unwrap().collect();
+        assert_eq!(addrs.len(), 1);
     }
 }

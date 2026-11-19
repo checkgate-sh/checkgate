@@ -132,7 +132,7 @@ async fn create_webhook(
 ) -> Result<Json<Webhook>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
 
-    if body.url.is_empty() {
+    if body.url.is_empty() || crate::webhook_fire::refused_destination(&body.url) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
 
@@ -175,6 +175,13 @@ async fn patch_webhook(
     Json(body): Json<PatchBody>,
 ) -> Result<Json<Webhook>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
+    if body
+        .url
+        .as_deref()
+        .is_some_and(crate::webhook_fire::refused_destination)
+    {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
 
     let row = sqlx::query(
         "UPDATE webhooks SET \

@@ -328,7 +328,7 @@ SDK keys (`sk_live_...`) authenticate SDK clients. Each key is tied to a specifi
 - Multiple keys per project are supported (e.g. one per service or platform)
 - One key is auto-generated for the default (**Development**) environment on first boot
 - Keys are shown in full only once — copy them immediately after creation
-- Revoking a key rejects new requests with it immediately (401). Streams already open with it are not closed and keep receiving updates until they reconnect; restart the server instances after an urgent revocation
+- Revoking a key rejects new requests with it immediately (401). Streams already open in the key's environment close within a few seconds on every instance (`SSE_RESYNC_SPREAD_MS`); the revoked key's clients are refused when they reconnect, and other clients of that environment reconnect once
 - The legacy `SDK_KEY` environment variable is also accepted for backwards compatibility
 
 ## SSE Stream

@@ -288,6 +288,27 @@ egress IP share a budget; raise the SDK, SSE and ingest limits accordingly.
 Limiter state holds only recently active clients (IPv6 clients are grouped by
 /64) and is pruned every minute.
 
+### Analytics data growth
+
+Impressions and goal events are kept until you delete them; Checkgate has no
+retention job yet. SDK keys are public, so anyone holding one can send them:
+each ingest request carries up to 500 rows, which at the default
+`RATE_LIMIT_INGEST_PER_MINUTE` (600) allows up to 300,000 rows a minute from
+one client address. Size and watch the database disk accordingly, keep the
+ingest limit no higher than your SDKs need, and prune old rows on a schedule
+(both tables have an index on `received_at` for this). For example, keeping
+90 days, in batches so locks stay short:
+
+```sql
+DELETE FROM impressions WHERE id IN (
+  SELECT id FROM impressions WHERE received_at < NOW() - INTERVAL '90 days' LIMIT 10000);
+DELETE FROM events WHERE id IN (
+  SELECT id FROM events WHERE received_at < NOW() - INTERVAL '90 days' LIMIT 10000);
+```
+
+Repeat each statement until it deletes nothing. Experiment results are computed
+from these rows, so keep at least as long as your longest experiment runs.
+
 ### Behind a reverse proxy or load balancer
 
 By default the client is the TCP peer, and `X-Forwarded-For` is **ignored** —

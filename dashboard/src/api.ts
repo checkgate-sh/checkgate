@@ -13,6 +13,7 @@ import type {
   Integration,
   IntegrationDelivery,
   IntegrationKind,
+  IntegrationTestResult,
   ScheduledChange,
   Segment,
   SegmentPatch,
@@ -541,6 +542,9 @@ export const projectsApi = {
   },
 }
 
+/** Longer than the server's 10 s delivery timeout, so its answer arrives first. */
+export const INTEGRATION_TEST_TIMEOUT_MS = 20_000
+
 export const integrationsApi = {
   list(envId: string): Promise<Integration[]> {
     return request(`/api/environments/${envId}/integrations`)
@@ -577,9 +581,16 @@ export const integrationsApi = {
     return request(`/api/environments/${envId}/integrations/${id}`, { method: 'DELETE' })
   },
 
-  /** Fires a sample message through the real delivery path. */
-  test(envId: string, id: string): Promise<void> {
-    return request(`/api/environments/${envId}/integrations/${id}/test`, { method: 'POST' })
+  /**
+   * Sends a sample message to this integration alone and resolves with what
+   * its receiver did. The server makes one attempt of at most 10 s; the
+   * request gives up after {@link INTEGRATION_TEST_TIMEOUT_MS}.
+   */
+  test(envId: string, id: string): Promise<IntegrationTestResult> {
+    return request(`/api/environments/${envId}/integrations/${id}/test`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(INTEGRATION_TEST_TIMEOUT_MS),
+    })
   },
 
   listDeliveries(envId: string, id: string): Promise<IntegrationDelivery[]> {

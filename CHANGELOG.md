@@ -48,6 +48,24 @@ first:
   outlives itself, and a read-only token can no longer revoke tokens.
 - **Webhooks and integrations no longer follow redirects**, and store at most
   1 KiB of each response.
+- **Webhook and integration URLs may not point at link-local addresses**
+  (`169.254.0.0/16`, where cloud metadata services answer, and `fe80::/10`),
+  at `fd00:ec2::254` or at the unspecified address (`0.0.0.0/8`, `::`):
+  creating or changing one answers `422`, and a hostname that resolves only
+  to such addresses fails to connect. Rows stored earlier are refused at
+  delivery and logged as such. Loopback and private addresses still work.
+- **Integration test messages** (`POST .../integrations/{id}/test`) answer
+  `200` with `{ delivered, status_code, error }` after one attempt (at most
+  10 s), instead of `202` before anything was sent. They now reach only the
+  tested integration, also when it is disabled or filtered.
+- **Flag reads with an SDK key** (`GET /api/environments/{env}/flags[/key]`)
+  no longer include `owner_email`. The field was already omitted for flags
+  without an owner. Tags are unchanged. Sessions and personal access tokens
+  still get it.
+- **Revoking an SDK key closes the open streams of its environment**, on
+  every instance, within `SSE_RESYNC_SPREAD_MS` (default 5 s). Clients using
+  other keys reconnect and re-bootstrap once; the revoked key's reconnect is
+  refused. New metric label: `checkgate_resync_requests_total{trigger="key_revoked"}`.
 - **Logs.** The request span records `path` (no query string) instead of
   `uri`, so `?sdk_key=` is no longer logged. Webhook logs no longer include
   the URL.
@@ -65,9 +83,15 @@ first:
   against an older server the SDKs behave as 0.1.30 did. It is per flag, not
   across flags (`docs/operations/configuration-consistency.md`).
 - **Propagation tail**: the 1 000-client p99 measured higher than 0.1.30's on
-  a contended host (198 against 75 ms pooled; median run 84 against 76 ms). It
-  is attributed to the host and has not yet been re-measured on a dedicated
-  Linux host.
+  a contended macOS host (198 against 75 ms pooled; median run 84 against
+  76 ms). Re-measured on a Linux desktop (native Docker, alternated runs, 8
+  per version), it does not reproduce: p50 and p99 are statistically equal at
+  1 to 1 000 clients (1 000-client p99 0.82× of 0.1.30's, 95 % CI 0.72–1.09),
+  none of 5.1 million deliveries missed. With PostgreSQL's commit latency
+  removed, the 1 000-client p99 is 1.8 ms (6 %) higher, all of it in the first
+  20 updates after the clients connect (a one-time warm-up cost; later updates
+  are equal). Not a dedicated server, and its disk dominates the absolute
+  numbers.
 
 ### Added
 
@@ -117,9 +141,29 @@ first:
   gave a 500).
 - `quinn-udp` 0.5.14 → 0.5.16 (RUSTSEC-2026-0538). Only in the lockfile; never
   compiled.
+- **Concurrent logins could test more passwords than the lockout allows.** The
+  failure count was checked before the password and recorded after it, so a
+  burst of parallel attempts on one account all passed the check (20 of 20 in
+  a test against a limit of 5). Each attempt is now recorded before its
+  password is checked, so at most 5 are checked per 10-minute window.
+- **Webhook and integration URLs could target cloud metadata services
+  directly** (`169.254.169.254`, `fd00:ec2::254`). Link-local and unspecified
+  destinations are refused when the URL is saved and when it is resolved.
+- **Flag reads with a public SDK key returned the flag owner's email
+  address.** It is now omitted for SDK keys.
+- **A revoked SDK key's open streams kept receiving updates** until they
+  reconnected. Revocation now closes them on every instance.
 
 ### Fixed
 
+- **Integration "Send test message" did not test the selected integration.**
+  It queued a real `flag.updated` event for the environment, so it posted to
+  every enabled integration subscribed to that event, sent nothing to a
+  disabled or filtered one, and showed success (`202`) before anything was
+  sent, including when the channel rejected the message or could not be
+  reached. It now posts to that integration only and the dashboard shows the
+  channel's answer or the reason it failed. A malformed id answered `500`; it
+  is now `404`.
 - **A delayed stream replay could roll flags back (R20, every SDK, also in
   0.1.30).** While an SDK polled during a stream outage, the next stream's
   replay (read by the server when the stream opened) could arrive after polls

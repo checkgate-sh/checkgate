@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plus, Send, Trash2, RotateCcw, Check, MessageSquare } from 'lucide-react'
 import { integrationsApi } from '../api'
-import { INTEGRATION_EVENTS, type Integration, type IntegrationKind } from '../types'
+import { INTEGRATION_EVENTS, type Integration, type IntegrationKind, type IntegrationTestResult } from '../types'
 import { useEnvironment } from '../context/EnvironmentContext'
 
 const KIND_LABEL: Record<IntegrationKind, string> = {
@@ -154,6 +154,34 @@ function CreateForm({ envId, onCreated }: { envId: string; onCreated: (i: Integr
   )
 }
 
+/** What the last test message did, as shown on the row. */
+type TestState =
+  | { state: 'idle' }
+  | { state: 'sending' }
+  | { state: 'delivered'; text: string }
+  | { state: 'failed'; text: string }
+
+/** A finished test: what the row shows until the next one. */
+type SettledTest = Extract<TestState, { text: string }>
+
+/** One line for a test result the server returned. */
+export function describeTestResult(r: IntegrationTestResult): SettledTest {
+  if (r.delivered) return { state: 'delivered', text: `Test message delivered (HTTP ${r.status_code})` }
+  if (r.status_code !== null) {
+    return { state: 'failed', text: `Test message not delivered: the channel answered HTTP ${r.status_code}` }
+  }
+  return { state: 'failed', text: `Test message not delivered: ${r.error ?? 'unknown error'}` }
+}
+
+/** One line for a test request that failed before the server answered. */
+export function describeTestError(e: unknown): SettledTest {
+  if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+    return { state: 'failed', text: 'Test message: no answer from the server within 20 seconds.' }
+  }
+  const reason = e instanceof Error && e.message ? e.message : 'request failed'
+  return { state: 'failed', text: `Test message failed: ${reason}` }
+}
+
 function IntegrationRow({
   integration,
   envId,
@@ -166,7 +194,9 @@ function IntegrationRow({
   onDeleted: (id: string) => void
 }) {
   const [busy, setBusy] = useState(false)
-  const [tested, setTested] = useState(false)
+  const [test, setTest] = useState<TestState>({ state: 'idle' })
+  // A ref, not state: two clicks in one frame must not send two messages.
+  const testing = useRef(false)
 
   async function toggleEnabled() {
     setBusy(true)
@@ -180,14 +210,16 @@ function IntegrationRow({
   }
 
   async function sendTest() {
+    if (testing.current) return
+    testing.current = true
     setBusy(true)
+    setTest({ state: 'sending' })
     try {
-      await integrationsApi.test(envId, integration.id)
-      setTested(true)
-      setTimeout(() => setTested(false), 2500)
+      setTest(describeTestResult(await integrationsApi.test(envId, integration.id)))
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Test failed')
+      setTest(describeTestError(e))
     } finally {
+      testing.current = false
       setBusy(false)
     }
   }
@@ -210,6 +242,11 @@ function IntegrationRow({
         <span className="font-semibold text-gray-900 text-sm">{integration.name}</span>
         <div className="text-xs text-gray-400 mt-0.5">
           {KIND_LABEL[integration.kind]} · <span className="font-mono">{integration.webhook_url_preview}</span>
+        </div>
+        <div role="status" aria-live="polite" className="text-xs mt-1">
+          {test.state === 'sending' && <span className="text-gray-400">Sending test message…</span>}
+          {test.state === 'delivered' && <span className="text-brand-600">{test.text}</span>}
+          {test.state === 'failed' && <span className="text-red-600">{test.text}</span>}
         </div>
       </td>
       <td className="px-8 py-5">
@@ -247,10 +284,10 @@ function IntegrationRow({
             onClick={() => void sendTest()}
             disabled={busy}
             className="p-1.5 rounded-md text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-            title="Send a test message"
+            title="Send a test message to this channel"
             aria-label="Send test message"
           >
-            {tested ? <Check className="w-3.5 h-3.5 text-brand-500" /> : <Send className="w-3.5 h-3.5" />}
+            {test.state === 'delivered' ? <Check className="w-3.5 h-3.5 text-brand-500" /> : <Send className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={() => void remove()}

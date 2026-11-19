@@ -235,17 +235,44 @@ async fn check_lockout(state: &AppState, email: &str) -> Result<Option<i64>, Sta
     Ok(Some(retry_after))
 }
 
-/// Records a failed login attempt and purges stale rows older than the window.
-async fn record_failure(state: &AppState, email: &str, ip: &str) {
-    if let Err(e) = sqlx::query("INSERT INTO login_attempts (email, ip) VALUES ($1, $2)")
+/// Records this attempt before its password is checked and reports whether
+/// it is within the limit.
+///
+/// Checking the count and recording a failure as separate steps let any
+/// number of concurrent attempts pass the check before the first failure was
+/// recorded, so a burst could test far more than `MAX_ATTEMPTS` passwords.
+/// Now each attempt inserts its row first and then counts: the k-th row to
+/// commit sees at least k rows, so at most `MAX_ATTEMPTS` attempts per window
+/// reach the password check. The row stays as the failure record if the
+/// password is wrong (or the attempt is refused), and is cleared with the rest
+/// on success.
+async fn reserve_attempt(state: &AppState, email: &str, ip: &str) -> Result<bool, StatusCode> {
+    sqlx::query("INSERT INTO login_attempts (email, ip) VALUES ($1, $2)")
         .bind(email)
         .bind(ip)
         .execute(&state.db)
         .await
-    {
-        error!(error = %e, "Failed to record login attempt");
-    }
+        .map_err(|e| {
+            error!(error = %e, "Failed to record login attempt");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let attempts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM login_attempts \
+         WHERE email = $1 AND attempted_at > NOW() - ($2 || ' minutes')::interval",
+    )
+    .bind(email)
+    .bind(WINDOW_MINUTES)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        error!(error = %e, "DB error checking login attempts");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(attempts <= MAX_ATTEMPTS)
+}
 
+/// Purges attempt rows older than twice the window.
+async fn prune_attempts(state: &AppState) {
     // Best-effort cleanup: delete rows older than the lockout window to keep
     // the table from growing unbounded.
     let _ = sqlx::query(
@@ -311,6 +338,31 @@ pub async fn login(
         ));
     }
 
+    // ── Reserve the attempt (see `reserve_attempt`) ───────────────────────────
+    let within_limit = reserve_attempt(&state, &email, &ip)
+        .await
+        .map_err(|s| (s, Json(serde_json::json!({ "error": "Internal error." }))))?;
+    if !within_limit {
+        let retry_after = check_lockout(&state, &email)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(LOCKOUT_MINUTES * 60);
+        warn!(
+            email = %email,
+            ip = %ip,
+            retry_after_seconds = retry_after,
+            "Login blocked: account locked out"
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": "Too many failed attempts. Account temporarily locked.",
+                "retry_after_seconds": retry_after
+            })),
+        ));
+    }
+
     // ── User lookup ───────────────────────────────────────────────────────────
     let row = sqlx::query("SELECT id, name, role, password_hash FROM users WHERE email = $1")
         .bind(&email)
@@ -346,8 +398,9 @@ pub async fn login(
     };
 
     if !auth_ok {
-        // Record failure regardless of whether the user exists.
-        record_failure(&state, &email, &ip).await;
+        // The reserved row is the failure record, whether or not the user
+        // exists.
+        prune_attempts(&state).await;
 
         // Re-check lockout count to tell the user how many attempts remain.
         let failures: i64 = sqlx::query_scalar(
