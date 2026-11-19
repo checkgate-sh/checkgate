@@ -10,7 +10,8 @@ description: Upgrading a Checkgate server from 0.1.30 to 0.1.31, behaviour chang
 | | |
 |---|---|
 | Database migrations | **None** (`server/migrations/` is unchanged since 0.1.30) |
-| Required configuration changes | None. One optional variable was added: `SSE_HEARTBEAT_INTERVAL_SECS` (default 15) |
+| Required configuration changes | None. New optional variables: `SSE_HEARTBEAT_INTERVAL_SECS` (default 15), `ANALYTICS_RETENTION_DAYS` (default **90**), `ANALYTICS_RETENTION_INTERVAL_SECS`, `ANALYTICS_RETENTION_BATCH_SIZE`, `RATE_LIMIT_INGEST_KEY_PER_MINUTE` (default 20,000) and `RATE_LIMIT_INGEST_ROWS_PER_MINUTE` (default 60,000) |
+| Data removed after the upgrade | Impressions and events received more than 90 days ago, unless a running or paused experiment uses them ([below](#analytics-retention-deletes-old-analytics)) |
 | Rolling upgrade | Supported: 0.1.30 and 0.1.31 instances can share one PostgreSQL database and Redis, and changes written through either reach the other's SSE clients |
 | Rollback to 0.1.30 | Supported, with no database step |
 | SDK compatibility | Servers and SDKs of either version work together. Ordering between polls and stream replays needs both at 0.1.31 ([configuration consistency](./configuration-consistency.md)) |
@@ -22,7 +23,45 @@ rollback.
 
 ## Check before upgrading
 
-**Configuration limits.** Flag and segment writes past these limits now get
+### Analytics retention deletes old analytics
+
+0.1.30 kept every impression and goal event forever. 0.1.31 deletes those
+received more than `ANALYTICS_RETENTION_DAYS` ago (default **90**), except the
+rows of running or paused experiments. Nothing is deleted at startup: the
+first pass starts about a minute after the server does, and works through any
+backlog in batches of 5,000 rows without blocking ingestion or flag delivery.
+
+- **To keep everything** (the 0.1.30 behaviour), set
+  `ANALYTICS_RETENTION_DAYS=0` on every instance **before** upgrading.
+- **To keep a different period**, set it to that many days (up to 3650).
+- **Completed experiments** older than the retention lose the rows their
+  results were computed from. Record their results first, or set the
+  experiment back to `paused` to keep its rows.
+- Check how much would go:
+
+  ```sql
+  SELECT 'impressions' AS table, count(*) FROM impressions WHERE received_at < NOW() - INTERVAL '90 days'
+  UNION ALL
+  SELECT 'events', count(*) FROM events WHERE received_at < NOW() - INTERVAL '90 days';
+  ```
+
+Deleted rows are not restored by a rollback; restore them from a backup if
+needed. Freed space is reused by new rows after autovacuum; the files shrink
+only after `VACUUM FULL` or `pg_repack`.
+
+### Analytics ingestion quota
+
+Ingestion now also has a quota per SDK key, shared by all instances: 20,000
+requests and 60,000 rows a minute by default
+([details](../self-hosting.md#per-key-ingest-quota)). A batch over the quota
+gets `429` and is dropped by the SDK (analytics only; flags are unaffected).
+If one key reports more than about 1,000 rows a second at peak, raise
+`RATE_LIMIT_INGEST_ROWS_PER_MINUTE` before upgrading. Ingest requests with a
+`Content-Type` other than JSON were already refused (`415`), and still are.
+
+### Configuration limits
+
+Flag and segment writes past these limits now get
 `422`: more than 500 rules on a flag; the same segment referenced twice; more
 than 50 distinct segments on a flag; a prerequisite on the flag itself, listed
 twice, or more than 50; more than 100 variants; more than 500 rules in a
@@ -39,7 +78,9 @@ WHERE jsonb_array_length(COALESCE(data->'rules', '[]')) > 500
    OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(data->'prerequisites','[]')) p WHERE p->>'flag_key' = flags.key);
 ```
 
-**Other behaviour changes** (none needs a configuration change):
+### Other behaviour changes
+
+None needs a configuration change:
 
 | Change | Who notices | Action |
 |---|---|---|
@@ -62,6 +103,11 @@ for the full list.
 1. Stop the 0.1.31 instances, or roll them back one at a time (mixed versions
    work).
 2. Start 0.1.30 with the same configuration. No database step is needed.
+
+0.1.30 has no retention and no per-key quota: while both versions run, the
+0.1.31 instances still prune and still enforce the quota for the traffic they
+receive. The `analytics_retention_last_run` row 0.1.31 writes to `settings`
+is ignored by 0.1.30. Analytics rows already deleted stay deleted.
 
 Rollback stays this simple only while a release adds no migration: a server
 refuses to boot against a database that holds a migration it does not know.

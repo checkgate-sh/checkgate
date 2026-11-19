@@ -14,6 +14,19 @@ No migration or configuration change is required, and rolling back to
 one database). SDKs and servers of either version work together. Check these
 first:
 
+- **Impressions and goal events older than 90 days are now deleted.** 0.1.30
+  kept them forever. A retention job removes rows received more than
+  `ANALYTICS_RETENTION_DAYS` (default 90) ago, except those of running or
+  paused experiments, starting about a minute after the server starts and in
+  small batches. **Set `ANALYTICS_RETENTION_DAYS=0` before upgrading to keep
+  everything.** Results of completed experiments older than the retention
+  shrink as their rows expire. Deleted rows are not restored by a rollback.
+- **Analytics ingestion has a quota per SDK key** (and per user), shared by
+  all instances through Redis: 20,000 requests and 60,000 rows a minute by
+  default (`RATE_LIMIT_INGEST_KEY_PER_MINUTE`,
+  `RATE_LIMIT_INGEST_ROWS_PER_MINUTE`). Over it, the batch gets `429` with
+  `Retry-After` and nothing is stored; the SDKs drop it (no retry). Raise the
+  row budget first if one key reports more than about 1,000 rows a second.
 - **SDK `connect()` can now reject** (it used to stay pending forever): with
   `CheckgateAuthError` (Flutter: `CheckgateAuthException`) when the server
   answers 401/403, and when `disconnect()`/`close()` is called first. A caller
@@ -95,6 +108,23 @@ first:
 
 ### Added
 
+- **Analytics retention** (`ANALYTICS_RETENTION_DAYS`, default 90; `0` keeps
+  rows forever; `ANALYTICS_RETENTION_INTERVAL_SECS`, default 3600;
+  `ANALYTICS_RETENTION_BATCH_SIZE`, default 5000). One instance at a time runs
+  a pass (PostgreSQL advisory lock), at most once per interval across the
+  deployment, deleting in short batched transactions on the existing
+  `received_at` indexes. Rows of running or paused experiments are kept. No
+  migration.
+- **Per-key ingest quota**, atomic in Redis across instances; when Redis does
+  not answer, each instance enforces the same budget alone. Large bodies are
+  charged by size (one row per KiB), so a few huge rows cost what they store.
+- Metrics: `checkgate_analytics_rows_total{table,outcome}`,
+  `checkgate_ingest_quota_rejections_total{limit}`,
+  `checkgate_ingest_quota_local_decisions_total`,
+  `checkgate_analytics_cleanup_runs_total{outcome}`,
+  `checkgate_analytics_cleanup_deleted_rows_total{table}`,
+  `checkgate_analytics_cleanup_duration_seconds`,
+  `checkgate_analytics_cleanup_last_success_timestamp_seconds`.
 - **Dead-stream detection in every SDK** (`connectTimeoutMs`, 30 s, and
   `streamIdleTimeoutMs`, default 3 × the announced heartbeat; Flutter
   `connectTimeout`, `streamIdleTimeout`). A dropped NAT mapping or half-open
@@ -153,6 +183,14 @@ first:
   address.** It is now omitted for SDK keys.
 - **A revoked SDK key's open streams kept receiving updates** until they
   reconnected. Revocation now closes them on every instance.
+- **Analytics storage could grow without bound** (N6). SDK keys are public,
+  ingestion was limited only per client address (600 requests of up to 500
+  rows a minute, so 300,000 rows a minute from each address), and nothing was
+  ever deleted. In a test, 40 concurrent 500-row batches with one key across
+  two instances were all stored. Ingestion is now also limited per key across
+  instances (with a 5,000-row budget the same test stores 10 or 11: the burst
+  plus what refills while it runs), and rows expire after the retention
+  period.
 
 ### Fixed
 
@@ -247,6 +285,9 @@ first:
 - Internal release-engineering reports are no longer kept in the repository's
   `docs/` tree (they remain in Git history); the docs build fails if internal
   files would be published.
+- Self-hosting, API reference, observability and upgrade pages document
+  analytics retention, the per-key ingest quota and its `429`, the ingest
+  error responses, how to size both, and SQL to inspect analytics storage.
 - The API reference covers the Slack/Teams integration routes, flag
   archive/unarchive and `GET /api/projects/{id}`. The docs site now installs
   from its pnpm lockfile (`--frozen-lockfile`), so every build uses the same

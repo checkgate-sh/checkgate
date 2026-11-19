@@ -1,16 +1,16 @@
 use crate::auth::AuthContext;
+use crate::metrics::{AnalyticsTable, RowOutcome};
 use crate::state::AppState;
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tracing::{error, info, warn};
-
-const MAX_BATCH: usize = 500;
+use tracing::{error, info};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,26 +66,26 @@ pub fn ingest_router() -> Router<AppState> {
 ///
 /// Accepts a JSON array of goal/conversion events from SDK clients.
 /// Called asynchronously after `track()` — fire-and-forget from the SDK side,
-/// mirroring impression ingest.
+/// mirroring impression ingest. Admission is in `super::ingest`.
 async fn ingest_events(
     State(state): State<AppState>,
     jar: AuthContext,
     Path(env_id): Path<String>,
-    Json(batch): Json<Vec<EventPayload>>,
-) -> Result<StatusCode, StatusCode> {
-    super::flags::check_ingest_access(&state.db, &jar, &env_id).await?;
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, super::ingest::Refused> {
+    let batch: Vec<EventPayload> = super::ingest::admit(
+        &state,
+        &jar,
+        &env_id,
+        &headers,
+        &body,
+        AnalyticsTable::events,
+    )
+    .await?;
 
     if batch.is_empty() {
         return Ok(StatusCode::NO_CONTENT);
-    }
-
-    if batch.len() > MAX_BATCH {
-        warn!(
-            count = batch.len(),
-            max = MAX_BATCH,
-            "Event batch too large — rejected"
-        );
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     let env_exists: bool =
@@ -99,7 +99,7 @@ async fn ingest_events(
             })?;
 
     if !env_exists {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(StatusCode::NOT_FOUND.into());
     }
 
     let mut tx = state.db.begin().await.map_err(|e| {
@@ -146,6 +146,15 @@ async fn ingest_events(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    let table = AnalyticsTable::events;
+    state
+        .metrics
+        .count_rows(table, RowOutcome::accepted, accepted);
+    state.metrics.count_rows(
+        table,
+        RowOutcome::invalid,
+        batch.len().saturating_sub(accepted),
+    );
     info!(env_id = %env_id, accepted, total = batch.len(), "Events ingested");
     Ok(StatusCode::NO_CONTENT)
 }

@@ -160,6 +160,7 @@ mod tests {
         sqlx::query("CREATE TRIGGER scheduler_regression_failure BEFORE UPDATE ON flags FOR EACH ROW EXECUTE FUNCTION scheduler_regression_failure()")
             .execute(&db).await.unwrap();
         let redis_client = redis::Client::open(redis_url).unwrap();
+        let quota_conn = redis_client.get_connection_manager().await.unwrap();
         let state = AppState {
             db: db.clone(),
             redis_conn: redis_client.get_connection_manager().await.unwrap(),
@@ -177,6 +178,12 @@ mod tests {
                 crate::lifecycle::LifecycleConfig::from_env().unwrap(),
             )),
             sse_limits: Arc::new(crate::stream::SseLimits::from_env(5).unwrap()),
+            ingest_quota: Arc::new(crate::ingest_quota::IngestQuota::new(
+                crate::ingest_quota::IngestQuotaConfig::default(),
+                quota_conn,
+                "scheduler-test",
+                crate::metrics::Metrics::new(5),
+            )),
         };
         tokio::time::timeout(Duration::from_secs(5), execute_due(&state))
             .await
