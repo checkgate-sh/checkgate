@@ -21,9 +21,12 @@ PG_CONTAINER="${PG_CONTAINER:-cg-gate-pg}"; PG_PORT="${PG_PORT:-55432}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-cg-gate-redis}"; REDIS_PORT="${REDIS_PORT:-56379}"
 OUT="${OUT:-$REPO/bench/ab/out/snapshot}"; mkdir -p "$OUT"
 ROUNDS=${ROUNDS:-3}; CONC=${CONC:-10}; SECS=${SECS:-20}; PROFILE=${PROFILE:-0}
+# QUERY="?v=2" measures the revisioned snapshot (0.1.31+); CAND_QUERY applies
+# to the candidate only, e.g. to compare the base's array with the candidate's v2.
+QUERY=${QUERY:-}; CAND_QUERY=${CAND_QUERY:-$QUERY}
 cpu_secs() { ps -o cputime= -p "$1" | awk -F'[:.]' '{ if (NF==4) print $1*3600+$2*60+$3+$4/100; else print $1*60+$2+$3/100 }'; }
 run() {
-  local label=$1 bin=$2 round=$3 db="cg_ab_${1}_${3}"
+  local label=$1 bin=$2 round=$3 query=$4 db="cg_ab_${1}_${3}"
   docker exec "$PG_CONTAINER" psql -U postgres -qc "DROP DATABASE IF EXISTS $db WITH (FORCE)" -c "CREATE DATABASE $db" >/dev/null
   docker exec "$REDIS_CONTAINER" redis-cli FLUSHALL >/dev/null
   local pub; pub=$(mktemp -d)
@@ -39,7 +42,7 @@ run() {
   local c0; c0=$(cpu_secs $pid)
   if [ "$PROFILE" = 1 ]; then ( sleep 8; /usr/bin/sample $pid 8 -file "$OUT/sample-$label.txt" >/dev/null 2>&1 ) & fi
   "$TP" --url http://127.0.0.1:3301 --session "$OUT/session-$label-$round.json" \
-    --concurrency "$CONC" --warmup-secs 5 --secs "$SECS" --server-pid $pid \
+    --concurrency "$CONC" --warmup-secs 5 --secs "$SECS" --server-pid $pid --query "$query" \
     --out "$OUT/tp-$label-$round.json" > /dev/null 2>&1 || echo "throughput failed $label $round"
   local c1; c1=$(cpu_secs $pid)
   local rss; rss=$(ps -o rss= -p $pid)
@@ -47,5 +50,5 @@ run() {
   kill -TERM $pid; wait $pid 2>/dev/null
   rm -rf "$pub"
 }
-for r in $(seq 1 "$ROUNDS"); do run base "$BASE_BIN" $r; run cand "$CAND_BIN" $r; done
+for r in $(seq 1 "$ROUNDS"); do run base "$BASE_BIN" $r "$QUERY"; run cand "$CAND_BIN" $r "$CAND_QUERY"; done
 echo "done"
