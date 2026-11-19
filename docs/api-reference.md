@@ -854,7 +854,7 @@ Only the original requester or a workspace admin may cancel, and only while stil
 | `variants` | `WeightedVariant[]` | No | Weighted multivariate distribution — see [Weighted Variants](guide/concepts.md#weighted-variants-a-b-testing). Defaults to `[]`. |
 | `prerequisites` | `Prerequisite[]` | No | Other flags this flag depends on — see [Prerequisite Flags](guide/concepts.md#prerequisite-flags). Defaults to `[]`. |
 | `tags` | `string[]` | No | Free-form lifecycle/organization tags. Defaults to `[]`. |
-| `owner_email` | `string \| null` | No | Email of the flag's owner. |
+| `owner_email` | `string \| null` | No | Email of the flag's owner. Omitted from reads made with an SDK key (SDK keys are public). |
 | `archived_at` | ISO-8601 string \| null | No | Set when the flag is archived; `null` for active flags. |
 
 ### TargetingRule Object
@@ -1363,7 +1363,10 @@ Content-Type: application/json
 DELETE /api/projects/{project_id}/keys/{id}
 ```
 
-**Response** `204 No Content`
+**Response** `204 No Content`. Requests with the key are refused (`401`) from then on, on
+every instance. Streams already open in the key's environment close within
+`SSE_RESYNC_SPREAD_MS` (default 5 s) on every instance: the revoked key's clients are refused
+when they reconnect, and clients using other keys reconnect and re-bootstrap once.
 
 **Response** `422 Unprocessable Entity` — cannot revoke the last key in the project.
 
@@ -1683,13 +1686,18 @@ Admin only.
 ```
 
 - `name` — required
-- `url` — required, non-empty
+- `url` — required, non-empty. It may not name a link-local address (`169.254.0.0/16`, where
+  cloud metadata services answer, `fe80::/10`), `fd00:ec2::254` or the unspecified address
+  (`0.0.0.0/8`, `::`); a hostname that resolves only to such addresses fails at delivery.
+  Loopback and private addresses are allowed for internal receivers; restrict the server's
+  egress at the network layer if it must not reach them.
 - `secret` — optional; used to sign delivery payloads. Never returned afterwards.
 - `enabled` — optional, defaults to `true`
 
 **Response** `200 OK` — returns the created webhook (with `has_secret`, not the secret).
 
-**Response** `422 Unprocessable Entity` — empty `url`.
+**Response** `422 Unprocessable Entity` — empty `url`, or a refused address (above). The same
+check applies to `url` in an update.
 
 ---
 
@@ -1818,8 +1826,9 @@ Content-Type: application/json
 
 **Response** `200 OK` — the created integration.
 
-**Response** `422 Unprocessable Entity` — unknown `kind`, an empty or non-HTTPS URL, or an
-unsupported event name.
+**Response** `422 Unprocessable Entity` — unknown `kind`, an empty or non-HTTPS URL (plain
+`http://` is accepted only for `localhost`, `127.0.0.1` and `::1`), a refused address (the same
+rule as for [webhook URLs](#create-a-webhook)), or an unsupported event name.
 
 ### Update an Integration
 

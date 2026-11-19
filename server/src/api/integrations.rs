@@ -114,6 +114,9 @@ const VALID_KINDS: &[&str] = &["slack", "teams"];
 /// port, so lookalikes like `http://127.0.0.1.evil.com/` are rejected: their
 /// host is `127.0.0.1.evil.com`, which matches nothing here.
 fn is_allowed_url(url: &str) -> bool {
+    if crate::webhook_fire::refused_destination(url) {
+        return false;
+    }
     if url.starts_with("https://") {
         return true;
     }

@@ -291,6 +291,25 @@ async fn deliver_with_retry(
     event: &str,
     message: &Value,
 ) {
+    if crate::webhook_fire::refused_destination(url) {
+        // Stored before this check existed; never retried.
+        warn!(
+            integration_id,
+            "Integration destination refused (link-local or unspecified address)"
+        );
+        let refused = Some(crate::webhook_fire::DESTINATION_REFUSED);
+        log_delivery(
+            &state.db,
+            integration_id,
+            event,
+            message,
+            None,
+            None,
+            refused,
+        )
+        .await;
+        return;
+    }
     let backoff_secs = [1u64, 5, 15];
 
     for (attempt, &wait) in backoff_secs.iter().enumerate() {

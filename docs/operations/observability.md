@@ -58,7 +58,7 @@ to forward metrics to any OTel backend.
 | `checkgate_flag_publish_duration_seconds` | histogram | Time to publish one event, retry included. |
 | `checkgate_redis_connected` | gauge | `1` while the subscription is up and answering pings. |
 | `checkgate_redis_reconnections_total{reason}` | counter | Subscription losses: `closed`, `ping_timeout`, `connect_failed`. |
-| `checkgate_resync_requests_total{trigger}` | counter | Times clients were told to re-bootstrap: `subscriber_reconnect`, `remote`, `reconciliation`, `environment_removed`, `segment_read_failed` (a committed change could not be expanded with its segments, so its environment re-bootstraps instead). |
+| `checkgate_resync_requests_total{trigger}` | counter | Times clients were told to re-bootstrap: `subscriber_reconnect`, `remote`, `reconciliation`, `environment_removed`, `segment_read_failed` (a committed change could not be expanded with its segments, so its environment re-bootstraps instead), `key_revoked` (an SDK key was revoked, so its environment's open streams close and reconnect). |
 | `checkgate_resync_failures_total` | counter | Failed attempts to broadcast a `RESYNC` through Redis. |
 | `checkgate_resync_pending` | gauge | `1` while a `RESYNC` broadcast is waiting for Redis. |
 | `checkgate_sync_reconciliations_total{outcome}` | counter | Reconciliation passes, `success`/`failure`. |

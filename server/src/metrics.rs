@@ -106,6 +106,9 @@ pub enum ResyncTrigger {
     /// A committed flag change could not be expanded with its segments, so
     /// its environment's clients re-bootstrap instead of receiving it.
     segment_read_failed,
+    /// An SDK key was revoked: its environment's streams close so the
+    /// revoked key's clients cannot keep receiving updates.
+    key_revoked,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -398,6 +401,7 @@ impl Metrics {
             ResyncTrigger::reconciliation,
             ResyncTrigger::environment_removed,
             ResyncTrigger::segment_read_failed,
+            ResyncTrigger::key_revoked,
         ] {
             drop(resync_requests.get_or_create(&ResyncLabels { trigger }));
         }

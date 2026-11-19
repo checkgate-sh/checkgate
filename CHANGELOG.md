@@ -48,6 +48,20 @@ first:
   outlives itself, and a read-only token can no longer revoke tokens.
 - **Webhooks and integrations no longer follow redirects**, and store at most
   1 KiB of each response.
+- **Webhook and integration URLs may not point at link-local addresses**
+  (`169.254.0.0/16`, where cloud metadata services answer, and `fe80::/10`),
+  at `fd00:ec2::254` or at the unspecified address (`0.0.0.0/8`, `::`):
+  creating or changing one answers `422`, and a hostname that resolves only
+  to such addresses fails to connect. Rows stored earlier are refused at
+  delivery and logged as such. Loopback and private addresses still work.
+- **Flag reads with an SDK key** (`GET /api/environments/{env}/flags[/key]`)
+  no longer include `owner_email`. The field was already omitted for flags
+  without an owner. Tags are unchanged. Sessions and personal access tokens
+  still get it.
+- **Revoking an SDK key closes the open streams of its environment**, on
+  every instance, within `SSE_RESYNC_SPREAD_MS` (default 5 s). Clients using
+  other keys reconnect and re-bootstrap once; the revoked key's reconnect is
+  refused. New metric label: `checkgate_resync_requests_total{trigger="key_revoked"}`.
 - **Logs.** The request span records `path` (no query string) instead of
   `uri`, so `?sdk_key=` is no longer logged. Webhook logs no longer include
   the URL.
@@ -117,6 +131,18 @@ first:
   gave a 500).
 - `quinn-udp` 0.5.14 → 0.5.16 (RUSTSEC-2026-0538). Only in the lockfile; never
   compiled.
+- **Concurrent logins could test more passwords than the lockout allows.** The
+  failure count was checked before the password and recorded after it, so a
+  burst of parallel attempts on one account all passed the check (20 of 20 in
+  a test against a limit of 5). Each attempt is now recorded before its
+  password is checked, so at most 5 are checked per 10-minute window.
+- **Webhook and integration URLs could target cloud metadata services
+  directly** (`169.254.169.254`, `fd00:ec2::254`). Link-local and unspecified
+  destinations are refused when the URL is saved and when it is resolved.
+- **Flag reads with a public SDK key returned the flag owner's email
+  address.** It is now omitted for SDK keys.
+- **A revoked SDK key's open streams kept receiving updates** until they
+  reconnected. Revocation now closes them on every instance.
 
 ### Fixed
 
