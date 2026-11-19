@@ -6,7 +6,7 @@
 | Date | 2026-11-19 |
 | Previous decision | CONDITIONAL GO (RC2-RELEASE-READINESS.md): R20 open, owner to decide |
 | Owner decision taken | Fix R20 before releasing v0.1.31 |
-| Decision | **DECISION** (§4) |
+| Decision | **GO** (§4) |
 
 ## 1. What RC3 changed
 
@@ -38,7 +38,7 @@ All on this macOS (Intel) host unless marked CI.
 | Security | No new critical or high findings | `cargo audit`, `cargo deny`: clean. `npm audit --omit=dev` (Node, web, React Native): 0. No dependency changed. Review: the query parameter is parsed by hand (never rejected, no allocation); tombstones are environment-scoped and were already sent to the same SDK keys by the stream bootstrap; SDK parsing is strict (integer revisions, own properties only, whole response rejected otherwise) and never invents revision 0 |
 | Performance | No unexplained material regressions | Server, array path: unchanged within run spread (a first candidate that cost +6–8 % CPU on this path was found and fixed). `?v=2`: +1–5 % CPU, +13 bytes per flag. SDK evaluation: unchanged. Complete-set application: +0.3–0.4 µs per flag (explained: the version comparison itself). RC3-PERFORMANCE-REGRESSION.md |
 | Benchmarks | README reflects measurements | No published number changed (the public suite measures the array snapshot, evaluation and propagation, all unchanged), so the README is unchanged |
-| CI | Required jobs pass on the final commit | CI_RESULT |
+| CI | Required jobs pass on the final commit | **20/20 jobs passed**, run `44451311155` on `64c0fe8` (PR #43), including on Linux: the fault suites' CI tier with seeds 173 and 184 and the R20 scenarios (Node 60, web 57, React Native 54 tests; Flutter 27 scenarios with the Rust engine), the live suite with the new R20, concurrency and SIGKILL-restart checks on all four SDKs (0 failed checks), `revisioned_snapshot_carries_revisions_and_tombstones` (Rust tests and server integration), `sse_faults`, Docker smoke, Miri, supply chain, the Android native build |
 | Compatibility | Documented version matrix | CONFIGURATION-CONSISTENCY.md §6; SDK-COMPATIBILITY.md. Old SDK + new server: unchanged (array). New SDK + old server: array, behaves as 0.1.30 (named legacy scenario passes). No revision is invented for a legacy response |
 | Rust gate | | fmt, clippy `-D warnings` (workspace, all targets and features), 157 lib/bin tests (RC2: 155), `cargo doc -D warnings`: pass. Server integration suites with PostgreSQL and Redis: all pass except `reliability::g2` (Linux-only `TCP_USER_TIMEOUT`; fails on macOS by design, as for v0.1.30 and RC2) |
 | Unit suites | | Node 33 (+6), web 30 (+6), React Native 27 (+6), Flutter 25 (+6), edge 12, ssr 9: pass |
@@ -58,9 +58,41 @@ All on this macOS (Intel) host unless marked CI.
 
 ## 4. Decision
 
-**DECISION.**
+**GO.**
 
-DECISION_TEXT
+Every acceptance requirement of the brief is met with evidence, on the
+final commit and in CI:
+
+- **R20 is reproduced, explained and fixed** in the server and all four
+  SDKs, with the smallest change the architecture allowed: the existing
+  revision sequence and tombstones, exposed on the one path that lacked them,
+  behind an opt-in parameter. Its regressions fail on the RC2 and v0.1.30
+  clients and pass on RC3, deterministically, in the randomized tiers and live
+  against a real server.
+- **No regression**: the extended tier passes 852/852 scenarios with zero
+  violations of any invariant (RC2 had five R20 failures), the live suite
+  44/44, every server suite as before, and CI 20/20. Recovery times are
+  unchanged.
+- **No security finding** and no dependency change.
+- **No unexplained performance regression**: the one regression the A/B
+  found (the first candidate's +6–8 % on the old snapshot path) was removed
+  before this decision; what remains is small, explained and confined to the
+  new opt-in path or to once-per-reconnect work. The README's measured
+  numbers are unaffected.
+- **Compatibility is explicit**: old SDKs and old servers keep working;
+  where a guarantee needs a 0.1.31 server, the documents and the CHANGELOG
+  say so.
+
+What remains is documented and does not depend on RC3: Flutter's missing
+bundled engine, iOS certified only for Flutter on the simulator, and the
+propagation p99 not yet re-measured on a dedicated Linux host (**not shown
+resolved**; RC3 does not change that path). All three are in the CHANGELOG's
+known limitations, which satisfies RC2's release-notes condition. The carried
+low-severity items of RC2 §3 are unchanged.
+
+GO is conditional on nothing further from RC3. It would become NO-GO only if
+a later change to this branch failed CI, or if the owner decided that iOS or
+the propagation re-measurement must gate v0.1.31.
 
 ## 5. Release mechanics (owner)
 
