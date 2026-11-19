@@ -215,6 +215,8 @@ describe('stream resync and ordering', () => {
     bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'search', is_enabled: true }, 2]])
     expect(client.isEnabled('checkout', 'u')).toBe(true)
 
+    // The stream drops and reconnects: during the replay nothing changes.
+    client._connectDeltas()
     client.sse.emit('connected', { environment_id: 'env-1' })
     client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 3 })
     expect(client.isReady()).toBe(true)
@@ -350,9 +352,126 @@ describe('without a global EventSource', () => {
     expect(client.isPolling()).toBe(true)
     expect(client.isReady()).toBe(true)
     expect(client.isEnabled('checkout', 'u')).toBe(true)
-    expect(fetchCalls.some((c) => c.url.endsWith('/flags/snapshot'))).toBe(true)
+    expect(fetchCalls.some((c) => c.url.includes('/flags/snapshot'))).toBe(true)
     expect(errors.mock.calls.some(([m]) => String(m).includes('No global EventSource'))).toBe(true)
     client.disconnect()
     errors.mockRestore()
+  })
+})
+
+// --- Monotonic configuration (RC3, R20) -------------------------------------
+
+describe('monotonic configuration (RC3, R20)', () => {
+  /** A `?v=2` snapshot response. */
+  const revisioned = (flags, revisions, tombstones = {}) =>
+    async () => ({ ok: true, headers: { get: () => 'env-1' }, json: async () => ({ v: 2, flags, revisions, tombstones }) })
+
+  test('a delayed replay cannot roll back or resurrect what a newer poll delivered', async () => {
+    const client = connectedClient()
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'search', is_enabled: true }, 2]])
+
+    // A new stream is opened (its replay is read now), then a poll returns newer state first.
+    client._connectDeltas()
+    vi.stubGlobal('fetch', revisioned([{ key: 'checkout', is_enabled: false }], { checkout: 5 }, { search: 4 }))
+    await client._pollSnapshot()
+    expect(client.isEnabled('checkout', 'u')).toBe(false)
+    expect(client._flagCache.has('search')).toBe(false)
+
+    // The old replay arrives.
+    const changed = []
+    client.onChange((key) => changed.push(key))
+    client.sse.emit('connected', { environment_id: 'env-1' })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 1 })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'search', is_enabled: true }, revision: 2 })
+    client.sse.emit('ready', 2)
+    expect(client.isEnabled('checkout', 'u'), 'revision 5 kept over the replay\'s 1').toBe(false)
+    expect(client._flagCache.has('search'), 'the deletion at 4 kept over the replay\'s 2').toBe(false)
+    expect(changed).toEqual([])
+
+    // The live events behind the replay: older or equal, so nothing happens.
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 5 })
+    client.sse.emit('update', { type: 'DELETE', key: 'search', revision: 4 })
+    expect(changed).toEqual([])
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'search', is_enabled: true }, revision: 6 })
+    expect(client.isEnabled('search', 'u')).toBe(true)
+    expect(changed).toEqual(['search'])
+    client.disconnect()
+  })
+
+  test('a newer replay still wins over an older poll; a later set removes what it lacks', async () => {
+    const client = connectedClient()
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'legacy', is_enabled: true }, 2]])
+    client._connectDeltas()
+    vi.stubGlobal('fetch', revisioned([{ key: 'checkout', is_enabled: false }, { key: 'legacy', is_enabled: true }], { checkout: 3, legacy: 2 }))
+    await client._pollSnapshot()
+    client.sse.emit('connected', { environment_id: 'env-1' })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 7 })
+    client.sse.emit('ready', 1)
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+    // No entry at all for `legacy` in the replay, learned by a poll after the
+    // stream request: created after the replay was read, so kept.
+    expect(client._flagCache.has('legacy')).toBe(true)
+
+    client._connectDeltas()
+    client.sse.emit('connected', { environment_id: 'env-1' })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 7 })
+    client.sse.emit('ready', 1)
+    expect(client._flagCache.has('legacy')).toBe(false)
+    client.disconnect()
+  })
+
+  test('a duplicate event changes nothing and notifies nobody', () => {
+    const client = connectedClient()
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 3]])
+    const changed = []
+    client.onChange((key) => changed.push(key))
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 3 })
+    client.sse.emit('update', { type: 'DELETE', key: 'never-held', revision: 9 })
+    expect(changed).toEqual([])
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 3 })
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 3 })
+    expect(changed).toEqual(['checkout'])
+    client.disconnect()
+  })
+
+  test('an older event staged during a replay cannot replace a newer staged one', () => {
+    const client = connectedClient()
+    client.sse.emit('connected', { environment_id: 'env-1' })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 8 })
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 7 })
+    client.sse.emit('ready', 1)
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+    client.disconnect()
+  })
+
+  test('a malformed revisioned snapshot leaves the flags as they were', async () => {
+    for (const body of [
+      { v: 2, flags: [{ key: 'checkout', is_enabled: false }], revisions: {} },
+      { v: 2, flags: [{ key: 'checkout', is_enabled: false }], revisions: { checkout: '5' } },
+      { v: 2, flags: [{ key: 'checkout', is_enabled: false }], revisions: { checkout: 5 }, tombstones: { x: null } },
+      { v: 2, flags: 'nope' },
+      { v: 2, flags: [{ key: 'constructor', is_enabled: false }], revisions: {} },
+      'nope',
+    ]) {
+      const client = ((c) => c)(newClient({ reportImpressions: false }))
+      vi.stubGlobal('fetch', revisioned([{ key: 'checkout', is_enabled: true }], { checkout: 1 }))
+      await client._pollSnapshot()
+      vi.stubGlobal('fetch', async () => ({ ok: true, headers: { get: () => null }, json: async () => body }))
+      await client._pollSnapshot()
+      expect(client.isEnabled('checkout', 'u'), JSON.stringify(body)).toBe(true)
+      expect(client._revisions.get('checkout').revision).toBe(1)
+      client.disconnect()
+    }
+  })
+
+  test('polls ask for ?v=2; a server without revisions gets the old behaviour', async () => {
+    const client = ((c) => c)(newClient({ reportImpressions: false }))
+    const urls = []
+    vi.stubGlobal('fetch', async (url) => { urls.push(url); return { ok: true, headers: { get: () => null }, json: async () => [{ key: 'checkout', is_enabled: true }] } })
+    await client._pollSnapshot()
+    expect(urls[0].endsWith('/flags/snapshot?v=2')).toBe(true)
+    expect(client.isEnabled('checkout', 'u')).toBe(true)
+    expect(client._revisions.size, 'no revisions invented (never revision 0)').toBe(0)
+    client.disconnect()
   })
 })

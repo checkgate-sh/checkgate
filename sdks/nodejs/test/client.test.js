@@ -292,6 +292,7 @@ test('a reconnect keeps serving the last snapshot until the replay is complete',
     assert.equal(client.isEnabled('checkout', 'u'), true);
 
     // The stream drops and reconnects: during the replay nothing changes.
+    client._connectDeltas();
     client.sse.emit('connected', { environment_id: 'env-1' });
     client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 3 });
     assert.equal(client.isReady(), true);
@@ -484,5 +485,124 @@ test('heartbeats on a live stream refresh lastSyncAt', async () => {
     await new Promise((r) => setTimeout(r, 5));
     client.sse.emit('heartbeat', {});
     assert.ok(client.getStatus().lastSyncAt > first);
+    client.disconnect();
+});
+
+// --- Monotonic configuration (RC3, R20) -------------------------------------
+
+/** A `?v=2` snapshot response. */
+function revisioned(flags, revisions, tombstones = {}) {
+    return async () => ({ ok: true, headers: { get: () => 'env-1' }, json: async () => ({ v: 2, flags, revisions, tombstones }) });
+}
+
+test('a delayed replay cannot roll back or resurrect what a newer poll delivered (R20)', async () => {
+    const client = connectedClient({ reportImpressions: false });
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'search', is_enabled: true }, 2]]);
+
+    // A new stream is opened (its replay is read now), then a poll returns newer state first.
+    client._connectDeltas();
+    global.fetch = revisioned([{ key: 'checkout', is_enabled: false }], { checkout: 5 }, { search: 4 });
+    await client._pollSnapshot();
+    assert.equal(client.isEnabled('checkout', 'u'), false);
+    assert.equal(client._flagCache.has('search'), false);
+
+    // The old replay arrives.
+    const changed = [];
+    client.onChange((key) => changed.push(key));
+    client.sse.emit('connected', { environment_id: 'env-1' });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 1 });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'search', is_enabled: true }, revision: 2 });
+    client.sse.emit('ready', 2);
+    assert.equal(client.isEnabled('checkout', 'u'), false, 'revision 5 kept over the replay\'s 1');
+    assert.equal(client._flagCache.has('search'), false, 'the deletion at 4 kept over the replay\'s 2');
+    assert.deepEqual(changed, [], 'nothing changed, nobody notified');
+
+    // The live events behind the replay: older or equal, so nothing happens.
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 5 });
+    client.sse.emit('update', { type: 'DELETE', key: 'search', revision: 4 });
+    assert.deepEqual(changed, []);
+    // A newer one applies.
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'search', is_enabled: true }, revision: 6 });
+    assert.equal(client.isEnabled('search', 'u'), true);
+    assert.deepEqual(changed, ['search']);
+    client.disconnect();
+});
+
+test('a newer replay still wins over an older poll, and a full set removes what it lacks', async () => {
+    const client = connectedClient({ reportImpressions: false });
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 1], [{ key: 'legacy', is_enabled: true }, 2]]);
+    client._connectDeltas();
+    global.fetch = revisioned([{ key: 'checkout', is_enabled: false }, { key: 'legacy', is_enabled: true }], { checkout: 3, legacy: 2 });
+    await client._pollSnapshot();
+    client.sse.emit('connected', { environment_id: 'env-1' });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 7 });
+    client.sse.emit('ready', 1);
+    assert.equal(client.isEnabled('checkout', 'u'), true, 'the replay\'s 7 is newer than the poll\'s 3');
+    // The replay has no entry at all for `legacy` (no flag, no tombstone), and the
+    // client learned it from a poll after the stream request: a deletion would
+    // have left a tombstone, so it must have been created after the replay was read.
+    assert.equal(client._flagCache.has('legacy'), true, 'learned by a poll after the stream request: kept');
+
+    // A later full set requested after all of that replaces it.
+    client._connectDeltas();
+    client.sse.emit('connected', { environment_id: 'env-1' });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 7 });
+    client.sse.emit('ready', 1);
+    assert.equal(client._flagCache.has('legacy'), false, 'gone from a set requested after it was learned');
+    client.disconnect();
+});
+
+test('a duplicate event changes nothing and notifies nobody', () => {
+    const client = connectedClient({ reportImpressions: false });
+    bootstrap(client, [[{ key: 'checkout', is_enabled: true }, 3]]);
+    const changed = [];
+    client.onChange((key) => changed.push(key));
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 3 });
+    client.sse.emit('update', { type: 'DELETE', key: 'never-held', revision: 9 });
+    assert.deepEqual(changed, []);
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 3 });
+    client.sse.emit('update', { type: 'DELETE', key: 'checkout', revision: 3 });
+    assert.deepEqual(changed, ['checkout'], 'the delete at the held revision applies once');
+    client.disconnect();
+});
+
+test('an older event staged during a replay cannot replace a newer staged one', () => {
+    const client = connectedClient({ reportImpressions: false });
+    client.sse.emit('connected', { environment_id: 'env-1' });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: true }, revision: 8 });
+    client.sse.emit('update', { type: 'UPSERT', flag: { key: 'checkout', is_enabled: false }, revision: 7 });
+    client.sse.emit('ready', 1);
+    assert.equal(client.isEnabled('checkout', 'u'), true);
+    client.disconnect();
+});
+
+test('a malformed revisioned snapshot leaves the flags as they were', async () => {
+    for (const body of [
+        { v: 2, flags: [{ key: 'checkout', is_enabled: false }], revisions: {} },
+        { v: 2, flags: [{ key: 'checkout', is_enabled: false }], revisions: { checkout: '5' } },
+        { v: 2, flags: [{ key: 'checkout', is_enabled: false }], revisions: { checkout: 5 }, tombstones: { x: null } },
+        { v: 2, flags: 'nope' },
+        { v: 2, flags: [{ key: 'constructor', is_enabled: false }], revisions: {} },
+        'nope',
+    ]) {
+        const client = newClient({ reportImpressions: false });
+        global.fetch = revisioned([{ key: 'checkout', is_enabled: true }], { checkout: 1 });
+        await client._pollSnapshot();
+        global.fetch = async () => ({ ok: true, headers: { get: () => null }, json: async () => body });
+        await client._pollSnapshot();
+        assert.equal(client.isEnabled('checkout', 'u'), true, JSON.stringify(body));
+        assert.equal(client._revisions.get('checkout').revision, 1);
+        client.disconnect();
+    }
+});
+
+test('polls ask for ?v=2; a server without revisions gets the old behaviour', async () => {
+    const client = newClient({ reportImpressions: false });
+    const urls = [];
+    global.fetch = async (url) => { urls.push(url); return { ok: true, headers: { get: () => null }, json: async () => [{ key: 'checkout', is_enabled: true }] }; };
+    await client._pollSnapshot();
+    assert.ok(urls[0].endsWith('/flags/snapshot?v=2'));
+    assert.equal(client.isEnabled('checkout', 'u'), true);
+    assert.equal(client._revisions.size, 0, 'no revisions invented (never revision 0)');
     client.disconnect();
 });
