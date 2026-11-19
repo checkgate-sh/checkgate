@@ -57,7 +57,7 @@ function isStaleEvent(known, revision, isUpsert) {
 
 /**
  * The state after a complete flag set: a stream replay on "ready", or a poll
- * snapshot. See docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md.
+ * snapshot. See docs/operations/configuration-consistency.md.
  *
  * The server read `incoming` (key → flag) after the client sent the request,
  * when the client's learn counter stood at `startedAt`. Everything the client

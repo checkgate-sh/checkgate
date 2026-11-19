@@ -3,14 +3,21 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   base: "/checkgate/",
   ignoreDeadLinks: [/^http:\/\/localhost/],
-  // Release-engineering records (assessments, reviews, readiness reports) are
-  // versioned with the code but are not pages of the documentation site.
-  srcExclude: ["releases/**"],
+  // Only the public site is built from docs/. Raw benchmark results are data
+  // for reproduction (linked on GitHub), not pages; release-engineering records
+  // live outside the repository (internal_docs/, gitignored) and are excluded
+  // here too in case a local copy lands under docs/.
+  // scripts/check-docs-site.py verifies the built output against this policy.
+  srcExclude: ["releases/**", "performance/results/**", "**/README.md"],
   title: "Checkgate",
   description:
-    "The ultimate open-source feature flag engine. Evaluate feature flags in-process, with no network call, through native SDKs. Self-hosted and fully private.",
+    "Self-hosted feature flags with local SDK evaluation, real-time SSE updates, and a lightweight Rust-powered server.",
 
   head: [
+    // `head` entries are not prefixed with `base`, so these carry it.
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/checkgate/favicon.svg" }],
+    ["link", { rel: "icon", type: "image/png", href: "/checkgate/favicon.png" }],
+    ["link", { rel: "apple-touch-icon", href: "/checkgate/apple-touch-icon.png" }],
     ["meta", { name: "og:type", content: "website" }],
     [
       "meta",
@@ -102,11 +109,26 @@ export default defineConfig({
           { text: "Deployment & Recovery", link: "/operations/failure-recovery" },
           { text: "Reliability & Sync", link: "/operations/reliability" },
           { text: "Observability", link: "/operations/observability" },
-          { text: "Performance", link: "/performance/benchmarks" },
+          {
+            text: "Configuration Consistency",
+            link: "/operations/configuration-consistency",
+          },
+          { text: "Upgrading to 0.1.31", link: "/operations/upgrading" },
           { text: "AWS & Cloud", link: "/self-hosting#aws" },
           {
             text: "Environment Variables",
             link: "/self-hosting#environment-variables",
+          },
+        ],
+      },
+      {
+        text: "Performance",
+        items: [
+          { text: "Public Benchmarks", link: "/performance/benchmarks" },
+          { text: "Infrastructure Cost", link: "/performance/cost-efficiency" },
+          {
+            text: "Benchmark Methodology",
+            link: "/performance/benchmark-methodology",
           },
         ],
       },

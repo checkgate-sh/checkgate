@@ -1,7 +1,7 @@
 # Release A/B scripts
 
-Local before/after comparisons between two builds, used to produce the
-evidence in `docs/releases/<version>/`. They complement the public benchmark
+Local before/after comparisons between two builds, used to produce
+release evidence (kept locally in `internal_docs/releases/<version>/`). They complement the public benchmark
 suite (`bench/public/`), which measures one build under fixed resource limits
 in Docker; these compare two builds side by side on one host.
 

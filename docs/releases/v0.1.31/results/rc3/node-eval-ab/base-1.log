@@ -1,6 +1,0 @@
-boolean                  853.233 ns  (1,172,013 ops/s)
-targeting_1_rule         2302.526 ns  (434,306 ops/s)
-targeting_10_rules       4188.188 ns  (238,767 ops/s)
-percentage_rollout       1077.383 ns  (928,175 ops/s)
-weighted_multivariate    2305.908 ns  (433,669 ops/s)
-prerequisite_chain_5     3425.626 ns  (291,917 ops/s)
