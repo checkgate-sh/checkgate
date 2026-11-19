@@ -1,4 +1,4 @@
-## 0.1.31 (2026-11-19)
+## 0.1.31 (2026-11-21)
 
 - The library is in `lib/`, so `import 'package:checkgate_flutter/checkgate_flutter.dart'`
   resolves. Earlier releases shipped it at the package root, where no app could
