@@ -5,9 +5,12 @@
   "type": "module",
   "main": "index.js",
   "module": "index.js",
-  "types": "dist/checkgate.d.ts",
+  "types": "index.d.ts",
   "exports": {
-    ".": "./index.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
     "./core": "./core.js",
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
@@ -29,6 +32,7 @@
   },
   "files": [
     "index.js",
+    "index.d.ts",
     "cache-key.js",
     "core.js",
     "dist/",
