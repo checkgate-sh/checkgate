@@ -2,15 +2,95 @@ import { cacheNamespace } from './cache-key.js';
 import init, { CheckgateCoreWasm } from './dist/checkgate.js';
 
 /**
- * Whether a change event is older than what the client already holds for that
- * flag. Change events carry the flag row's revision and can arrive out of
- * order; events from servers that predate revisions (no number) always apply.
- * After a delete, only a strictly newer upsert may bring the flag back.
+ * Whether flag version `a` supersedes version `b` (both `{ revision, deleted }`).
+ * Revisions come from one server-wide sequence and grow with every committed
+ * write to a flag. A delete carries the revision of the version it removed, so
+ * it supersedes that version, and anything newer supersedes both.
+ */
+function supersedes(a, b) {
+    return a.revision > b.revision || (a.revision === b.revision && a.deleted && !b.deleted);
+}
+
+/**
+ * Whether a change event is stale: not newer than what the client already
+ * holds for that flag. Change events carry the flag row's revision and can
+ * arrive late or twice; a duplicate is stale too, so it changes nothing and
+ * notifies nobody. Events from servers that predate revisions (no number)
+ * always apply.
  */
 function isStaleEvent(known, revision, isUpsert) {
     if (!known || typeof revision !== 'number') return false;
-    if (isUpsert && known.deleted) return revision <= known.revision;
-    return revision < known.revision;
+    return !supersedes({ revision, deleted: !isUpsert }, known);
+}
+
+/**
+ * The state after a complete flag set: a stream replay on "ready", or a poll
+ * snapshot. See docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md.
+ *
+ * The server read `incoming` (key → flag) after the client sent the request,
+ * when the client's learn counter stood at `startedAt`. Everything the client
+ * learned before that is older than the set, so the set replaces it, absences
+ * included. What it learned afterwards (a poll that completed while a delayed
+ * replay was still on its way: R20) may be newer, so for those flags the newer
+ * version wins, and the set never brings back an older one.
+ *
+ * `incomingRevisions` (key → { revision, deleted }, deletions included) is null
+ * for a poll answered by a server older than 0.1.31, which sends no revisions:
+ * the set then replaces everything, exactly as before.
+ *
+ * Returns `{ flags, revisions }`; revision entries carry `at`, the learn
+ * counter value when the client learned them.
+ */
+function mergeFullSet(flags, revisions, incoming, incomingRevisions, startedAt, at) {
+    if (!incomingRevisions) return { flags: new Map(incoming), revisions: new Map() };
+    const outFlags = new Map();
+    const outRevisions = new Map();
+    const visit = (key) => {
+        const held = revisions.get(key);
+        const offered = incomingRevisions.get(key);
+        if (held && held.at > startedAt && (!offered || !supersedes(offered, held))) {
+            outRevisions.set(key, held);
+            if (!held.deleted && flags.has(key)) outFlags.set(key, flags.get(key));
+            return;
+        }
+        if (offered) {
+            // The set's own entry, owned by the client from here on.
+            offered.at = at;
+            outRevisions.set(key, offered);
+        }
+        if (incoming.has(key) && !(offered && offered.deleted)) outFlags.set(key, incoming.get(key));
+    };
+    // Every key of the set and of what the client holds, once each.
+    for (const key of incoming.keys()) visit(key);
+    for (const key of incomingRevisions.keys()) if (!incoming.has(key)) visit(key);
+    for (const key of revisions.keys()) if (!incoming.has(key) && !incomingRevisions.has(key)) visit(key);
+    return { flags: outFlags, revisions: outRevisions };
+}
+
+/**
+ * Reads a `GET /flags/snapshot` body: `{ v: 2, flags, revisions, tombstones }`
+ * from a server that understands `?v=2` (0.1.31+), or a bare array of flags
+ * from an older one (`revisions` null). Throws on a malformed body, so a bad
+ * response never replaces the flags the client holds.
+ */
+function parseSnapshot(body) {
+    if (Array.isArray(body)) return { flags: body, revisions: null };
+    if (!body || !Array.isArray(body.flags)) throw new Error('Snapshot was not a flag set.');
+    const own = (obj, key) => obj !== null && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, key);
+    const revisions = new Map();
+    for (const flag of body.flags) {
+        const key = flag && flag.key;
+        if (typeof key !== 'string' || !own(body.revisions, key) || !Number.isSafeInteger(body.revisions[key])) {
+            throw new Error('Snapshot flag without a revision.');
+        }
+        revisions.set(key, { revision: body.revisions[key], deleted: false });
+    }
+    const tombstones = body.tombstones && typeof body.tombstones === 'object' ? body.tombstones : {};
+    for (const key of Object.keys(tombstones)) {
+        if (!Number.isSafeInteger(tombstones[key])) throw new Error('Snapshot tombstone without a revision.');
+        if (!revisions.has(key)) revisions.set(key, { revision: tombstones[key], deleted: true });
+    }
+    return { flags: body.flags, revisions };
 }
 
 /** HTTP statuses that mean the SDK key itself is rejected: retrying cannot help. */
@@ -111,8 +191,13 @@ export class CheckgateWeb {
         // revisions. Swapped in as a whole on "ready" (see _connectDeltas).
         this._staged = null;
         this._stagedRevisions = null;
-        // Last applied revision per flag key: { revision, deleted }.
+        // Last applied revision per flag key: { revision, deleted, at }, where
+        // `at` is the learn counter value when it was applied. The counter
+        // grows with every applied change; a full set compares it with the
+        // value at its request (see mergeFullSet). Never a clock.
         this._revisions = new Map();
+        this._learnSeq = 0;
+        this._streamStartedAt = 0;
         this._connectPromise = null;
         this._resolveReady = null;
         this._rejectReady = null;
@@ -338,6 +423,8 @@ export class CheckgateWeb {
 
     _connectDeltas() {
         this._closeStream();
+        // The replay this stream sends is read after this point.
+        this._streamStartedAt = this._learnSeq;
 
         // Browser EventSource doesn't support custom headers; use sdkKey as a
         // query param when auth is required.
@@ -401,9 +488,10 @@ export class CheckgateWeb {
             const revisions = this._stagedRevisions;
             this._staged = null;
             this._stagedRevisions = null;
-            // Swap in the complete replay. On a reconnect, listeners fire only for
-            // flags that changed while the stream was down.
-            this._applySnapshot(Array.from(staged.values()), revisions);
+            // Swap in the complete replay, except where a poll that completed
+            // while it was on its way is newer (R20). On a reconnect, listeners
+            // fire only for flags that changed while the stream was down.
+            this._applySnapshot(staged, revisions, this._streamStartedAt);
             this._hydrated = true;
             // Persist the freshly-bootstrapped full flag set for offline use.
             this._persistCache();
@@ -546,6 +634,7 @@ export class CheckgateWeb {
         const revision = typeof event.revision === 'number' ? event.revision : null;
 
         if (this._staged) {
+            if (isStaleEvent(this._stagedRevisions.get(key), revision, isUpsert)) return;
             if (isUpsert) this._staged.set(key, flag);
             else this._staged.delete(key);
             if (revision !== null) this._stagedRevisions.set(key, { revision, deleted: !isUpsert });
@@ -553,15 +642,16 @@ export class CheckgateWeb {
         }
 
         if (isStaleEvent(this._revisions.get(key), revision, isUpsert)) return;
-        if (revision !== null) this._revisions.set(key, { revision, deleted: !isUpsert });
+        if (revision !== null) this._revisions.set(key, { revision, deleted: !isUpsert, at: ++this._learnSeq });
         if (isUpsert) {
             // Pass the full flag (flag_type, default/disabled values, and per-rule
             // variants) so getValue()/getVariant() resolve non-boolean flags.
             this.core.upsert_flag_v2(JSON.stringify(flag));
             this._flagCache.set(key, flag);
         } else {
+            // A delete of a flag the client does not hold changes nothing.
+            if (!this._flagCache.delete(key)) return;
             this.core.delete_flag(key);
-            this._flagCache.delete(key);
         }
         this._emitChange(key);
         this._persistCache(); // keep the offline snapshot fresh
@@ -658,9 +748,13 @@ export class CheckgateWeb {
     }
 
     async _fetchSnapshot(generation, controller) {
+        // The server reads the snapshot after this point (see mergeFullSet).
+        const startedAt = this._learnSeq;
         if (!this.core) return;
         try {
-            const res = await fetch(`${this.serverUrl}/flags/snapshot`, {
+            // `v=2` asks for per-flag revisions and recent deletions; servers
+            // before 0.1.31 ignore it and send a bare array.
+            const res = await fetch(`${this.serverUrl}/flags/snapshot?v=2`, {
                 ...(controller ? { signal: controller.signal } : {}),
                 headers: this.sdkKey ? { 'Authorization': `Bearer ${this.sdkKey}` } : {},
             });
@@ -673,12 +767,12 @@ export class CheckgateWeb {
                 console.warn(`[Checkgate] Poll fallback request failed: HTTP ${res.status}`);
                 return;
             }
-            const flags = await res.json();
+            const body = await res.json();
             if (generation !== this._syncGeneration || this._userClosed) return;
-            if (!Array.isArray(flags)) throw new Error('Snapshot was not an array of flags.');
+            const { flags, revisions } = parseSnapshot(body);
             const envId = res.headers?.get('X-Checkgate-Environment-Id');
             if (envId) this._envId = envId;
-            this._applySnapshot(flags);
+            this._applySnapshot(flags, revisions, startedAt);
             this._hydrated = true;
             this._startImpressionTimer();
             if (!this.sse) this._state = 'polling';
@@ -691,17 +785,27 @@ export class CheckgateWeb {
     }
 
     /**
-     * Applies a full flag snapshot, diffing against `_flagCache` so only flags
-     * that actually changed (added, updated, or removed) trigger onChange — after
-     * the whole snapshot is applied — and a cache write. `revisions` (flag key → { revision, deleted }) replaces the
-     * per-flag revisions; poll snapshots carry none. Returns true if anything
-     * changed.
+     * Applies a complete flag set (a stream replay as a Map, or a poll snapshot's array),
+     * merged with what the client holds by `mergeFullSet`: `revisions`
+     * (flag key → { revision, deleted }) is null when the server sent none,
+     * and `startedAt` is the learn counter when the set was requested. Then
+     * diffs against `_flagCache` so only flags that actually changed (added,
+     * updated, or removed) trigger onChange — after the whole set is applied —
+     * and a cache write. Returns true if anything changed.
      */
-    _applySnapshot(flags, revisions = new Map()) {
+    _applySnapshot(flags, revisions = null, startedAt = this._learnSeq) {
+        // A replay arrives as the staged Map (key → flag); a poll as an array.
+        let incoming = flags;
+        if (!(flags instanceof Map)) {
+            incoming = new Map();
+            for (const flag of flags) incoming.set(flag.key, flag);
+        }
+        const merged = mergeFullSet(
+            this._flagCache, this._revisions, incoming, revisions, startedAt, ++this._learnSeq);
         const newKeys = new Set();
         const changed = [];
 
-        for (const flag of flags) {
+        for (const flag of merged.flags.values()) {
             newKeys.add(flag.key);
             const prev = this._flagCache.get(flag.key);
             if (prev && JSON.stringify(prev) === JSON.stringify(flag)) continue;
@@ -718,7 +822,7 @@ export class CheckgateWeb {
             changed.push(key);
         }
 
-        this._revisions = revisions;
+        this._revisions = merged.revisions;
         if (changed.length === 0) return false;
         this._persistCache();
         // Notify only once the whole snapshot is in place: a listener that

@@ -58,13 +58,31 @@ impl Fixture {
     }
 
     async fn snapshot(&self) -> (u16, Value) {
+        self.snapshot_at("/flags/snapshot").await
+    }
+
+    async fn snapshot_at(&self, path: &str) -> (u16, Value) {
         let r = bearer_client(&self.sdk_key)
-            .get(self.url("/flags/snapshot"))
+            .get(self.url(path))
             .send()
             .await
             .unwrap();
         let status = r.status().as_u16();
         (status, r.json().await.unwrap_or(Value::Null))
+    }
+
+    /// Every committed flag revision of the environment, from the database.
+    async fn db_revisions(&self) -> Value {
+        let pool = sqlx::PgPool::connect(&self.db).await.unwrap();
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT key, revision FROM flags WHERE environment_id = $1::uuid ORDER BY key",
+        )
+        .bind(&self.env)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+        Value::Object(rows.into_iter().map(|(k, r)| (k, json!(r))).collect())
     }
 }
 
@@ -173,6 +191,116 @@ async fn snapshot_expands_segments_and_fails_on_an_undecodable_flag() {
     pool.close().await;
     let (status, _) = f.snapshot().await;
     assert_eq!(status, 500, "an undecodable flag fails the snapshot");
+}
+
+/// R20: `?v=2` carries each flag's committed revision and the environment's
+/// tombstones, read with the flags in one snapshot, so a polling SDK can
+/// order a poll against a stream replay. Without it the body is unchanged.
+#[tokio::test]
+async fn revisioned_snapshot_carries_revisions_and_tombstones() {
+    let Some(f) = fixture("cg_hardening_revisioned").await else {
+        return;
+    };
+    request(
+        &f.admin,
+        "POST",
+        &f.segments(),
+        Some(json!({ "name": "Staff", "key": "staff",
+            "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@acme.test"] }] })),
+        200,
+    )
+    .await;
+    let mut targeted = flag("targeted");
+    targeted["rules"] = json!([{ "segment_key": "staff" }]);
+    request(&f.admin, "POST", &f.flags(), Some(targeted), 200).await;
+    request(&f.admin, "POST", &f.flags(), Some(flag("plain")), 200).await;
+    request(&f.admin, "POST", &f.flags(), Some(flag("doomed")), 200).await;
+
+    let (status, v2) = f.snapshot_at("/flags/snapshot?v=2").await;
+    assert_eq!(status, 200);
+    assert_eq!(v2["v"], 2);
+    let keys: Vec<&str> = v2["flags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(keys, ["doomed", "plain", "targeted"]);
+    assert_eq!(
+        v2["revisions"],
+        f.db_revisions().await,
+        "the committed revisions"
+    );
+    assert_eq!(v2["tombstones"], json!({}));
+    let (_, legacy) = f.snapshot().await;
+    assert_eq!(
+        legacy, v2["flags"],
+        "without ?v=2 the bare array, as before"
+    );
+
+    // A write takes a new revision; a delete leaves a tombstone at the
+    // revision of the version it removed (what the DELETE event carries).
+    let doomed_rev = v2["revisions"]["doomed"].as_i64().unwrap();
+    request(
+        &f.admin,
+        "PATCH",
+        &format!("{}/plain", f.flags()),
+        Some(json!({ "is_enabled": false })),
+        200,
+    )
+    .await;
+    request(
+        &f.admin,
+        "DELETE",
+        &format!("{}/doomed", f.flags()),
+        None,
+        204,
+    )
+    .await;
+    let (_, after) = f.snapshot_at("/flags/snapshot?v=2").await;
+    assert!(after["revisions"]["plain"].as_i64() > v2["revisions"]["plain"].as_i64());
+    assert_eq!(after["revisions"], f.db_revisions().await);
+    assert_eq!(after["tombstones"], json!({ "doomed": doomed_rev }));
+    assert!(after["revisions"].get("doomed").is_none());
+
+    // A segment edit re-revisions the flags it expands into, and the snapshot
+    // serves the new revision with the new expansion: never one without the other.
+    let targeted_rev = after["revisions"]["targeted"].as_i64().unwrap();
+    request(
+        &f.admin,
+        "PATCH",
+        &format!("{}/staff", f.segments()),
+        Some(json!({ "rules": [{ "attribute": "email", "operator": "ends_with", "values": ["@new.test"] }] })),
+        200,
+    )
+    .await;
+    let (_, seg) = f.snapshot_at("/flags/snapshot?v=2").await;
+    assert!(seg["revisions"]["targeted"].as_i64().unwrap() > targeted_rev);
+    let targeted = seg["flags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["key"] == "targeted")
+        .unwrap();
+    assert_eq!(targeted["rules"][0]["values"][0], "@new.test");
+
+    // A re-created flag outranks its tombstone.
+    request(&f.admin, "POST", &f.flags(), Some(flag("doomed")), 200).await;
+    let (_, back) = f.snapshot_at("/flags/snapshot?v=2").await;
+    assert!(back["revisions"]["doomed"].as_i64().unwrap() > doomed_rev);
+    assert_eq!(back["tombstones"], json!({}));
+
+    // Unknown or older formats fall back to the array; a newer one gets v2.
+    for q in ["?v=1", "?v=abc", "?v=", "?other=1", "?v=1&v=2"] {
+        let (status, body) = f.snapshot_at(&format!("/flags/snapshot{q}")).await;
+        assert_eq!(status, 200, "{q}");
+        assert!(body.is_array(), "{q}: {body}");
+    }
+    for q in ["?v=3", "?v=2&v=1", "?sdk_key=x&v=2"] {
+        let (status, newer) = f.snapshot_at(&format!("/flags/snapshot{q}")).await;
+        assert_eq!(status, 200, "{q}");
+        assert_eq!(newer["v"], 2, "{q}");
+    }
 }
 
 #[tokio::test]

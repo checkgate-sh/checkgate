@@ -8,7 +8,8 @@ in Docker; these compare two builds side by side on one host.
 | Script | Compares | Needs |
 |---|---|---|
 | `node-eval-ab.sh` | Node SDK evaluation latency (`bench/public/sdk/eval.mjs`), alternating runs | Both SDKs' addons built (`npm run build` in `sdks/nodejs`) |
-| `snapshot-ab.sh` | `GET /flags/snapshot` throughput, latency and server CPU per request | Release server binaries, the `throughput` example, PostgreSQL and Redis containers |
+| `snapshot-ab.sh` | `GET /flags/snapshot` throughput, latency and server CPU per request (`QUERY='?v=2'`, or `CAND_QUERY` for the candidate only, measures the revisioned format) | Release server binaries, the `throughput` example, PostgreSQL and Redis containers |
+| `node-apply-ab.cjs` | Node SDK configuration application: a complete set (replay, `?v=2` poll) and a live event, with the native engine, alternating | Both SDKs' addons built |
 | `node-differential.cjs` | Every `isEnabled`/`getValue`/`getVariant` result of two Node addons over 300 generated flags × 400 generated contexts | Both addons built |
 | `upgrade-rollback.sh` | Upgrade, mixed-version (rolling) and rollback on one database | Release server binaries of both versions, the same containers |
 

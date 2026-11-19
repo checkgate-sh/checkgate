@@ -142,13 +142,13 @@ Measured: in the live suite (1 s server heartbeat) every SDK replaced a stalled
 stream in 3.09–3.15 s; in the fault suite (100 ms heartbeat) in 285–331 ms.
 See SSE-FAULT-INJECTION.md and SDK-END-TO-END-VALIDATION.md.
 
-## Known gap: R20
+## R20 (fixed in RC3)
 
 The extended fault tier found that a stream whose replay reaches the client
-late can briefly roll back flags the client polled in the meantime (every SDK,
-and v0.1.30 too). Liveness and auth are not involved; the cause is that poll
-snapshots carry no revisions. Details and the proposed fix:
-RELIABILITY-REVIEW.md R20, SSE-FAULT-INJECTION.md.
+late could briefly roll back flags the client polled in the meantime (every
+SDK, and v0.1.30 too). Liveness and auth are not involved; the cause was that
+poll snapshots carried no revisions. RC3 adds them (`/flags/snapshot?v=2`) and
+merges per flag: RC3-R20-ROOT-CAUSE.md, CONFIGURATION-CONSISTENCY.md.
 
 ## Load and safety review of the changes
 

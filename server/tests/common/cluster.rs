@@ -344,8 +344,8 @@ pub fn flag_body(key: &str, enabled: bool) -> Value {
 }
 
 /// How a client's flag set differs from the committed state, if it does.
-/// A client that learned a flag over the stream must hold its exact
-/// revision; one that polled a snapshot (no revisions) must match its value.
+/// A client must hold each flag's exact committed revision when it knows one
+/// (stream events and `?v=2` polls carry them), and its value in any case.
 pub fn divergence(sdk: &SimSdk, truth: &HashMap<String, (i64, bool)>) -> Option<String> {
     let (flags, revisions) = sdk.snapshot();
     if !sdk.with(|s| s.ready) {

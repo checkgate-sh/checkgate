@@ -215,7 +215,9 @@ segment-expanded flag set as an SSE bootstrap, as a plain JSON array, for SDK cl
 network cannot sustain a long-lived SSE connection at all (e.g. a corporate proxy). Official SDKs
 poll this endpoint on a timer after a configurable number of consecutive failed `/stream`
 reconnects, and stop polling as soon as `/stream` reconnects successfully — SSE retries continue
-in the background the whole time. See [API Reference → Flags Snapshot](../api-reference.md#flags-snapshot-poll-fallback).
+in the background the whole time. SDKs from 0.1.31 ask for `?v=2`, which adds each flag's
+revision and the recent deletions, so a poll and a delayed stream replay are merged per flag and
+the newer version always wins. See [API Reference → Flags Snapshot](../api-reference.md#flags-snapshot-poll-fallback).
 
 ## Authentication
 

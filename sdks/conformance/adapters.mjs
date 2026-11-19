@@ -72,7 +72,9 @@ async function wasmBridge() {
 
 export async function nodeAdapter() {
     quiet();
-    const { CheckgateClient } = requireFrom('../nodejs')('./index.js');
+    // CONFORMANCE_NODE_ENTRY runs the suite against another build of the
+    // client (e.g. a previous release, to show which checks it fails).
+    const { CheckgateClient } = requireFrom('../nodejs')(process.env.CONFORMANCE_NODE_ENTRY || './index.js');
     return { name: 'node', engine: 'native addon', ...jsClient(CheckgateClient) };
 }
 

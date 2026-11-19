@@ -128,7 +128,7 @@ the table shows the median batch mean, median of 3 runs.
 **Why.** v0.1.30 converted the whole attribute object into Rust on every call,
 about 1.3 µs per attribute, before looking at the flag. v0.1.31 looks the flag
 up first and reads only the attributes its rules reference
-([PERFORMANCE-OPTIMIZATIONS.md](../releases/v0.1.31/PERFORMANCE-OPTIMIZATIONS.md),
+([PERFORMANCE-OPTIMIZATIONS.md](https://github.com/checkgate-sh/checkgate/blob/main/docs/releases/v0.1.31/PERFORMANCE-OPTIMIZATIONS.md),
 O1). Flags that reference no attribute gain most (boolean, rollout); flags with
 many rules gain least, because they read more attributes. Results are unchanged
 (360,000 differential calls, 0 differing results), with one documented
@@ -169,7 +169,7 @@ What the numbers show:
   −21 %).** v0.1.31 decodes each stored flag straight into its final type and
   reads flags and segments in one statement (O2, O3). The isolated A/B run for
   those changes measured −33 % CPU per request at 10 clients
-  ([PERFORMANCE-COMPARISON.md](../releases/v0.1.31/PERFORMANCE-COMPARISON.md)).
+  ([PERFORMANCE-COMPARISON.md](https://github.com/checkgate-sh/checkgate/blob/main/docs/releases/v0.1.31/PERFORMANCE-COMPARISON.md)).
   At 10 clients this session shows no difference: both versions' ranges are
   wide (421–650 and 412–529 req/s at the same 0.9 cores of CPU), so how much
   work a vCPU-second buys on this laptop varied more than the change.

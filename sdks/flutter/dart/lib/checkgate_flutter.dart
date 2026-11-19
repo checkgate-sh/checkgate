@@ -230,8 +230,13 @@ class CheckgateClient {
   // revisions, swapped in as a whole on "ready" (see _handleSseEvent).
   Map<String, Map<String, dynamic>>? _staged;
   Map<String, _Revision>? _stagedRevisions;
-  // Last applied revision per flag key.
+  // Last applied revision per flag key, with the learn counter value when it
+  // was applied. The counter grows with every applied change; a full set
+  // compares it with the value at its request (see _mergeFullSet). Never a
+  // clock.
   Map<String, _Revision> _revisions = {};
+  int _learnSeq = 0;
+  int _streamStartedAt = 0;
   final List<void Function(String)> _changeListeners = [];
 
   // SSE loop cancellation
@@ -389,6 +394,8 @@ class CheckgateClient {
       try {
         final request = http.Request('GET', uri);
         request.headers.addAll(headers);
+        // The replay this attempt receives is read after this point.
+        _streamStartedAt = _learnSeq;
         // Until `connected` arrives only the connect deadline applies; it
         // also bounds waiting for the response headers.
         _idleTimeout = Duration.zero;
@@ -590,9 +597,13 @@ class CheckgateClient {
   Future<void> _fetchSnapshot(int generation) async {
     final client = _httpClient;
     if (client == null) return;
+    // The server reads the snapshot after this point (see _mergeFullSet).
+    final startedAt = _learnSeq;
     try {
+      // `v=2` asks for per-flag revisions and recent deletions; servers
+      // before 0.1.31 ignore it and send a bare array.
       final response = await client.get(
-        Uri.parse('$serverUrl/flags/snapshot'),
+        Uri.parse('$serverUrl/flags/snapshot?v=2'),
         headers: {'Authorization': 'Bearer $sdkKey'},
       ).timeout(_pollTimeout);
       if (generation != _syncGeneration || _closed) return;
@@ -602,9 +613,9 @@ class CheckgateClient {
       }
       if (response.statusCode != 200) return;
 
-      final flags = jsonDecode(response.body) as List<dynamic>;
+      final snapshot = _parseSnapshot(jsonDecode(response.body));
       if (generation != _syncGeneration || _closed) return;
-      _applySnapshot(flags);
+      _applySnapshot(snapshot.flags, snapshot.revisions, startedAt);
       _hydrated = true;
       if (_state != CheckgateConnectionState.streaming) {
         _state = CheckgateConnectionState.polling;
@@ -615,17 +626,26 @@ class CheckgateClient {
     }
   }
 
-  /// Applies a full flag snapshot, diffing against `_flagCache` so only flags
-  /// that actually changed (added, updated, or removed) trigger onChange —
-  /// after the whole snapshot is applied — and a cache write. [revisions] replaces the per-flag revisions; poll snapshots
-  /// carry none. Returns true if anything changed.
+  /// Applies a complete flag set (a stream replay or a poll snapshot), merged
+  /// with what the client holds by [_mergeFullSet]: [revisions] is null when
+  /// the server sent none, and [startedAt] is the learn counter when the set
+  /// was requested. Then diffs against `_flagCache` so only flags that
+  /// actually changed (added, updated, or removed) trigger onChange — after
+  /// the whole set is applied — and a cache write. Returns true if anything
+  /// changed.
   bool _applySnapshot(List<dynamic> flags,
-      [Map<String, _Revision> revisions = const {}]) {
+      [Map<String, _Revision>? revisions, int? startedAt]) {
+    final incoming = <String, Map<String, dynamic>>{};
+    for (final raw in flags) {
+      final flag = raw as Map<String, dynamic>;
+      incoming[flag['key'] as String] = flag;
+    }
+    final merged = _mergeFullSet(_flagCache, _revisions, incoming, revisions,
+        startedAt ?? _learnSeq, ++_learnSeq);
     final newKeys = <String>{};
     final changed = <String>[];
 
-    for (final raw in flags) {
-      final flag = raw as Map<String, dynamic>;
+    for (final flag in merged.flags.values) {
       final key = flag['key'] as String;
       newKeys.add(key);
       final prev = _flagCache[key];
@@ -643,7 +663,7 @@ class CheckgateClient {
       changed.add(key);
     }
 
-    _revisions = Map<String, _Revision>.of(revisions);
+    _revisions = merged.revisions;
     if (changed.isEmpty) return false;
     _persistCache();
     // Notify only once the whole snapshot is in place: a listener that
@@ -699,9 +719,10 @@ class CheckgateClient {
       final revisions = _stagedRevisions ?? const {};
       _staged = null;
       _stagedRevisions = null;
-      // Swap in the complete replay. On a reconnect, listeners fire only for
-      // flags that changed while the stream was down.
-      _applySnapshot(staged.values.toList(), revisions);
+      // Swap in the complete replay, except where a poll that completed while
+      // it was on its way is newer (R20). On a reconnect, listeners fire only
+      // for flags that changed while the stream was down.
+      _applySnapshot(staged.values.toList(), revisions, _streamStartedAt);
       _hydrated = true;
       _persistCache(); // save the freshly-bootstrapped full set for offline use
       _state = CheckgateConnectionState.streaming;
@@ -733,6 +754,9 @@ class CheckgateClient {
 
     final staged = _staged;
     if (staged != null) {
+      if (_isStaleEvent(_stagedRevisions![key], revision, isUpsert: isUpsert)) {
+        return;
+      }
       if (isUpsert) {
         staged[key] = flag!;
       } else {
@@ -746,14 +770,16 @@ class CheckgateClient {
 
     if (_isStaleEvent(_revisions[key], revision, isUpsert: isUpsert)) return;
     if (revision != null) {
-      _revisions[key] = _Revision(revision, deleted: !isUpsert);
+      _revisions[key] =
+          _Revision(revision, deleted: !isUpsert, at: ++_learnSeq);
     }
     if (isUpsert) {
       _upsertFlag(flag!);
       _flagCache[key] = flag;
     } else {
+      // A delete of a flag the client does not hold changes nothing.
+      if (_flagCache.remove(key) == null) return;
       _deleteFlag(key);
-      _flagCache.remove(key);
     }
     _emitChange(key);
     _persistCache();
@@ -1027,6 +1053,10 @@ class CheckgateClient {
     _stagedRevisions = null;
   }
 
+  /// Test-only: open a new stream attempt, as the SSE loop does before each
+  /// request (its replay is read after this point).
+  void debugStreamOpened() => _streamStartedAt = _learnSeq;
+
   /// Test-only: run one poll-fallback request, as the poll timer does.
   Future<void> debugPollSnapshot() => _pollSnapshot();
 
@@ -1086,21 +1116,124 @@ extension on CheckgateClient {
   }
 }
 
-/// The revision of the last change applied to a flag, and whether that change
-/// deleted it.
+/// The revision of the last change applied to a flag, whether that change
+/// deleted it, and the learn counter value when the client applied it.
 class _Revision {
-  const _Revision(this.revision, {required this.deleted});
+  const _Revision(this.revision, {required this.deleted, this.at = 0});
 
   final int revision;
   final bool deleted;
+  final int at;
+
+  /// Whether this version supersedes [other]. Revisions come from one
+  /// server-wide sequence and grow with every committed write to a flag. A
+  /// delete carries the revision of the version it removed, so it supersedes
+  /// that version, and anything newer supersedes both.
+  bool supersedes(_Revision other) =>
+      revision > other.revision ||
+      (revision == other.revision && deleted && !other.deleted);
 }
 
-/// Whether a change event is older than what the client already holds for
-/// that flag. Change events carry the flag row's revision and can arrive out
-/// of order; events from servers that predate revisions always apply. After a
-/// delete, only a strictly newer upsert may bring the flag back.
+/// Whether a change event is stale: not newer than what the client already
+/// holds for that flag. Change events carry the flag row's revision and can
+/// arrive late or twice; a duplicate is stale too, so it changes nothing and
+/// notifies nobody. Events from servers that predate revisions always apply.
 bool _isStaleEvent(_Revision? known, int? revision, {required bool isUpsert}) {
   if (known == null || revision == null) return false;
-  if (isUpsert && known.deleted) return revision <= known.revision;
-  return revision < known.revision;
+  return !_Revision(revision, deleted: !isUpsert).supersedes(known);
+}
+
+/// A flag set and its revisions, or null revisions when the server sent none.
+class _FullSet {
+  const _FullSet(this.flags, this.revisions);
+
+  final Map<String, Map<String, dynamic>> flags;
+  final Map<String, _Revision> revisions;
+}
+
+/// The state after a complete flag set: a stream replay on "ready", or a poll
+/// snapshot. See docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md.
+///
+/// The server read [incoming] after the client sent the request, when the
+/// client's learn counter stood at [startedAt]. Everything the client learned
+/// before that is older than the set, so the set replaces it, absences
+/// included. What it learned afterwards (a poll that completed while a delayed
+/// replay was still on its way: R20) may be newer, so for those flags the
+/// newer version wins, and the set never brings back an older one.
+///
+/// [incomingRevisions] (deletions included) is null for a poll answered by a
+/// server older than 0.1.31, which sends no revisions: the set then replaces
+/// everything, exactly as before.
+_FullSet _mergeFullSet(
+    Map<String, Map<String, dynamic>> flags,
+    Map<String, _Revision> revisions,
+    Map<String, Map<String, dynamic>> incoming,
+    Map<String, _Revision>? incomingRevisions,
+    int startedAt,
+    int at) {
+  if (incomingRevisions == null) {
+    return _FullSet(Map.of(incoming), {});
+  }
+  final outFlags = <String, Map<String, dynamic>>{};
+  final outRevisions = <String, _Revision>{};
+  final keys = {...incoming.keys, ...incomingRevisions.keys, ...revisions.keys};
+  for (final key in keys) {
+    final held = revisions[key];
+    final offered = incomingRevisions[key];
+    if (held != null &&
+        held.at > startedAt &&
+        (offered == null || !offered.supersedes(held))) {
+      outRevisions[key] = held;
+      final flag = flags[key];
+      if (!held.deleted && flag != null) outFlags[key] = flag;
+      continue;
+    }
+    if (offered != null) {
+      outRevisions[key] =
+          _Revision(offered.revision, deleted: offered.deleted, at: at);
+    }
+    final flag = incoming[key];
+    if (flag != null && !(offered?.deleted ?? false)) outFlags[key] = flag;
+  }
+  return _FullSet(outFlags, outRevisions);
+}
+
+/// A parsed `GET /flags/snapshot` body.
+class _Snapshot {
+  const _Snapshot(this.flags, this.revisions);
+
+  final List<dynamic> flags;
+  final Map<String, _Revision>? revisions;
+}
+
+/// Reads a `GET /flags/snapshot` body: `{v: 2, flags, revisions, tombstones}`
+/// from a server that understands `?v=2` (0.1.31+), or a bare list of flags
+/// from an older one (null revisions). Throws [FormatException] on a malformed
+/// body, so a bad response never replaces the flags the client holds.
+_Snapshot _parseSnapshot(Object? body) {
+  if (body is List<dynamic>) return _Snapshot(body, null);
+  if (body is! Map<String, dynamic> || body['flags'] is! List<dynamic>) {
+    throw const FormatException('Snapshot was not a flag set.');
+  }
+  final flags = body['flags'] as List<dynamic>;
+  final revs = body['revisions'];
+  final revisions = <String, _Revision>{};
+  for (final raw in flags) {
+    final key = raw is Map<String, dynamic> ? raw['key'] : null;
+    final revision = revs is Map<String, dynamic> ? revs[key] : null;
+    if (key is! String || revision is! int) {
+      throw const FormatException('Snapshot flag without a revision.');
+    }
+    revisions[key] = _Revision(revision, deleted: false);
+  }
+  final tombstones = body['tombstones'];
+  if (tombstones is Map<String, dynamic>) {
+    tombstones.forEach((key, revision) {
+      if (revision is! int) {
+        throw const FormatException('Snapshot tombstone without a revision.');
+      }
+      revisions.putIfAbsent(key, () => _Revision(revision, deleted: true));
+    });
+  }
+  return _Snapshot(flags, revisions);
 }

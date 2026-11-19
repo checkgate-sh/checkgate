@@ -3,13 +3,17 @@
 //!
 //! - every (re)connect stages the replayed flag set and swaps it in on
 //!   `ready`, so a replay cut short never goes live;
-//! - after `ready`, change events apply unless they are older than the
-//!   revision held for that flag, and after a delete only a strictly newer
-//!   upsert brings a flag back;
+//! - change events (staged or live) apply only if they supersede the version
+//!   held for that flag: newer revision, or a delete at the same revision;
+//!   duplicates and older events are dropped;
 //! - a closed or failed stream reconnects with exponential backoff and
 //!   jitter, and after `poll_fallback_threshold` consecutive failures the
-//!   client also polls `GET /flags/snapshot` (which carries no revisions, so
-//!   it clears them, as the Node SDK does) until a stream connects again;
+//!   client also polls `GET /flags/snapshot?v=2` (flags with revisions and
+//!   tombstones) until a stream connects again;
+//! - a complete set (the replay on `ready`, or a poll) replaces what the
+//!   client learned before it was requested, and is merged per flag, newer
+//!   version winning, with what it learned after (R20; `merge_full_set`
+//!   mirrors the SDKs' `mergeFullSet`);
 //! - an attempt that has not seen `connected` within `connect_timeout` is
 //!   abandoned, and a connected stream that announced `heartbeat_ms` is
 //!   abandoned after `idle_heartbeats` intervals without a complete frame
@@ -55,11 +59,21 @@ impl Default for SdkOptions {
     }
 }
 
-/// A flag's last known revision, and whether that revision deleted it.
+/// A flag's last known revision, whether that revision deleted it, and the
+/// learn counter value when the client applied it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Known {
     pub revision: i64,
     pub deleted: bool,
+    pub at: u64,
+}
+
+impl Known {
+    /// A delete at revision `r` supersedes the flag at `r`; anything newer
+    /// supersedes both (the server's `sync::Version` order).
+    fn supersedes(&self, other: &Known) -> bool {
+        (self.revision, self.deleted) > (other.revision, other.deleted)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -89,6 +103,10 @@ pub struct SdkState {
     /// Set when the server rejected the key: the client has stopped.
     pub auth_rejected: Option<u16>,
     staged: Option<(HashMap<String, Value>, HashMap<String, Known>)>,
+    /// Grows with every applied change (see `merge_full_set`).
+    learn_seq: u64,
+    /// `learn_seq` when the current stream attempt was sent.
+    stream_started_at: u64,
 }
 
 pub struct SimSdk {
@@ -147,12 +165,60 @@ impl SimSdk {
     }
 }
 
-fn is_stale(known: Option<&Known>, revision: Option<i64>, is_upsert: bool) -> bool {
-    match (known, revision) {
-        (Some(k), Some(r)) if is_upsert && k.deleted => r <= k.revision,
-        (Some(k), Some(r)) => r < k.revision,
+fn is_stale(known: Option<&Known>, incoming: Option<&Known>) -> bool {
+    match (known, incoming) {
+        (Some(k), Some(i)) => !i.supersedes(k),
         _ => false,
     }
+}
+
+/// The state after a complete set requested when `learn_seq` was
+/// `started_at`: what was learned before is replaced (absences included),
+/// what was learned after is kept unless the set has a newer version.
+/// `incoming_revisions` is `None` for a server that sends none.
+fn merge_full_set(
+    state: &mut SdkState,
+    incoming: HashMap<String, Value>,
+    incoming_revisions: Option<HashMap<String, Known>>,
+    started_at: u64,
+) {
+    state.learn_seq += 1;
+    let at = state.learn_seq;
+    let Some(offered_revisions) = incoming_revisions else {
+        state.flags = incoming;
+        state.revisions.clear();
+        return;
+    };
+    let mut keys: HashSet<String> = incoming.keys().cloned().collect();
+    keys.extend(offered_revisions.keys().cloned());
+    keys.extend(state.revisions.keys().cloned());
+    let mut flags = HashMap::new();
+    let mut revisions = HashMap::new();
+    for key in keys {
+        let held = state.revisions.get(&key).copied();
+        let offered = offered_revisions.get(&key).copied();
+        if let Some(h) = held
+            && h.at > started_at
+            && offered.is_none_or(|o| !o.supersedes(&h))
+        {
+            revisions.insert(key.clone(), h);
+            if let Some(flag) = state.flags.get(&key).filter(|_| !h.deleted) {
+                flags.insert(key, flag.clone());
+            }
+            continue;
+        }
+        if let Some(o) = offered {
+            revisions.insert(key.clone(), Known { at, ..o });
+        }
+        if let Some(flag) = incoming
+            .get(&key)
+            .filter(|_| !offered.is_some_and(|o| o.deleted))
+        {
+            flags.insert(key, flag.clone());
+        }
+    }
+    state.flags = flags;
+    state.revisions = revisions;
 }
 
 fn apply(state: &mut SdkState, data: &str) {
@@ -178,9 +244,13 @@ fn apply(state: &mut SdkState, data: &str) {
     let known = revision.map(|revision| Known {
         revision,
         deleted: !is_upsert,
+        at: 0,
     });
 
     if let Some((flags, revisions)) = state.staged.as_mut() {
+        if is_stale(revisions.get(&key), known.as_ref()) {
+            return;
+        }
         if is_upsert {
             flags.insert(key.clone(), event["flag"].clone());
         } else {
@@ -193,12 +263,14 @@ fn apply(state: &mut SdkState, data: &str) {
     }
 
     state.live_events += 1;
-    if is_stale(state.revisions.get(&key), revision, is_upsert) {
+    if is_stale(state.revisions.get(&key), known.as_ref()) {
         state.stale_dropped += 1;
         return;
     }
     if let Some(k) = known {
-        state.revisions.insert(key.clone(), k);
+        state.learn_seq += 1;
+        let at = state.learn_seq;
+        state.revisions.insert(key.clone(), Known { at, ..k });
     }
     if is_upsert {
         state.flags.insert(key, event["flag"].clone());
@@ -227,8 +299,8 @@ fn on_frame(state: &Mutex<SdkState>, event: &str, data: &str) {
         "heartbeat" => s.heartbeats += 1,
         "ready" => {
             if let Some((flags, revisions)) = s.staged.take() {
-                s.flags = flags;
-                s.revisions = revisions;
+                let started_at = s.stream_started_at;
+                merge_full_set(&mut s, flags, Some(revisions), started_at);
                 s.ready = true;
                 s.readies += 1;
             }
@@ -261,7 +333,12 @@ async fn stream_once(
     opts: &SdkOptions,
     state: &Mutex<SdkState>,
 ) -> Attempt {
-    state.lock().unwrap().attempts += 1;
+    {
+        let mut s = state.lock().unwrap();
+        s.attempts += 1;
+        // The replay this attempt receives is read after this point.
+        s.stream_started_at = s.learn_seq;
+    }
     let mut deadline = tokio::time::Instant::now() + opts.connect_timeout;
     let sent = client
         .get(format!("{base}/stream"))
@@ -332,8 +409,9 @@ async fn poll_once(
     key: &str,
     state: &Mutex<SdkState>,
 ) -> Option<u16> {
+    let started_at = state.lock().unwrap().learn_seq;
     let Ok(resp) = client
-        .get(format!("{base}/flags/snapshot"))
+        .get(format!("{base}/flags/snapshot?v=2"))
         .bearer_auth(key)
         .timeout(Duration::from_secs(5))
         .send()
@@ -347,18 +425,53 @@ async fn poll_once(
     if !resp.status().is_success() {
         return None;
     }
-    let Ok(flags) = resp.json::<Vec<Value>>().await else {
+    let Ok(body) = resp.json::<Value>().await else {
         return None;
     };
+    let (flags, revisions) = parse_snapshot(body)?;
     let mut s = state.lock().unwrap();
-    s.flags = flags
-        .into_iter()
-        .filter_map(|f| Some((f["key"].as_str()?.to_string(), f)))
-        .collect();
-    s.revisions.clear();
+    merge_full_set(&mut s, flags, revisions, started_at);
     s.polls += 1;
     s.ready = true;
     None
+}
+
+type FullSet = (HashMap<String, Value>, Option<HashMap<String, Known>>);
+
+/// A `?v=2` snapshot (flags, revisions, tombstones), or a bare array from a
+/// server that predates it. `None` if malformed: nothing is applied.
+fn parse_snapshot(body: Value) -> Option<FullSet> {
+    let keyed = |flags: Vec<Value>| -> HashMap<String, Value> {
+        flags
+            .into_iter()
+            .filter_map(|f| Some((f["key"].as_str()?.to_string(), f)))
+            .collect()
+    };
+    if let Value::Array(flags) = body {
+        return Some((keyed(flags), None));
+    }
+    let flags = keyed(body["flags"].as_array()?.clone());
+    let mut revisions = HashMap::new();
+    for key in flags.keys() {
+        let revision = body["revisions"][key].as_i64()?;
+        revisions.insert(
+            key.clone(),
+            Known {
+                revision,
+                deleted: false,
+                at: 0,
+            },
+        );
+    }
+    for (key, revision) in body["tombstones"].as_object()? {
+        let revision = revision.as_i64()?;
+        revisions.entry(key.clone()).or_insert(Known {
+            revision,
+            deleted: true,
+            at: 0,
+        });
+    }
+    Some((flags, Some(revisions)))
 }
 
 async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkState>>) {
