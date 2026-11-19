@@ -83,9 +83,15 @@ first:
   against an older server the SDKs behave as 0.1.30 did. It is per flag, not
   across flags (`docs/operations/configuration-consistency.md`).
 - **Propagation tail**: the 1 000-client p99 measured higher than 0.1.30's on
-  a contended host (198 against 75 ms pooled; median run 84 against 76 ms). It
-  is attributed to the host and has not yet been re-measured on a dedicated
-  Linux host.
+  a contended macOS host (198 against 75 ms pooled; median run 84 against
+  76 ms). Re-measured on a Linux desktop (native Docker, alternated runs, 8
+  per version), it does not reproduce: p50 and p99 are statistically equal at
+  1 to 1 000 clients (1 000-client p99 0.82× of 0.1.30's, 95 % CI 0.72–1.09),
+  none of 5.1 million deliveries missed. With PostgreSQL's commit latency
+  removed, the 1 000-client p99 is 1.8 ms (6 %) higher, all of it in the first
+  20 updates after the clients connect (a one-time warm-up cost; later updates
+  are equal). Not a dedicated server, and its disk dominates the absolute
+  numbers.
 
 ### Added
 
