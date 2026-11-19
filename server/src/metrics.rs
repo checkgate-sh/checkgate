@@ -150,6 +150,61 @@ pub struct RedisDisconnectLabels {
     pub reason: RedisDisconnect,
 }
 
+/// The analytics table a row belongs to.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+#[allow(
+    non_camel_case_types,
+    reason = "label values are rendered from variant names"
+)]
+pub enum AnalyticsTable {
+    impressions,
+    events,
+}
+
+/// What happened to an analytics row sent for ingestion.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+#[allow(
+    non_camel_case_types,
+    reason = "label values are rendered from variant names"
+)]
+pub enum RowOutcome {
+    /// Stored.
+    accepted,
+    /// Skipped inside an accepted batch (empty or over-long key).
+    invalid,
+    /// Its batch was refused by the per-credential ingest quota.
+    quota,
+    /// Its batch had more than 500 rows.
+    batch_too_large,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct AnalyticsRowLabels {
+    pub table: AnalyticsTable,
+    pub outcome: RowOutcome,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct AnalyticsTableLabels {
+    pub table: AnalyticsTable,
+}
+
+/// The per-credential ingest budget that refused a request.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+#[allow(
+    non_camel_case_types,
+    reason = "label values are rendered from variant names"
+)]
+pub enum QuotaLimit {
+    requests,
+    rows,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct QuotaLimitLabels {
+    pub limit: QuotaLimit,
+}
+
 type HistogramFamily<L> = Family<L, Histogram, fn() -> Histogram>;
 
 fn latency_buckets() -> Histogram {
@@ -193,6 +248,14 @@ pub struct Metrics {
     pub db_pool_max_connections: Gauge,
     pub db_up: Gauge,
     pub ready: Gauge,
+
+    pub analytics_rows: Family<AnalyticsRowLabels, Counter>,
+    pub ingest_quota_rejections: Family<QuotaLimitLabels, Counter>,
+    pub ingest_quota_fallback: Counter,
+    pub analytics_cleanup_runs: Family<OutcomeLabels, Counter>,
+    pub analytics_cleanup_deleted: Family<AnalyticsTableLabels, Counter>,
+    pub analytics_cleanup_duration: Histogram,
+    pub analytics_cleanup_last_success: Gauge,
 }
 
 impl Metrics {
@@ -377,6 +440,51 @@ impl Metrics {
             ready.clone(),
         );
 
+        let analytics_rows = Family::<AnalyticsRowLabels, Counter>::default();
+        r.register(
+            p("analytics_rows"),
+            "Impression and event rows sent for ingestion, by table and outcome",
+            analytics_rows.clone(),
+        );
+        let ingest_quota_rejections = Family::<QuotaLimitLabels, Counter>::default();
+        r.register(
+            p("ingest_quota_rejections"),
+            "Ingest requests refused (429) by the per-credential quota, by the budget that refused them",
+            ingest_quota_rejections.clone(),
+        );
+        let ingest_quota_fallback = Counter::default();
+        r.register(
+            p("ingest_quota_local_decisions"),
+            "Ingest quota decisions made by this instance alone because Redis was unavailable",
+            ingest_quota_fallback.clone(),
+        );
+        let analytics_cleanup_runs = Family::<OutcomeLabels, Counter>::default();
+        r.register(
+            p("analytics_cleanup_runs"),
+            "Analytics retention passes this instance ran, by outcome",
+            analytics_cleanup_runs.clone(),
+        );
+        let analytics_cleanup_deleted = Family::<AnalyticsTableLabels, Counter>::default();
+        r.register(
+            p("analytics_cleanup_deleted_rows"),
+            "Expired analytics rows deleted by retention passes on this instance",
+            analytics_cleanup_deleted.clone(),
+        );
+        // 10 ms … ~44 min.
+        let analytics_cleanup_duration = Histogram::new(exponential_buckets(0.01, 4.0, 10));
+        r.register_with_unit(
+            p("analytics_cleanup_duration"),
+            "Duration of one analytics retention pass",
+            Unit::Seconds,
+            analytics_cleanup_duration.clone(),
+        );
+        let analytics_cleanup_last_success = Gauge::default();
+        r.register(
+            p("analytics_cleanup_last_success_timestamp_seconds"),
+            "Unix time this instance last completed a retention pass (0 if never)",
+            analytics_cleanup_last_success.clone(),
+        );
+
         r.register(
             p("build"),
             "Build information",
@@ -423,6 +531,21 @@ impl Metrics {
         }
         for outcome in [Outcome::success, Outcome::failure] {
             drop(reconciliations.get_or_create(&OutcomeLabels { outcome }));
+            drop(analytics_cleanup_runs.get_or_create(&OutcomeLabels { outcome }));
+        }
+        for table in [AnalyticsTable::impressions, AnalyticsTable::events] {
+            for outcome in [
+                RowOutcome::accepted,
+                RowOutcome::invalid,
+                RowOutcome::quota,
+                RowOutcome::batch_too_large,
+            ] {
+                drop(analytics_rows.get_or_create(&AnalyticsRowLabels { table, outcome }));
+            }
+            drop(analytics_cleanup_deleted.get_or_create(&AnalyticsTableLabels { table }));
+        }
+        for limit in [QuotaLimit::requests, QuotaLimit::rows] {
+            drop(ingest_quota_rejections.get_or_create(&QuotaLimitLabels { limit }));
         }
 
         Arc::new(Self {
@@ -454,7 +577,22 @@ impl Metrics {
             db_pool_max_connections,
             db_up,
             ready,
+            analytics_rows,
+            ingest_quota_rejections,
+            ingest_quota_fallback,
+            analytics_cleanup_runs,
+            analytics_cleanup_deleted,
+            analytics_cleanup_duration,
+            analytics_cleanup_last_success,
         })
+    }
+
+    pub fn count_rows(&self, table: AnalyticsTable, outcome: RowOutcome, rows: usize) {
+        if rows > 0 {
+            self.analytics_rows
+                .get_or_create(&AnalyticsRowLabels { table, outcome })
+                .inc_by(u64::try_from(rows).unwrap_or(u64::MAX));
+        }
     }
 
     pub fn resync(&self, trigger: ResyncTrigger) {

@@ -10,9 +10,11 @@
     )
 )]
 
+mod analytics_retention;
 mod api;
 mod auth;
 mod client_ip;
+mod ingest_quota;
 mod integrations;
 mod lifecycle;
 mod limits;
@@ -95,6 +97,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         error!(error = %e, "Invalid SSE limit");
         e
     })?);
+    let retention_config = analytics_retention::RetentionConfig::from_env().map_err(|e| {
+        error!(error = %e, "Invalid analytics retention setting");
+        e
+    })?;
+    let ingest_quota_config = ingest_quota::IngestQuotaConfig::from_env().map_err(|e| {
+        error!(error = %e, "Invalid ingest quota setting");
+        e
+    })?;
     // A peer that stops reading leaves the SSE stream unpolled (its socket is
     // full), so no application timer can fire for it; the kernel can. With
     // TCP_USER_TIMEOUT, a connection whose sent data stays unacknowledged —
@@ -314,6 +324,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     info!(config = ?rate_limit_config, "Rate limits per client per minute");
     let rate_limiters = Arc::new(RateLimiters::new(rate_limit_config));
+    info!(
+        requests = ?ingest_quota_config.requests,
+        rows = ?ingest_quota_config.rows,
+        "Ingest quota per SDK key or user per minute (shared through Redis)"
+    );
+    match retention_config.days {
+        Some(days) => info!(
+            retention_days = days,
+            interval_secs = retention_config.interval.as_secs(),
+            batch_size = retention_config.batch_size,
+            "Analytics retention: impressions and events older than this are deleted \
+             (rows of running or paused experiments are kept)"
+        ),
+        None => warn!(
+            "ANALYTICS_RETENTION_DAYS=0 — impressions and events are kept forever; \
+             the database grows with ingestion"
+        ),
+    }
 
     // ── Broadcast channel ─────────────────────────────────────────────────────
 
@@ -328,6 +356,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let metrics = metrics::Metrics::new(max_conns);
     let lifecycle = Arc::new(lifecycle::Lifecycle::new(lifecycle_config));
+    let ingest_quota = Arc::new(ingest_quota::IngestQuota::new(
+        ingest_quota_config,
+        redis_conn.clone(),
+        sync::updates_channel(),
+        Arc::clone(&metrics),
+    ));
     let app_state = state::AppState {
         db: db.clone(),
         redis_client: redis_client.clone(),
@@ -343,9 +377,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metrics: Arc::clone(&metrics),
         lifecycle: Arc::clone(&lifecycle),
         sse_limits,
+        ingest_quota: Arc::clone(&ingest_quota),
     };
     let shutdown = lifecycle.shutdown.clone();
     rate_limiters.spawn_eviction(shutdown.clone());
+    ingest_quota.spawn_eviction(shutdown.clone());
 
     // ── Redis subscriber and reconciliation ──────────────────────────────────
     //
@@ -427,6 +463,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn scheduled-change executor (checks every 60 s, multi-instance safe).
     let scheduler = tokio::spawn(scheduler::run(app_state.clone(), shutdown.clone()));
+    // Analytics retention (multi-instance safe: one pass at a time cluster-wide).
+    let retention = tokio::spawn(analytics_retention::run(
+        db.clone(),
+        retention_config,
+        Arc::clone(&metrics),
+        shutdown.clone(),
+    ));
 
     // Flag write routes: editors and admins can create/edit/delete flags.
     let editor_write_api = api::editor_write_router()
@@ -585,7 +628,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     tokio::time::sleep(config.drain_delay).await;
     // Stops accepting connections, ends every SSE stream, and stops the
-    // subscriber, reconciler, scheduler, resync retries and limiter eviction.
+    // subscriber, reconciler, scheduler, analytics retention, resync retries
+    // and limiter eviction.
     shutdown.cancel();
 
     let deadline = signalled
@@ -607,6 +651,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("subscriber", subscriber),
         ("reconciler", reconciler),
         ("scheduler", scheduler),
+        ("analytics retention", retention),
     ] {
         // Each was cancelled above and stops at its next await point.
         if tokio::time::timeout(Duration::from_secs(2), task)

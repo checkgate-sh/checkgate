@@ -6,6 +6,7 @@ pub mod experiments;
 pub mod flags;
 pub mod health;
 pub mod impressions;
+mod ingest;
 pub mod integrations;
 pub mod keys;
 pub mod projects;

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::{RwLock, broadcast};
 
+use crate::ingest_quota::IngestQuota;
 use crate::lifecycle::Lifecycle;
 use crate::metrics::Metrics;
 use crate::stream::SseLimits;
@@ -71,6 +72,8 @@ pub struct AppState {
     /// Operator-configured `SETUP_TOKEN`; `None` means per-instance generated
     /// tokens, verified by hash against `settings` (see `crate::setup`).
     pub setup_token: Option<Arc<str>>,
+    /// Per-credential analytics ingest quota, shared through Redis.
+    pub ingest_quota: Arc<IngestQuota>,
 }
 
 /// Allows `PrivateCookieJar` extractors to pull the key out of `AppState` automatically.
