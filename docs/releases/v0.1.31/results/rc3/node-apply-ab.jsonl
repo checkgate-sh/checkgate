@@ -1,0 +1,16 @@
+{"build":"base","case":"replay-unchanged","flags":100,"rounds":15,"median_us":224.87,"p95_us":281.13}
+{"build":"base","case":"replay-changed","flags":100,"rounds":15,"median_us":689.54,"p95_us":712.25}
+{"build":"base","case":"poll-v2","flags":100,"rounds":15,"median_us":670.62,"p95_us":688.37}
+{"build":"base","case":"event","flags":100,"rounds":15,"median_us":4.41,"p95_us":4.56}
+{"build":"base","case":"replay-unchanged","flags":1000,"rounds":15,"median_us":2273.54,"p95_us":2414.36}
+{"build":"base","case":"replay-changed","flags":1000,"rounds":15,"median_us":7219.01,"p95_us":7670.27}
+{"build":"base","case":"poll-v2","flags":1000,"rounds":15,"median_us":7063.76,"p95_us":9684.97}
+{"build":"base","case":"event","flags":1000,"rounds":15,"median_us":4.42,"p95_us":4.49}
+{"build":"cand","case":"replay-unchanged","flags":100,"rounds":15,"median_us":256.03,"p95_us":265.49}
+{"build":"cand","case":"replay-changed","flags":100,"rounds":15,"median_us":721.81,"p95_us":737.45}
+{"build":"cand","case":"poll-v2","flags":100,"rounds":15,"median_us":721.58,"p95_us":752.25}
+{"build":"cand","case":"event","flags":100,"rounds":15,"median_us":4.43,"p95_us":4.51}
+{"build":"cand","case":"replay-unchanged","flags":1000,"rounds":15,"median_us":2691.82,"p95_us":2736.91}
+{"build":"cand","case":"replay-changed","flags":1000,"rounds":15,"median_us":7609.56,"p95_us":7729.81}
+{"build":"cand","case":"poll-v2","flags":1000,"rounds":15,"median_us":7554.35,"p95_us":7899.15}
+{"build":"cand","case":"event","flags":1000,"rounds":15,"median_us":4.38,"p95_us":4.5}

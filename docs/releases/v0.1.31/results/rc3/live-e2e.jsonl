@@ -1,0 +1,44 @@
+{"sdk":"node","engine":"native addon","step":"bootstrap","ok":true,"ms":98}
+{"sdk":"node","engine":"native addon","step":"update delivery and targeting","ok":true,"ms":191,"createMs":88,"patchMs":32,"deleteMs":71}
+{"sdk":"node","engine":"native addon","step":"reconnect after the link drops","ok":true,"ms":184,"recoverMs":153}
+{"sdk":"node","engine":"native addon","step":"half-open stream is detected","ok":true,"ms":3115,"recoverMs":3091}
+{"sdk":"node","engine":"native addon","step":"poll fallback when only the stream is blocked","ok":true,"ms":892,"pollMs":457}
+{"sdk":"node","engine":"native addon","step":"concurrent updates arrive in order and converge","ok":true,"ms":910,"convergeMs":1}
+{"sdk":"node","engine":"native addon","step":"a delayed replay never rolls back a newer poll (R20)","ok":true,"ms":3992,"pollMs":205,"replayAppliedAfterMs":2227}
+{"sdk":"node","engine":"native addon","step":"invalid key: connect() rejects and retries stop","ok":true,"ms":2011,"requests":1}
+{"sdk":"node","engine":"native addon","step":"revoked key: terminal, last flags kept","ok":true,"ms":2205,"detectMs":153}
+{"sdk":"node","engine":"native addon","step":"shutdown releases every stream","ok":true,"ms":51}
+{"sdk":"web","engine":"WASM","step":"bootstrap","ok":true,"ms":99}
+{"sdk":"web","engine":"WASM","step":"update delivery and targeting","ok":true,"ms":233,"createMs":78,"patchMs":78,"deleteMs":75}
+{"sdk":"web","engine":"WASM","step":"reconnect after the link drops","ok":true,"ms":142,"recoverMs":102}
+{"sdk":"web","engine":"WASM","step":"half-open stream is detected","ok":true,"ms":3119,"recoverMs":3093}
+{"sdk":"web","engine":"WASM","step":"poll fallback when only the stream is blocked","ok":true,"ms":934,"pollMs":508}
+{"sdk":"web","engine":"WASM","step":"concurrent updates arrive in order and converge","ok":true,"ms":526,"convergeMs":1}
+{"sdk":"web","engine":"WASM","step":"a delayed replay never rolls back a newer poll (R20)","ok":true,"ms":4429,"pollMs":203,"replayAppliedAfterMs":2689}
+{"sdk":"web","engine":"WASM","step":"invalid key: connect() rejects and retries stop","ok":true,"ms":2017,"requests":2}
+{"sdk":"web","engine":"WASM","step":"revoked key: terminal, last flags kept","ok":true,"ms":2205,"detectMs":152}
+{"sdk":"web","engine":"WASM","step":"shutdown releases every stream","ok":true,"ms":52}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"bootstrap","ok":true,"ms":81}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"update delivery and targeting","ok":true,"ms":223,"createMs":73,"patchMs":80,"deleteMs":69}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"reconnect after the link drops","ok":true,"ms":181,"recoverMs":153}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"half-open stream is detected","ok":true,"ms":3126,"recoverMs":3100}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"poll fallback when only the stream is blocked","ok":true,"ms":794,"pollMs":460}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"concurrent updates arrive in order and converge","ok":true,"ms":512,"convergeMs":0}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"a delayed replay never rolls back a newer poll (R20)","ok":true,"ms":4843,"pollMs":253,"replayAppliedAfterMs":3112}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"invalid key: connect() rejects and retries stop","ok":true,"ms":2011,"requests":1}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"revoked key: terminal, last flags kept","ok":true,"ms":2205,"detectMs":153}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"shutdown releases every stream","ok":true,"ms":52}
+{"sdk":"flutter","engine":"Rust via FFI","step":"bootstrap","ok":true,"ms":2755}
+{"sdk":"flutter","engine":"Rust via FFI","step":"update delivery and targeting","ok":true,"ms":128,"createMs":78,"patchMs":27,"deleteMs":21}
+{"sdk":"flutter","engine":"Rust via FFI","step":"reconnect after the link drops","ok":true,"ms":184,"recoverMs":160}
+{"sdk":"flutter","engine":"Rust via FFI","step":"half-open stream is detected","ok":true,"ms":3136,"recoverMs":3110}
+{"sdk":"flutter","engine":"Rust via FFI","step":"poll fallback when only the stream is blocked","ok":true,"ms":754,"pollMs":469}
+{"sdk":"flutter","engine":"Rust via FFI","step":"concurrent updates arrive in order and converge","ok":true,"ms":474,"convergeMs":0}
+{"sdk":"flutter","engine":"Rust via FFI","step":"a delayed replay never rolls back a newer poll (R20)","ok":true,"ms":5258,"pollMs":208,"replayAppliedAfterMs":3559}
+{"sdk":"flutter","engine":"Rust via FFI","step":"invalid key: connect() rejects and retries stop","ok":true,"ms":3864,"requests":1}
+{"sdk":"flutter","engine":"Rust via FFI","step":"revoked key: terminal, last flags kept","ok":true,"ms":4298,"detectMs":172}
+{"sdk":"flutter","engine":"Rust via FFI","step":"shutdown releases every stream","ok":true,"ms":24}
+{"sdk":"node","engine":"native addon","step":"server restart (SIGKILL) and recovery","ok":true,"downMs":2023,"recoverAfterRestartMs":359}
+{"sdk":"web","engine":"WASM","step":"server restart (SIGKILL) and recovery","ok":true,"downMs":2018,"recoverAfterRestartMs":438}
+{"sdk":"react-native","engine":"WASM behind the JSI bridge interface","step":"server restart (SIGKILL) and recovery","ok":true,"downMs":2018,"recoverAfterRestartMs":436}
+{"sdk":"flutter","engine":"Rust via FFI","step":"server restart (SIGKILL) and recovery","ok":true,"downMs":2428,"recoverAfterRestartMs":53}

@@ -24,6 +24,12 @@ first:
   SSE comment, sent after `SSE_HEARTBEAT_INTERVAL_SECS` (default 15) of
   silence, and `connected` carries `heartbeat_ms`. Older SDKs ignore both.
   Proxies see the same traffic pattern as before.
+- **`GET /flags/snapshot?v=2`** answers `{ v, flags, revisions, tombstones }`;
+  0.1.31 SDKs ask for it when they poll. Without `v` the endpoint answers the
+  same array as before, so older SDKs and other consumers (`@checkgate/edge`,
+  `@checkgate/ssr`, scripts) are unaffected. A 0.1.31 SDK polling a 0.1.30
+  server gets the array and behaves as 0.1.30 did (no ordering between a poll
+  and a stream replay; see R20 below).
 - **SDKs drop a silent stream** after 3 heartbeat intervals (45 s by default)
   and reconnect. Against a 0.1.30 server the JavaScript SDKs keep only the new
   30 s connect deadline (that server's keep-alive is invisible to
@@ -47,6 +53,20 @@ first:
 - **All-in-one container.** The entrypoint shell stays as PID 1 and stops the
   bundled PostgreSQL and Redis after the server exits. Keep the stop timeout
   at 30 s or more (`docker-compose.yml` now sets `stop_grace_period: 30s`).
+
+### Known limitations
+
+- **Flutter**: the package bundles no compiled engine; link the Rust engine
+  as the Flutter README describes (verified on an iOS simulator).
+- **iOS**: verified only for Flutter, on the iOS 17 simulator. The React
+  Native iOS app build and physical devices were not tested for this release.
+- **Ordering across poll and stream** (the R20 fix) needs a 0.1.31 server;
+  against an older server the SDKs behave as 0.1.30 did. It is per flag, not
+  across flags (`docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md`).
+- **Propagation tail**: the 1 000-client p99 measured higher than 0.1.30's on
+  a contended host (198 against 75 ms pooled; median run 84 against 76 ms). It
+  is attributed to the host and has not yet been re-measured on a dedicated
+  Linux host.
 
 ### Added
 
@@ -94,6 +114,20 @@ first:
 
 ### Fixed
 
+- **A delayed stream replay could roll flags back (R20, every SDK, also in
+  0.1.30).** While an SDK polled during a stream outage, the next stream's
+  replay (read by the server when the stream opened) could arrive after polls
+  had delivered newer state; on `ready` the SDK swapped the older replay in,
+  so flags went back, and a flag deleted meanwhile came back, until the live
+  events behind the replay caught up. Polls carried no revisions, so the SDK
+  could not tell which was newer. The snapshot now carries them (`?v=2`), and
+  every SDK merges a complete flag set (replay or poll) per flag with what it
+  learned after requesting it: the newer version wins, and a set still
+  replaces everything older. Design and limits:
+  `docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md`.
+- **A duplicate change event notified `onChange` listeners again**, and a
+  delete of a flag the SDK did not hold notified them too. Both now change
+  nothing and notify nobody.
 - **React Native: after a network error the SDK stayed on stale flags until
   the app restarted.** `react-native-sse` (the polyfill the docs require)
   supports `addEventListener('error')` but not `onerror`, so the SDK never saw

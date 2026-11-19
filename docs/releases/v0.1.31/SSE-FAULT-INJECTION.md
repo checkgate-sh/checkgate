@@ -101,8 +101,9 @@ The v0.1.30 Node client fails seed 173 the same way: pre-existing, not caused by
 RC2. Seed 184 (web only; passes on a second run) has the same preconditions:
 503s on `/stream` (poll fallback), then a restart with delayed writes.
 
-The seeds are recorded in `ci-seeds.json` under `known_failures`, not in the
-CI set, until R20 is fixed.
+The seeds were recorded in `ci-seeds.json` under `known_failures` until R20
+was fixed. **RC3 fixed R20** and moved both seeds into the CI set; results in
+RC3-SSE-FAULT-RESULTS.md.
 
 ### What the suite caught
 
@@ -113,7 +114,7 @@ CI set, until R20 is fixed.
 | `_markReady` did not settle a `connect()` issued after an auth failure on a client that had been ready | RC2 work in progress | fixed before commit |
 | A stream that trickles bytes without completing a frame kept Flutter attached | RC2 Flutter client, **seed 11** | liveness now counts complete frames; seed kept in `ci-seeds.json` as a regression |
 | Flags-then-evaluate read across two process round trips raced a delete | the harness (Flutter adapter) | atomic `sample` command |
-| A delayed stream replay rolls back flags obtained by polling meanwhile (seeds 173, 184) | every SDK, and the v0.1.30 Node client | **R20**, open: needs per-flag revisions in `/flags/snapshot` |
+| A delayed stream replay rolls back flags obtained by polling meanwhile (seeds 173, 184) | every SDK, and the v0.1.30 Node client | **R20**, fixed in RC3 (revisioned snapshots, per-flag merge) |
 
 Reproduce a seed: `CONFORMANCE_SEEDS=<seed> node --test sdks/conformance/flutter.mjs`
 (or the SDK's own runner; see `sdks/conformance/README.md`). A failure writes the

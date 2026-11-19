@@ -3,9 +3,13 @@
 Officially supported SDKs (as published): `@checkgate/node`, `@checkgate/web`
 (also the engine of `@checkgate/edge` and `@checkgate/ssr`),
 `@checkgate/react-native` and `checkgate_flutter`. All of them wrap the same
-Rust core. No SDK was added. The SSE wire format and `/flags/snapshot` are
-unchanged, so v0.1.30 SDKs work against a v0.1.31 server and v0.1.31 SDKs work
-against a v0.1.30 server.
+Rust core. No SDK was added. The SSE wire format is unchanged.
+`/flags/snapshot` gained an opt-in format in RC3 (`?v=2`: revisions and
+tombstones, for R20); without the parameter it answers exactly as before. So
+v0.1.30 SDKs work against a v0.1.31 server, and v0.1.31 SDKs work against a
+v0.1.30 server, where their polls fall back to the old format (and the
+poll-versus-replay ordering of CONFIGURATION-CONSISTENCY.md §6 does not
+apply).
 
 ## Verification matrix (2026-11-18, local)
 
@@ -23,6 +27,7 @@ against a v0.1.30 server.
 | Connection health | **RC2:** `getStatus()` | `getStatus()` | `getStatus()` | `status` |
 | Live e2e against a server (RC2) | pass | pass | pass (JS + real polyfill; WASM engine) | pass (Dart VM + FFI); **iOS simulator: pass** |
 | Randomized fault suite (RC2) | pass | pass | pass | pass |
+| **RC3:** poll vs delayed replay never goes back (R20); `?v=2` polls; legacy array still accepted | named scenarios + seeds 173/184 + unit | same | same | same |
 | Network failure | reconnect, then poll fallback | same | same; **polls if no `EventSource`** (R5) | same |
 | Shutdown / cleanup | `disconnect()` flushes impressions | `disconnect()` | `disconnect()` | `close()` flushes impressions and events |
 

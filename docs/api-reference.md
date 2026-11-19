@@ -1873,6 +1873,35 @@ a plain JSON array — the same shape each flag has in an SSE `update` event, bu
 
 The response header `X-Checkgate-Environment-Id` identifies the environment for impression and conversion reporting. The response body remains a plain array, and the header is exposed through CORS.
 
+### Revisioned snapshot (`?v=2`, since 0.1.31)
+
+```http
+GET /flags/snapshot?v=2
+Authorization: Bearer sk_live_your_key
+```
+
+Returns the same flags with the revision of each and the environment's recent deletions:
+
+```json
+{
+  "v": 2,
+  "flags": [ { "key": "my-flag", "is_enabled": true, "rules": [], ... } ],
+  "revisions": { "my-flag": 4182 },
+  "tombstones": { "old-banner": 4011 }
+}
+```
+
+- `revisions` — each flag's committed revision: the same number its SSE `update` events carry.
+- `tombstones` — flags deleted within the tombstone retention (at least 24 hours) and not
+  re-created, at the revision of the version deleted (what the `DELETE` event carried).
+- `v` — the format answered. An unknown higher `v` gets the newest format the server knows; an
+  older or unparsable one gets the plain array. Servers before 0.1.31 ignore the parameter.
+
+Everything comes from one consistent read. Official SDKs from 0.1.31 request this format so they
+can merge a poll with a stream replay per flag and never go back to an older version
+([configuration consistency](https://github.com/checkgate-sh/checkgate/blob/main/docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md) is the design).
+Revisions are ordered per flag only; do not compare the revisions of different flags.
+
 Intended as a fallback for SDK clients when the SSE connection at `/stream` cannot be
 established at all — e.g. a corporate proxy or firewall blocking long-lived connections. Official
 SDKs poll this endpoint automatically after a configurable number of consecutive failed SSE
