@@ -10,8 +10,9 @@ description: Health probes, graceful shutdown, capacity limits and troubleshooti
 **Startup.** Connect to PostgreSQL and apply migrations, connect to Redis,
 subscribe to the change channel, seed the reconciliation index, then listen.
 `/health/ready` turns 200 once the server listens and PostgreSQL answers. A
-missing or unreachable database stops the process with an error (the
-orchestrator restarts it); nothing needs manual repair after an outage.
+missing or unreachable database or Redis stops the process with an error (the
+orchestrator restarts it); nothing needs manual repair after an outage. Once
+running, the server tolerates Redis outages (see below).
 
 **Shutdown** (SIGTERM or SIGINT):
 

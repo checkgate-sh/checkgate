@@ -1,6 +1,6 @@
 ---
 title: "Flutter SDK (FFI) — Feature Flags for Flutter & Dart via Dart FFI"
-description: "Use the Checkgate Flutter SDK to evaluate feature flags in-process via Dart FFI — synchronous, no network call per evaluation. Works with Provider, Riverpod, iOS, Android, macOS, Linux, and Windows."
+description: "Use the Checkgate Flutter SDK to evaluate feature flags in-process via Dart FFI — synchronous, no network call per evaluation. Works with Provider and Riverpod. You build and link the Rust engine yourself; verified on the iOS simulator for 0.1.31."
 ---
 
 # Flutter SDK (FFI)
@@ -13,7 +13,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  checkgate_flutter: ^0.1.0
+  checkgate_flutter: ^0.1.31
 ```
 
 Then run:
@@ -21,6 +21,12 @@ Then run:
 ```bash
 flutter pub get
 ```
+
+::: warning Native engine required
+The package contains the Dart client but **no compiled engine**. Before the client can evaluate
+flags you must build the Rust engine and link it into your app: see
+[Linking the native engine](#linking-the-native-engine).
+:::
 
 ## Quick Start
 
@@ -37,9 +43,9 @@ void main() async {
 
   await flags.connect();
 
-  runApp(
-    CheckgateProvider(client: flags, child: const MyApp()),
-  );
+  // Pass the client down however your app shares objects
+  // (constructor, InheritedWidget, Provider, Riverpod — see below).
+  runApp(MyApp(flags: flags));
 }
 ```
 
@@ -156,7 +162,7 @@ final checkgateProvider = Provider<CheckgateClient>((ref) {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final flags = CheckgateClient(serverUrl: '...');
+  final flags = CheckgateClient(serverUrl: '...', sdkKey: '...');
   await flags.connect();
 
   runApp(
@@ -180,7 +186,8 @@ final enabled = flags.isEnabled('my-flag', userId, {});
 |----------|--------|----------------------|
 | iOS (device, simulator) | static library, linked by you (see below) | iOS 17 simulator, x86_64: end to end |
 | Android (arm64-v8a, armeabi-v7a, x86_64) | `libcheckgate_flutter.so`, bundled by you | no |
-| macOS, Linux, Windows | shared library, bundled by you | host tests only (the Dart client with the engine built for the host) |
+| macOS | static library, linked into the app like iOS | no (the Dart client's tests run on a macOS host) |
+| Linux, Windows | `libcheckgate_flutter.so` / `checkgate_flutter.dll`, bundled by you | no |
 
 ## Linking the native engine
 
@@ -191,7 +198,9 @@ Native SDK's podspec does).
 
 ```bash
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
-# from the package's rust/ directory (or sdks/flutter/dart/rust in the repo)
+# from sdks/flutter/dart/rust in a clone of the repository, checked out at the
+# tag matching your package version (the crate inherits workspace settings, so
+# it does not build on its own from the pub cache)
 cargo rustc --release --lib --crate-type staticlib --target aarch64-apple-ios       # device
 cargo rustc --release --lib --crate-type staticlib --target aarch64-apple-ios-sim   # simulator, Apple silicon
 cargo rustc --release --lib --crate-type staticlib --target x86_64-apple-ios        # simulator, Intel
@@ -215,4 +224,7 @@ evaluated by the linked engine, invalid-key handling.
 the name the Dart side opens (cargo names it `libflutter.so`). Not verified on
 a device or emulator for v0.1.31.
 
-**macOS / Linux / Windows.** Not verified for v0.1.31.
+**macOS.** Like iOS: the engine is looked up in the process image, so link the static library
+into the app (`-force_load`). **Linux / Windows.** Bundle the shared library renamed to
+`libcheckgate_flutter.so` / `checkgate_flutter.dll` (cargo names it `libflutter.so` /
+`flutter.dll`). None of these was verified for v0.1.31.

@@ -1,6 +1,6 @@
 ---
 title: "React Native SDK (JSI) — Feature Flags for iOS & Android"
-description: "Integrate Checkgate's React Native SDK using JSI and C FFI for synchronous, in-process flag evaluation on iOS and Android — no bridge, no round-trip. Compatible with Expo Dev Client."
+description: "Integrate Checkgate's React Native SDK using JSI and C FFI for synchronous, in-process flag evaluation — no bridge, no request per decision. Android native build verified in CI; iOS not yet certified."
 ---
 
 # React Native SDK (JSI)
@@ -15,6 +15,28 @@ npm install @checkgate/react-native
 yarn add @checkgate/react-native
 ```
 
+Requires `react-native` 0.71+ and React 18+; iOS 13.4+ and Android minSdk 23.
+
+### Native setup (Rust toolchain)
+
+The evaluation engine is Rust, shipped as source and compiled when you build the app, so the
+build machine (including CI and EAS builders) needs [rustup](https://rustup.rs):
+
+- **Android:** the Android targets and [cargo-ndk](https://github.com/bbqsrc/cargo-ndk). Gradle
+  runs `cargo ndk` for the ABIs you build and links the result into `libcheckgate.so`.
+
+  ```bash
+  rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+  cargo install cargo-ndk
+  ```
+
+- **iOS:** the iOS targets; a CocoaPods build phase compiles the engine for the SDK and
+  architectures Xcode is building.
+
+  ```bash
+  rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+  ```
+
 ### iOS
 
 ```bash
@@ -23,7 +45,8 @@ cd ios && pod install
 
 ### Android
 
-The native library is linked automatically via CMake. No additional steps required.
+Gradle compiles the Rust engine with `cargo ndk` and links it via CMake; nothing to add to
+`MainApplication`. Requires the toolchain above.
 
 ### Server-Sent Events polyfill
 
@@ -178,12 +201,16 @@ npx expo install @checkgate/react-native
 npx expo prebuild
 ```
 
+`prebuild` and EAS builds compile the Rust engine too, so the build machine needs the toolchain
+from [Native setup](#native-setup-rust-toolchain).
+
 ## Platform Support
 
-| Platform | Architecture | Status |
+| Platform | Architecture | Status in 0.1.31 |
 |----------|-------------|--------|
-| iOS | arm64 | Supported |
-| iOS Simulator | x86_64 / arm64 | Supported |
-| Android | arm64-v8a | Supported |
-| Android | armeabi-v7a | Supported |
-| Android | x86_64 | Supported |
+| Android | arm64-v8a, armeabi-v7a, x86_64, x86 | Native build and link verified in CI; not tested on a device or emulator for this release |
+| iOS | arm64 | **Not certified**: the iOS app build was not run for this release |
+| iOS Simulator | x86_64 / arm64 | **Not certified** (as above) |
+
+The JavaScript client (streaming, polling, reconnection) is covered by the shared SDK fault suite
+and a live end-to-end run against a real server in CI.

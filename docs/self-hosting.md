@@ -48,13 +48,14 @@ services:
       - "3000:3000"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
-      SESSION_SECRET: ${SESSION_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - checkgate_pgdata:/var/lib/postgresql/data
       - checkgate_redis:/var/lib/redis
     restart: unless-stopped
+    stop_grace_period: 30s   # longer than the server's 20 s shutdown grace
 
 volumes:
   checkgate_pgdata:
@@ -109,6 +110,7 @@ services:
       SETUP_TOKEN: ${SETUP_TOKEN}
       COOKIE_SECURE: "true"
     restart: unless-stopped
+    stop_grace_period: 30s   # longer than the server's 20 s shutdown grace
 ```
 
 Requirements and behaviour:

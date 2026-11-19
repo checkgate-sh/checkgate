@@ -39,8 +39,9 @@ first:
   `422`: more than 500 rules on a flag; the same segment referenced twice;
   more than 50 distinct segments on a flag; a prerequisite on the flag itself,
   listed twice, or more than 50; more than 100 variants; more than 500 rules
-  in a segment. Stored flags keep working. `docs/releases/v0.1.31/UPGRADE-AND-ROLLBACK.md`
-  has a query that finds flags a later edit would reject.
+  in a segment. Stored flags keep working. The upgrade guide
+  (`docs/operations/upgrading.md`) has a query that finds flags a later edit
+  would reject.
 - **`GET /flags/snapshot` answers `500` when a stored flag does not decode**,
   instead of silently leaving it out (which polling SDKs treated as a delete).
 - **Tokens.** A personal access token can no longer create a token that
@@ -62,7 +63,7 @@ first:
   Native iOS app build and physical devices were not tested for this release.
 - **Ordering across poll and stream** (the R20 fix) needs a 0.1.31 server;
   against an older server the SDKs behave as 0.1.30 did. It is per flag, not
-  across flags (`docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md`).
+  across flags (`docs/operations/configuration-consistency.md`).
 - **Propagation tail**: the 1 000-client p99 measured higher than 0.1.30's on
   a contended host (198 against 75 ms pooled; median run 84 against 76 ms). It
   is attributed to the host and has not yet been re-measured on a dedicated
@@ -86,6 +87,11 @@ first:
   read failure tests (`server/tests/sse_faults.rs`).
 - A workflow that submits the resolved Go module graph, so Dependabot stops
   reporting the already-patched `google.golang.org/grpc` (#51, #54, #55).
+- Prometheus process metrics on `/metrics` (Linux): `process_cpu_seconds_total`,
+  `process_resident_memory_bytes`, `process_virtual_memory_bytes`,
+  `process_open_fds`, `process_threads`, `process_start_time_seconds`.
+- `bench/ab/`: scripts to compare two builds (Node evaluation, snapshot
+  throughput and CPU, a Node differential check, upgrade and rollback).
 
 ### Security
 
@@ -123,8 +129,8 @@ first:
   could not tell which was newer. The snapshot now carries them (`?v=2`), and
   every SDK merges a complete flag set (replay or poll) per flag with what it
   learned after requesting it: the newer version wins, and a set still
-  replaces everything older. Design and limits:
-  `docs/releases/v0.1.31/CONFIGURATION-CONSISTENCY.md`.
+  replaces everything older. Guarantee and limits:
+  `docs/operations/configuration-consistency.md`.
 - **A duplicate change event notified `onChange` listeners again**, and a
   delete of a flag the SDK did not hold notified them too. Both now change
   nothing and notify nobody.
@@ -142,6 +148,10 @@ first:
 - **Web: `disconnect()` during WASM start-up leaked a stream**, and a
   `disconnect()` + `connect()` without storage served `false` for every flag
   the replay found unchanged (a fresh engine was created each time).
+- **Web: the TypeScript declarations did not describe `CheckgateWeb`** (the
+  package pointed `types` at the WebAssembly bindings), so the documented
+  TypeScript usage did not compile. The package now ships `index.d.ts` for
+  the client, its options, `getStatus()` and `CheckgateAuthError`.
 - **Flutter: `close()` followed quickly by `connect()` left two SSE loops.**
 - **Web, React Native and Flutter SDKs: one non-string attribute erased every
   attribute**, so a user excluded by a `not_equals` rule was let through. Each
@@ -177,18 +187,10 @@ first:
   throw.
 - **`/flags/snapshot` and SSE bootstrap use about a third less CPU per
   request**: flags are decoded straight from `jsonb`, without an intermediate
-  JSON tree, and the snapshot is one query. Measured locally: −33 % server CPU
-  per request, +44 % throughput.
-
-### Added
-
-- Prometheus process metrics on `/metrics` (Linux): `process_cpu_seconds_total`,
-  `process_resident_memory_bytes`, `process_virtual_memory_bytes`,
-  `process_open_fds`, `process_threads`, `process_start_time_seconds`.
-- `bench/ab/`: scripts to compare two builds (Node evaluation, snapshot
-  throughput and CPU, a Node differential check, upgrade and rollback).
-- `docs/releases/v0.1.31/`: the assessment, reviews, measurements and release
-  readiness report for this release.
+  JSON tree, and the snapshot is one query. An isolated A/B at 10 concurrent
+  clients measured −33 % server CPU per request and +44 % throughput; the
+  public benchmark (1 vCPU server) shows −11 % to −21 % CPU per request at 100
+  to 1,000 clients.
 
 ### Documentation
 
@@ -196,6 +198,11 @@ first:
   Rust core, "a few microseconds" for the Node SDK, "tens of milliseconds" for
   propagation. Unsourced numbers about other products were removed.
 - The evaluation diagram includes prerequisites.
+- New pages: [Upgrading to 0.1.31](docs/operations/upgrading.md) and
+  [Configuration consistency](docs/operations/configuration-consistency.md).
+- Internal release-engineering reports are no longer kept in the repository's
+  `docs/` tree (they remain in Git history); the docs build fails if internal
+  files would be published.
 
 ## [0.1.30] - 2026-11-11
 

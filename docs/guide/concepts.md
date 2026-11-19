@@ -27,7 +27,7 @@ A project represents a single application or service. You might have separate pr
 
 ### Creating Projects
 
-The first project is created during the **setup wizard**. Additional projects can be added from the **Projects** page (admin only). Each new project is automatically seeded with three environments: Production, Staging, and Development.
+The first project is created during the **setup wizard**. Additional projects can be added from the **Projects** page (admin only). The first project comes with four environments (below); a project created later starts with none, so add its environments before creating flags.
 
 ### Project Membership
 
@@ -37,13 +37,14 @@ Users can be members of one or more projects with a per-project role. A **worksp
 
 Environments are isolated flag namespaces within a project. Every flag belongs to exactly one environment, so Production, Staging, and Development each have their own independent configuration.
 
-Three environments are seeded automatically when a project is created:
+The first project (created by the setup wizard) is seeded with four environments:
 
 | Environment | Color | Notes |
 |-------------|-------|-------|
 | Production | Red | |
 | Staging | Amber | |
-| Development | Green | Default — used when no environment is specified |
+| UAT | Violet | |
+| Development | Green | Default — used when no environment is specified, and the environment of the SDK key created at setup |
 
 The active environment is shown in the dashboard sidebar and can be switched at any time. The **Promote** action copies a flag's configuration from one environment to another in a single atomic transaction.
 
@@ -254,7 +255,7 @@ client.isEnabled('flag-key', 'user-id', {
 - `user-id` — the stable identifier used for rollout hashing (typically your database user ID or UUID)
 - Attributes — arbitrary key-value pairs used for targeting rule matching
 
-Attributes are **never sent to the server** — they are only used locally for rule evaluation.
+Attributes are used locally for rule evaluation and are **not sent to the server** unless you enable `sendEvaluationContext`, which adds them to reported impressions.
 
 ## Impression Tracking
 
@@ -325,9 +326,9 @@ SDK keys (`sk_live_...`) authenticate SDK clients. Each key is tied to a specifi
 
 - Keys are managed from the **Project Settings → SDK Keys** tab
 - Multiple keys per project are supported (e.g. one per service or platform)
-- One key is auto-generated for the Production environment on first boot
+- One key is auto-generated for the default (**Development**) environment on first boot
 - Keys are shown in full only once — copy them immediately after creation
-- Revoking a key invalidates it instantly; SDK clients using it will receive 401 errors
+- Revoking a key rejects new requests with it immediately (401). Streams already open with it are not closed and keep receiving updates until they reconnect; restart the server instances after an urgent revocation
 - The legacy `SDK_KEY` environment variable is also accepted for backwards compatibility
 
 ## SSE Stream
@@ -338,18 +339,19 @@ The SSE stream (`GET /stream`) is the connection between the server and each SDK
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `connected` | `"true"` | Connection established; SDK resets its store |
-| `update` | JSON string | A flag was upserted or deleted |
+| `connected` | `{"environment_id": "<uuid>", "heartbeat_ms": 15000}` | Connection established; the bootstrap replay follows |
+| `update` | JSON string | A flag was upserted or deleted (bootstrap replay and live changes) |
+| `ready` | flag count | Bootstrap replay complete; the SDK applies it and resolves `connect()` |
 | `heartbeat` | `{}` | After 15 s of silence; SDKs treat 3 missed intervals as a dead stream |
 
 ### Update Payload
 
 ```json
 // Upsert
-{"type": "UPSERT", "env_id": "<uuid>", "flag": { ...flag object... }}
+{"type": "UPSERT", "env_id": "<uuid>", "flag": { ...flag object... }, "revision": 41}
 
 // Delete
-{"type": "DELETE", "env_id": "<uuid>", "key": "flag-key"}
+{"type": "DELETE", "env_id": "<uuid>", "key": "flag-key", "revision": 42}
 ```
 
 The stream is **scoped to the environment identified by the SDK key**. When a client connects, the server looks up the key's `environment_id`, bootstraps only the flags for that environment, and filters all live updates to that environment. Clients only ever see flags for their own project and environment.
@@ -369,7 +371,7 @@ Human users log in with **email and password** at `/login`. On success, the serv
 
 ### SDK Clients (Bearer Token)
 
-SDK clients and CI/CD automation authenticate with an SDK key:
+SDK clients authenticate with an SDK key (CI/CD and other automation use a personal access token, `pat_...`):
 
 ```http
 Authorization: Bearer sk_live_your_key_here

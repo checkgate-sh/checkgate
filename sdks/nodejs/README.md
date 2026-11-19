@@ -26,7 +26,7 @@ import { CheckgateClient } from '@checkgate/node'
 
 const checkgate = new CheckgateClient({
   serverUrl: 'http://localhost:3000', // Your self-hosted Checkgate server URL
-  sdkKey: 'sk_prod_xxxxxxxx',         // Your secure server-side SDK Key
+  sdkKey: 'sk_live_xxxxxxxx',         // Your secure server-side SDK Key
 })
 
 async function run() {

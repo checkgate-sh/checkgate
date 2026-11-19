@@ -57,7 +57,11 @@ const color  = edge.getValue('checkout-color', userKey, {}, 'blue')
 
 - **Fail-open.** If a refresh can't reach origin, the previous snapshot keeps
   serving — an origin blip never takes your flags down. The *first* load has
-  nothing to fall back to, so it surfaces the error.
+  nothing to fall back to, so it surfaces the error. Two consequences: an HTTP
+  error after the first load (including `401`/`403` for a revoked key) is
+  ignored and the old snapshot keeps serving; and once a snapshot is older than
+  TTL + stale-while-revalidate, a request waits for the refresh, which has no
+  timeout of its own — pass a `fetch` that sets one (e.g. `AbortSignal.timeout`).
 - **De-duplicated refresh.** A burst of concurrent `ensureFresh()` calls triggers
   at most one snapshot fetch.
 - **Injected `core`, `fetch`, and clock.** That's what makes it dependency-free

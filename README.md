@@ -14,9 +14,9 @@
 [![npm @checkgate/web](https://img.shields.io/npm/v/@checkgate/web?label=npm%20web)](https://www.npmjs.com/package/@checkgate/web)
 [![npm @checkgate/react-native](https://img.shields.io/npm/v/@checkgate/react-native?label=npm%20react-native)](https://www.npmjs.com/package/@checkgate/react-native)
 
-**Checkgate is an open-source feature flag engine that evaluates flags locally — no network call, no latency, no SaaS vendor.** Every flag decision happens inside your process, while a persistent SSE stream keeps every SDK instance in sync, typically within tens of milliseconds of a change.
+**Self-hosted feature flags with local SDK evaluation, real-time SSE updates, and a lightweight Rust-powered server.** Every flag decision happens inside your process, with no request per evaluation, while one persistent SSE connection per SDK keeps its flags current, typically within tens of milliseconds of a change.
 
-It is proudly built in Rust and ships with native SDKs for Node.js (NAPI), browsers (WebAssembly), React Native (JSI), and Flutter (FFI). In the v0.1.31 benchmark, a change reached 1,000 connected SDK clients with a p50 of 39 ms, and none of 1.2 million deliveries was missed.
+The server and the shared evaluation core are written in Rust, with SDKs for Node.js (NAPI), browsers (WebAssembly), React Native (JSI) and Flutter (FFI). In the v0.1.31 benchmark, a change reached 1,000 connected SDK clients with a p50 of 39 ms, and none of 1.2 million deliveries was missed.
 
 **[Explore the Documentation →](https://checkgate-sh.github.io/checkgate)**
 
@@ -49,12 +49,14 @@ services:
       - "3000:3000"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
-      SESSION_SECRET: ${SESSION_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - checkgate_pgdata:/var/lib/postgresql/data
       - checkgate_redis:/var/lib/redis
     restart: unless-stopped
+    stop_grace_period: 30s
 
 volumes:
   checkgate_pgdata:
@@ -62,9 +64,14 @@ volumes:
 ```
 
 ```bash
-docker compose up -d   # then finish the setup wizard at http://localhost:3000/setup
+# The server refuses to start without SESSION_SECRET; SETUP_TOKEN unlocks the setup wizard.
+printf 'SESSION_SECRET=%s\nSETUP_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
+docker compose up -d
+grep SETUP_TOKEN .env   # enter this token at http://localhost:3000/setup
 npm install @checkgate/node
 ```
+
+The wizard creates the first admin and shows an SDK key for the **Development** environment.
 
 ```typescript
 import { CheckgateClient } from '@checkgate/node'
@@ -83,11 +90,15 @@ The full walkthrough (first flag, SDK keys, production settings): [Getting Start
 ## Features
 
 - **In-process evaluation** — flags are evaluated in local memory: well under a microsecond in the Rust core, 0.8–4 µs through the Node.js SDK
-- **Real-time updates** — SSE push, not polling; changes typically land in tens of milliseconds
-- **Targeting rules** — match by any user attribute (`email`, `plan`, `region`, …)
+- **Real-time updates** — SSE push with heartbeats; changes typically land in tens of milliseconds. SDKs reconnect with backoff, detect silent streams, fall back to polling when a stream cannot be held, and keep serving the last known flags meanwhile
+- **Targeting** — rules on any user attribute (`email`, `plan`, `region`, …), reusable segments, prerequisite flags, and multivariate flags
 - **Percentage rollouts** — deterministic MurmurHash3 bucketing; sticky and independent per flag
-- **Rust evaluation core** — compiled to NAPI, WASM, JSI, or FFI depending on platform
-- **Self-hosted** — single binary + PostgreSQL + Redis; your data never leaves your infra
+- **Environments and governance** — per-environment configuration, change-request approvals, scheduled changes, audit log, personal access tokens, webhooks and Slack/Teams alerts
+- **Consistent updates** — with a v0.1.31 server and SDK, polls and stream replays are applied in revision order per flag (not atomically across flags); see [configuration consistency](docs/operations/configuration-consistency.md)
+- **Observability** — Prometheus metrics, health and readiness endpoints
+- **Self-hosted** — single binary + PostgreSQL + Redis; no third-party service sees your flags or users
+
+**SDK status (v0.1.31):** Node.js and Web run unit, fault-injection and live end-to-end tests in CI. React Native's Android native build is verified in CI; its iOS build is not certified for this release. Flutter bundles no compiled engine yet: you build and link the Rust engine yourself ([how](docs/sdks/flutter.md#linking-the-native-engine)); verified on the iOS simulator.
 
 ---
 
@@ -102,7 +113,7 @@ The full walkthrough (first flag, SDK keys, production settings): [Getting Start
   </picture>
 </p>
 
-Measured on v0.1.31, and on v0.1.30 again in the same session with runs alternated, on a 4-core Intel laptop in desktop use. The server ran in Docker with a 1 vCPU / 512 MiB limit; 3 runs per measurement, 6 for propagation. The higher pooled p99 comes from two runs made while the host was still loaded; the reasons are in the methodology.
+Measured on a v0.1.31 release candidate (commit `66cbfec`), and on v0.1.30 again in the same session with runs alternated, on a 4-core Intel laptop in desktop use. Later v0.1.31 changes were A/B-tested and did not change these paths. The server ran in Docker with a 1 vCPU / 512 MiB limit; 3 runs per measurement, 6 for propagation. The higher pooled p99 comes from two runs made while the host was still loaded; the reasons are in the methodology.
 Methodology, every run and the raw data: [Public benchmarks](docs/performance/benchmarks.md).
 
 ---

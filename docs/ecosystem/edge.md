@@ -5,7 +5,7 @@ description: "Evaluate Checkgate feature flags at the edge with @checkgate/edge:
 
 # Edge (`@checkgate/edge`)
 
-`@checkgate/edge` is a tiny, **runtime-agnostic** edge evaluator for Checkgate — it runs anywhere `fetch` exists: Cloudflare Workers, Deno Deploy, Fastly Compute, Vercel Edge, and Fly.io.
+`@checkgate/edge` is a tiny, **runtime-agnostic** edge evaluator for Checkgate — it runs anywhere `fetch` exists: Cloudflare Workers, Deno Deploy, Fastly Compute, Vercel Edge, and Fly.io. The package's tests run in Node.js, and the included example targets Cloudflare Workers; the other runtimes are untested.
 
 It owns the edge concern — pull a flag snapshot from your Checkgate server, cache it with a TTL and optional stale-while-revalidate, and survive origin outages by keeping the last-known-good snapshot — and delegates the actual evaluation to an injected engine. In production that engine is the shared [`@checkgate/web`](/sdks/web) WebAssembly core, so edge evaluation is **identical to every other Checkgate SDK**. There is no re-implemented rule / rollout / segment / prerequisite logic to drift.
 
@@ -53,6 +53,7 @@ const color  = edge.getValue('checkout-color', userKey, {}, 'blue')
 ## Design
 
 - **Fail-open.** If a refresh can't reach origin, the previous snapshot keeps serving — an origin blip never takes your flags down. The *first* load has nothing to fall back to, so it surfaces the error.
+  Two consequences: an HTTP error after the first load (including `401`/`403` for a revoked key) is ignored and the old snapshot keeps serving; and once a snapshot is older than TTL + stale-while-revalidate, a request waits for the refresh, which has no timeout of its own — pass a `fetch` that sets one (for example with `AbortSignal.timeout`).
 - **De-duplicated refresh.** A burst of concurrent `ensureFresh()` calls triggers at most one snapshot fetch.
 - **Injected `core`, `fetch`, and clock.** That's what makes the package dependency-free and fully unit-testable in plain Node — no WASM build or edge runtime is required to verify the caching and resilience logic.
 
@@ -68,7 +69,7 @@ Evaluate flags in the same isolate that serves the request, across Cloudflare's 
 
 - The snapshot + WASM engine live in a **module-global** that Cloudflare keeps alive across requests on a warm isolate, so most requests never touch the network.
 - `ensureFresh()` re-fetches only after the TTL; stale-while-revalidate refreshes in the background via `ctx.waitUntil` and never blocks a response.
-- A **Cron Trigger** refreshes proactively so even cold isolates find a warm snapshot.
+- A **Cron Trigger** refreshes proactively. It warms the isolate the cron runs in; other isolates (and new ones) still load the snapshot on their first request.
 
 Setup:
 

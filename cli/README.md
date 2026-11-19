@@ -117,7 +117,7 @@ jobs:
           CHECKGATE_ENV: ${{ vars.CHECKGATE_ENV }}
           CHECKGATE_TOKEN: ${{ secrets.CHECKGATE_TOKEN }}
         run: >
-          npx --yes @checkgate/cli@0.1.30 typegen --lang ts -o src/flags.ts
+          npx --yes @checkgate/cli@0.1.31 typegen --lang ts -o src/flags.ts
           --check --json > checkgate-typegen.json
       - name: Keep the report
         if: always()
@@ -134,7 +134,7 @@ jobs:
   ("Missing access token"). If you take fork PRs, commit a flags export and check against it
   with `--input flags.json` instead of `--url`.
 - The step's log names the stale files (stderr); the JSON report is the artifact.
-- Pin the CLI version (`@0.1.30` above) so generated output only changes when you bump it.
+- Pin the CLI version (`@0.1.31` above) so generated output only changes when you bump it.
 
 ## JSON result (`--json`)
 
@@ -145,7 +145,7 @@ cannot share stdout.
 ```json
 {
   "schema_version": 1,
-  "tool": { "name": "@checkgate/cli", "version": "0.1.30" },
+  "tool": { "name": "@checkgate/cli", "version": "0.1.31" },
   "command": "typegen",
   "mode": "check",
   "status": "out_of_date",
