@@ -257,6 +257,31 @@ Returns all projects the caller has access to (all projects for workspace admins
 
 ---
 
+### Get Project
+
+```http
+GET /api/projects/{project_id}
+```
+
+Any member of the project (workspace admins always have access).
+
+**Response** `200 OK`
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Mobile App",
+  "slug": "mobile-app",
+  "created_at": "2026-04-18T00:00:00Z"
+}
+```
+
+**Response** `403 Forbidden` — the caller is not a member of the project.
+
+**Response** `404 Not Found` — project does not exist.
+
+---
+
 ### Create Project
 
 ```http
@@ -596,6 +621,27 @@ Copies the flag's configuration from `{env_id}` to another environment atomicall
 ```
 
 **Response** `200 OK` — returns the flag as it now exists in the target environment.
+
+---
+
+### Archive or Unarchive a Flag
+
+```http
+POST /api/environments/{env_id}/flags/{key}/archive
+POST /api/environments/{env_id}/flags/{key}/unarchive
+```
+
+No request body. Requires **editor** role or above.
+
+Archiving only hides a flag from the default list (`GET …/flags` without
+`include_archived=true`); it has **no effect on evaluation**. SDKs keep receiving and evaluating
+an archived flag exactly as before, so no SSE update or webhook is sent. Each call is recorded in
+the audit log (`ARCHIVE` / `UNARCHIVE`).
+
+**Response** `200 OK` — returns the flag with its metadata; `archived_at` (RFC 3339) is present
+while the flag is archived.
+
+**Response** `404 Not Found` — flag does not exist in this environment.
 
 ---
 
@@ -1707,6 +1753,134 @@ Returns the 100 most recent delivery attempts for the webhook, newest first.
 - `status_code` / `response_body` are `null` when the request never completed; `error` then holds the failure reason.
 
 **Response** `404 Not Found` — webhook does not exist in this environment.
+
+---
+
+## Integrations (Slack / Microsoft Teams)
+
+Chat integrations post a formatted message to a Slack or Microsoft Teams incoming webhook when
+something changes in an environment. Setup and troubleshooting:
+[Slack & Teams Alerts](/ecosystem/chat-alerts). Reading integrations needs access to the
+environment; creating, changing, deleting and testing them requires **admin** role (the URL is a
+credential that can post to the channel).
+
+The incoming-webhook URL is never returned after creation: responses carry
+`webhook_url_preview`, the last six characters.
+
+**Integration object**
+
+```json
+{
+  "id": "8f6c1c2e-1b7a-4d4e-9a55-0c4e2b6f1d3a",
+  "environment_id": "<uuid>",
+  "kind": "slack",
+  "name": "#releases",
+  "webhook_url_preview": "…Xy12Ab",
+  "events": ["flag.updated", "change_request.opened"],
+  "enabled": true,
+  "created_at": "2026-11-19 08:00:00+00"
+}
+```
+
+- `kind` — `slack` or `teams`.
+- `events` — the events to post. **Empty means all.** Supported: `flag.created`, `flag.updated`,
+  `flag.deleted`, `flag.promoted`, `change_request.opened`, `change_request.approved`,
+  `change_request.rejected`.
+- The URL must use `https://`; plain `http://` is accepted only for `localhost`, `127.0.0.1`
+  and `::1` (a local relay).
+
+### List Integrations
+
+```http
+GET /api/environments/{env_id}/integrations
+```
+
+**Response** `200 OK` — an array of integration objects.
+
+### Create an Integration
+
+```http
+POST /api/environments/{env_id}/integrations
+Content-Type: application/json
+```
+
+```json
+{
+  "kind": "slack",
+  "name": "#releases",
+  "webhook_url": "https://hooks.slack.com/services/T000/B000/XXXX",
+  "events": ["flag.updated"],
+  "enabled": true
+}
+```
+
+`events` (default `[]`, all events) and `enabled` (default `true`) are optional.
+
+**Response** `200 OK` — the created integration.
+
+**Response** `422 Unprocessable Entity` — unknown `kind`, an empty or non-HTTPS URL, or an
+unsupported event name.
+
+### Update an Integration
+
+```http
+PATCH /api/environments/{env_id}/integrations/{id}
+Content-Type: application/json
+```
+
+Any of `name`, `webhook_url`, `events`, `enabled`; omitted fields are unchanged.
+
+**Response** `200 OK` — the updated integration. **`404`** if it does not exist in this
+environment; **`422`** for an invalid URL or event name.
+
+### Delete an Integration
+
+```http
+DELETE /api/environments/{env_id}/integrations/{id}
+```
+
+**Response** `204 No Content`. **`404`** if it does not exist in this environment. Deleting the
+row stops Checkgate from posting; to invalidate the URL itself, remove the webhook in Slack or
+Teams.
+
+### Send a Test Message
+
+```http
+POST /api/environments/{env_id}/integrations/{id}/test
+```
+
+Queues a sample `flag.updated` event (flag `checkgate_test_flag`) through the normal delivery
+path. Because it is a real environment event, **every enabled integration in the environment
+that subscribes to `flag.updated` receives it**, not only `{id}`; a disabled integration receives
+nothing.
+
+**Response** `202 Accepted`. **`404`** if the integration does not exist in this environment.
+
+### List Integration Deliveries
+
+```http
+GET /api/environments/{env_id}/integrations/{id}/deliveries
+```
+
+**Response** `200 OK` — the 50 most recent delivery attempts, newest first:
+
+```json
+[
+  {
+    "id": 31,
+    "integration_id": "8f6c1c2e-1b7a-4d4e-9a55-0c4e2b6f1d3a",
+    "event": "flag.updated",
+    "status_code": 200,
+    "response_body": "ok",
+    "error": null,
+    "delivered_at": "2026-11-19 08:00:01+00"
+  }
+]
+```
+
+`status_code` is `null` and `error` is set when the request could not be completed. At most
+1 KiB of each response body is stored. Delivery retries and redirects behave as for
+[webhooks](#webhooks).
 
 ---
 

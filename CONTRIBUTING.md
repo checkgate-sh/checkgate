@@ -64,6 +64,21 @@ bun run test --run         # vitest suite
 Use `bun run test`, not `bun test` — the latter invokes Bun's own test runner,
 which does not understand the vitest setup in `src/setupTests.ts`.
 
+### Documentation site
+
+The docs are a pnpm project; install from the lockfile, as CI does:
+
+```bash
+cd docs
+pnpm install --frozen-lockfile
+pnpm run dev               # local preview
+pnpm run build             # what CI builds
+cd .. && python3 scripts/check-docs-site.py   # what CI checks the output for
+```
+
+Everything under `docs/` that is Markdown becomes a public page. Internal notes and
+release reports go in `internal_docs/` (gitignored), never in `docs/`.
+
 ## Making changes
 
 1. Fork the repo and create a branch from `main`.

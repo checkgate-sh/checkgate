@@ -112,7 +112,7 @@ most recent 200 deliveries per integration.
 
 ## API
 
-Full reference in the [REST API docs](/api-reference). All routes are environment-scoped:
+Full reference: [REST API → Integrations](/api-reference#integrations-slack-microsoft-teams). All routes are environment-scoped:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
