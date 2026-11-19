@@ -5,7 +5,7 @@
 # @checkgate/react-native
 
 **Checkgate React Native SDK (JSI)** — The official high-performance mobile client for Checkgate.
-Powered by a direct JSI (JavaScript Interface) natively bridging to Rust, this SDK completely avoids strictly serialized asynchronous React Native bridge delays, allowing sub-microsecond synchronous feature toggle evaluations natively on device.
+Powered by a direct JSI (JavaScript Interface) natively bridging to Rust, this SDK completely avoids strictly serialized asynchronous React Native bridge delays, allowing synchronous, in-process feature toggle evaluations on device.
 
 ## Installation
 
@@ -14,6 +14,24 @@ npm install @checkgate/react-native
 # iOS requires pod installation
 cd ios && pod install
 ```
+
+### Server-Sent Events polyfill
+
+React Native has no built-in `EventSource`. Install one that accepts request
+headers (the SDK authenticates the stream with an `Authorization` header) and
+assign it to the global before calling `connect()`:
+
+```bash
+npm install react-native-sse
+```
+
+```typescript
+import EventSource from 'react-native-sse';
+(global as any).EventSource = EventSource;
+```
+
+Without it the SDK logs an error and keeps flags current by polling
+`/flags/snapshot` every `pollIntervalMs` instead of streaming changes.
 
 ### Native setup
 
@@ -44,7 +62,7 @@ found*, rebuild the app (and re-run `pod install` on iOS).
 
 ## Quick Start
 
-Plug the incredibly fast evaluating `CheckgateProvider` context or native clients directly into your React Native app.
+Create one `CheckgateNativeClient` for your app and evaluate flags synchronously through JSI.
 
 ```javascript
 import { CheckgateNativeClient } from '@checkgate/react-native'
@@ -64,6 +82,14 @@ function CheckoutScreen({ user }) {
   return showApplePay ? <ApplePayButton /> : <StandardCheckout />
 }
 ```
+
+## Connection health
+
+A stream that goes silent for 3 server heartbeats (45 s by default) is dropped
+and reconnected. A rejected SDK key (HTTP 401/403) is not retried: `connect()`
+rejects with `CheckgateAuthError` and the last known flags keep being served.
+`client.getStatus()` returns `{ state, lastSyncAt, error }` so you can tell how
+fresh the flags are. See the [SDK docs](https://checkgate-sh.github.io/checkgate/sdks/).
 
 ## A/B testing: track conversions
 

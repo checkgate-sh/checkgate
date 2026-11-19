@@ -50,7 +50,7 @@ services:
       context: ../..
       dockerfile: bench/public/Dockerfile
       target: server
-    image: checkgate-bench-server:local
+    image: checkgate-bench-server:${BENCH_IMAGE_TAG:-local}
     cpus: ${BENCH_SERVER_CPUS:-1}
     cpuset: ${BENCH_SYSTEM_CPUSET:-0-3}
     mem_limit: ${BENCH_SERVER_MEMORY:-512m}
@@ -81,7 +81,7 @@ services:
       context: ../..
       dockerfile: bench/public/Dockerfile
       target: loadgen
-    image: checkgate-bench-loadgen:local
+    image: checkgate-bench-loadgen:${BENCH_IMAGE_TAG:-local}
     profiles: [tools]
     pid: "service:server"
     cpuset: ${BENCH_GENERATOR_CPUSET:-4-7}
@@ -97,7 +97,7 @@ services:
       context: ../..
       dockerfile: bench/public/Dockerfile
       target: sdk
-    image: checkgate-bench-sdk:local
+    image: checkgate-bench-sdk:${BENCH_IMAGE_TAG:-local}
     profiles: [tools]
     pid: "service:server"
     cpuset: ${BENCH_GENERATOR_CPUSET:-4-7}

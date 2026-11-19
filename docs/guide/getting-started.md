@@ -34,16 +34,27 @@ services:
       - "3000:3000"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
-      SESSION_SECRET: ${SESSION_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - checkgate_pgdata:/var/lib/postgresql/data
       - checkgate_redis:/var/lib/redis
     restart: unless-stopped
+    # Longer than the server's shutdown grace period, so the bundled
+    # PostgreSQL and Redis are stopped cleanly.
+    stop_grace_period: 30s
 
 volumes:
   checkgate_pgdata:
   checkgate_redis:
+```
+
+Create a `.env` next to it. The server refuses to start without `SESSION_SECRET`,
+and `SETUP_TOKEN` is what unlocks the setup wizard:
+
+```bash
+printf 'SESSION_SECRET=%s\nSETUP_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
 ```
 
 Pull the release image and start the container:
@@ -60,13 +71,16 @@ For a fixed release, replace `:latest` in `compose.yml` with a published version
 ## 2. Complete the Setup Wizard
 
 On first run, you are redirected to the setup wizard at [http://localhost:3000/setup](http://localhost:3000/setup).
+It first asks for the setup token: `grep SETUP_TOKEN .env`. (Without `SETUP_TOKEN`
+the server generates one and writes it inside the container:
+`docker exec checkgate cat /var/lib/checkgate/setup-token`.)
 
-The wizard collects:
+The wizard then collects:
 1. **Workspace name** — your company or team name (shown on the login page)
 2. **First project name** — the initial project (e.g. "My App"); more projects can be added later
 3. **Your name** and **work email** — used for the first admin account
 4. **Password** — minimum 8 characters
-5. **SDK key** — auto-generated for the Production environment; copy it now for use in your applications
+5. **SDK key** — auto-generated for the **Development** environment (the default); copy it now for use in your applications. Keys for other environments are created under **Project Settings → SDK Keys**
 
 After completing the wizard you are logged in as the first admin.
 
@@ -78,14 +92,16 @@ Open the dashboard and select the **Development** environment from the sidebar s
 - **Enabled**: true
 - **Rollout**: 50%
 
-Or use the REST API directly with your SDK key:
+Or use the REST API. SDK keys are public and can only read flags and stream
+updates, so administrative calls use a **personal access token**: create one under
+**Settings → Personal access tokens** in the dashboard (`read_write` scope).
 
 ```bash
-SDK_KEY=sk_live_your_key_here
+TOKEN=pat_your_token_here
 ENV_ID=your-environment-uuid  # copy from the dashboard URL or list environments
 
 curl -X POST "http://localhost:3000/api/environments/${ENV_ID}/flags" \
-  -H "Authorization: Bearer ${SDK_KEY}" \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -H "X-Checkgate-Request: true" \
   -d '{
@@ -102,12 +118,12 @@ To get the list of projects and their IDs, then the environments within a projec
 ```bash
 # List projects (returns project IDs)
 curl http://localhost:3000/api/projects \
-  -H "Authorization: Bearer ${SDK_KEY}"
+  -H "Authorization: Bearer ${TOKEN}"
 
 # List environments for a project
 PROJECT_ID=your-project-uuid
 curl "http://localhost:3000/api/projects/${PROJECT_ID}/environments" \
-  -H "Authorization: Bearer ${SDK_KEY}"
+  -H "Authorization: Bearer ${TOKEN}"
 ```
 
 ## 4. Install the SDK

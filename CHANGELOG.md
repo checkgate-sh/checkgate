@@ -5,6 +5,301 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.31] - 2026-11-21
+
+### Upgrading from 0.1.30
+
+No database migration or configuration change is required, and rolling back to
+0.1.30 needs no database step (tested: upgrade, mixed versions and rollback on
+one database). SDKs and servers of either version work together. Check these
+first; the first one deletes data unless you configure it:
+
+- **Impressions and goal events older than 90 days are now deleted.** 0.1.30
+  kept them forever. A retention job removes rows received more than
+  `ANALYTICS_RETENTION_DAYS` (default 90) ago, except those of running or
+  paused experiments, starting about a minute after the server starts and in
+  small batches. **Set `ANALYTICS_RETENTION_DAYS=0` before upgrading to keep
+  everything.** Results of completed experiments older than the retention
+  shrink as their rows expire. Deleted rows are not restored by a rollback.
+- **Analytics ingestion has a quota per SDK key** (and per user), shared by
+  all instances through Redis: 20,000 requests and 60,000 rows a minute by
+  default (`RATE_LIMIT_INGEST_KEY_PER_MINUTE`,
+  `RATE_LIMIT_INGEST_ROWS_PER_MINUTE`). Over it, the batch gets `429` with
+  `Retry-After` and nothing is stored; the SDKs drop it (no retry). Raise the
+  row budget first if one key reports more than about 1,000 rows a second.
+- **SDK `connect()` can now reject** (it used to stay pending forever): with
+  `CheckgateAuthError` (Flutter: `CheckgateAuthException`) when the server
+  answers 401/403, and when `disconnect()`/`close()` is called first. A caller
+  that never awaits `connect()` gets no unhandled rejection. After a 401/403
+  the SDK stops retrying instead of reconnecting every 30 s forever; flags
+  already loaded keep being served, and calling `connect()` again retries.
+- **SSE keep-alive is now `event: heartbeat`** (with `data: {}`) instead of an
+  SSE comment, sent after `SSE_HEARTBEAT_INTERVAL_SECS` (default 15) of
+  silence, and `connected` carries `heartbeat_ms`. Older SDKs ignore both.
+  Proxies see the same traffic pattern as before.
+- **`GET /flags/snapshot?v=2`** answers `{ v, flags, revisions, tombstones }`;
+  0.1.31 SDKs ask for it when they poll. Without `v` the endpoint answers the
+  same array as before, so older SDKs and other consumers (`@checkgate/edge`,
+  `@checkgate/ssr`, scripts) are unaffected. A 0.1.31 SDK polling a 0.1.30
+  server gets the array and behaves as 0.1.30 did (no ordering between a poll
+  and a stream replay; see R20 below).
+- **SDKs drop a silent stream** after 3 heartbeat intervals (45 s by default)
+  and reconnect. Against a 0.1.30 server the JavaScript SDKs keep only the new
+  30 s connect deadline (that server's keep-alive is invisible to
+  `EventSource`); Flutter still sees it.
+
+- **Configuration limits.** Flag and segment writes past these limits now get
+  `422`: more than 500 rules on a flag; the same segment referenced twice;
+  more than 50 distinct segments on a flag; a prerequisite on the flag itself,
+  listed twice, or more than 50; more than 100 variants; more than 500 rules
+  in a segment. Stored flags keep working. The upgrade guide
+  (`docs/operations/upgrading.md`) has a query that finds flags a later edit
+  would reject.
+- **`GET /flags/snapshot` answers `500` when a stored flag does not decode**,
+  instead of silently leaving it out (which polling SDKs treated as a delete).
+- **Tokens.** A personal access token can no longer create a token that
+  outlives itself, and a read-only token can no longer revoke tokens.
+- **Webhooks and integrations no longer follow redirects**, and store at most
+  1 KiB of each response.
+- **Webhook and integration URLs may not point at link-local addresses**
+  (`169.254.0.0/16`, where cloud metadata services answer, and `fe80::/10`),
+  at `fd00:ec2::254` or at the unspecified address (`0.0.0.0/8`, `::`):
+  creating or changing one answers `422`, and a hostname that resolves only
+  to such addresses fails to connect. Rows stored earlier are refused at
+  delivery and logged as such. Loopback and private addresses still work.
+- **Integration test messages** (`POST .../integrations/{id}/test`) answer
+  `200` with `{ delivered, status_code, error }` after one attempt (at most
+  10 s), instead of `202` before anything was sent. They now reach only the
+  tested integration, also when it is disabled or filtered.
+- **Flag reads with an SDK key** (`GET /api/environments/{env}/flags[/key]`)
+  no longer include `owner_email`. The field was already omitted for flags
+  without an owner. Tags are unchanged. Sessions and personal access tokens
+  still get it.
+- **Revoking an SDK key closes the open streams of its environment**, on
+  every instance, within `SSE_RESYNC_SPREAD_MS` (default 5 s). Clients using
+  other keys reconnect and re-bootstrap once; the revoked key's reconnect is
+  refused. New metric label: `checkgate_resync_requests_total{trigger="key_revoked"}`.
+- **Logs.** The request span records `path` (no query string) instead of
+  `uri`, so `?sdk_key=` is no longer logged. Webhook logs no longer include
+  the URL.
+- **All-in-one container.** The entrypoint shell stays as PID 1 and stops the
+  bundled PostgreSQL and Redis after the server exits. Keep the stop timeout
+  at 30 s or more (`docker-compose.yml` now sets `stop_grace_period: 30s`).
+
+### Known limitations
+
+- **Flutter**: the package bundles no compiled engine; link the Rust engine
+  as the Flutter README describes (verified on an iOS simulator).
+- **iOS**: verified only for Flutter, on the iOS 17 simulator. The React
+  Native iOS app build and physical devices were not tested for this release.
+- **Ordering across poll and stream** (the R20 fix) needs a 0.1.31 server;
+  against an older server the SDKs behave as 0.1.30 did. It is per flag, not
+  across flags (`docs/operations/configuration-consistency.md`).
+- **Propagation tail**: the 1 000-client p99 measured higher than 0.1.30's on
+  a contended macOS host (198 against 75 ms pooled; median run 84 against
+  76 ms). Re-measured on a Linux desktop (native Docker, alternated runs, 8
+  per version), it does not reproduce: p50 and p99 are statistically equal at
+  1 to 1 000 clients (1 000-client p99 0.82× of 0.1.30's, 95 % CI 0.72–1.09),
+  none of 5.1 million deliveries missed. With PostgreSQL's commit latency
+  removed, the 1 000-client p99 is 1.8 ms (6 %) higher, all of it in the first
+  20 updates after the clients connect (a one-time warm-up cost; later updates
+  are equal). Not a dedicated server, and its disk dominates the absolute
+  numbers.
+- **Security findings not fully closed** (all low or informational):
+  webhook and integration URLs may still target loopback and private
+  addresses by design (restrict egress at the network layer if they must
+  not); removing a project member does not yet close that user's open
+  dashboard stream until it reconnects (revoking an SDK key does); anyone who
+  knows an account's email can still lock it for 15 minutes with 5 wrong
+  passwords; SDK keys, which are public by design, are stored unhashed.
+
+### Added
+
+- **Analytics retention** (`ANALYTICS_RETENTION_DAYS`, default 90; `0` keeps
+  rows forever; `ANALYTICS_RETENTION_INTERVAL_SECS`, default 3600;
+  `ANALYTICS_RETENTION_BATCH_SIZE`, default 5000). One instance at a time runs
+  a pass (PostgreSQL advisory lock), at most once per interval across the
+  deployment, deleting in short batched transactions on the existing
+  `received_at` indexes. Rows of running or paused experiments are kept. No
+  migration.
+- **Per-key ingest quota**, atomic in Redis across instances; when Redis does
+  not answer, each instance enforces the same budget alone. Large bodies are
+  charged by size (one row per KiB), so a few huge rows cost what they store.
+- Metrics: `checkgate_analytics_rows_total{table,outcome}`,
+  `checkgate_ingest_quota_rejections_total{limit}`,
+  `checkgate_ingest_quota_local_decisions_total`,
+  `checkgate_analytics_cleanup_runs_total{outcome}`,
+  `checkgate_analytics_cleanup_deleted_rows_total{table}`,
+  `checkgate_analytics_cleanup_duration_seconds`,
+  `checkgate_analytics_cleanup_last_success_timestamp_seconds`.
+- **Dead-stream detection in every SDK** (`connectTimeoutMs`, 30 s, and
+  `streamIdleTimeoutMs`, default 3 × the announced heartbeat; Flutter
+  `connectTimeout`, `streamIdleTimeout`). A dropped NAT mapping or half-open
+  connection used to leave an SDK on stale flags until the OS gave up (hours).
+- **`getStatus()`** (Flutter: `status`): `state` (`connecting`, `streaming`,
+  `reconnecting`, `polling`, `auth_failed`, `closed`), `lastSyncAt` (heartbeats
+  on a live stream count as confirmation) and `error`, so an app can tell how
+  fresh its flags are.
+- **`SSE_HEARTBEAT_INTERVAL_SECS`** (1–300, default 15).
+- **SDK fault-injection suite** (`sdks/conformance`): one randomized, seeded
+  suite every SDK runs against its real transport; nightly over 300 seeds.
+  **Live end-to-end runs of all four SDKs** against a real server
+  (`scripts/sdk-live-e2e.sh`, in CI). Server-side randomized fault and segment
+  read failure tests (`server/tests/sse_faults.rs`).
+- A workflow that submits the resolved Go module graph, so Dependabot stops
+  reporting the already-patched `google.golang.org/grpc` (#51, #54, #55).
+- Prometheus process metrics on `/metrics` (Linux): `process_cpu_seconds_total`,
+  `process_resident_memory_bytes`, `process_virtual_memory_bytes`,
+  `process_open_fds`, `process_threads`, `process_start_time_seconds`.
+- `bench/ab/`: scripts to compare two builds (Node evaluation, snapshot
+  throughput and CPU, a Node differential check, upgrade and rollback).
+
+### Security
+
+- **One editor could exhaust memory for the whole server** by referencing a
+  segment thousands of times in a flag: each reference copied the segment's
+  rules, for every publish, SSE bootstrap and snapshot. Duplicate references
+  are rejected and expansion is bounded (see the limits above).
+- **Prerequisite fan-out could freeze every SDK.** Prerequisites that are all
+  satisfied never short-circuit, so a chain of flags that each list the next
+  one several times cost N^depth evaluations per `isEnabled`. The core now
+  caps prerequisite evaluations at 1 000 per evaluation (failing closed), and
+  the server rejects self-references, duplicates and more than 50.
+- **Webhook SSRF through redirects.** The delivery client followed redirects
+  to any host and stored the full response, readable by project viewers.
+  Redirects are no longer followed and bodies are capped.
+- **An integration's URL (its posting credential) leaked through delivery
+  errors** stored for viewers and written to logs. It is now removed.
+- **Unauthenticated logins could stall an instance.** Argon2 ran on async
+  worker threads; it now runs on the blocking pool, at most one per CPU.
+- **`?sdk_key=` was written to the server's own logs** through the request span.
+- Read-only tokens could revoke the user's other tokens, and any token could
+  mint a non-expiring one. Audit-log paging was unbounded (a negative limit
+  gave a 500).
+- `quinn-udp` 0.5.14 → 0.5.16 (RUSTSEC-2026-0538). Only in the lockfile; never
+  compiled.
+- **Concurrent logins could test more passwords than the lockout allows.** The
+  failure count was checked before the password and recorded after it, so a
+  burst of parallel attempts on one account all passed the check (20 of 20 in
+  a test against a limit of 5). Each attempt is now recorded before its
+  password is checked, so at most 5 are checked per 10-minute window.
+- **Webhook and integration URLs could target cloud metadata services
+  directly** (`169.254.169.254`, `fd00:ec2::254`). Link-local and unspecified
+  destinations are refused when the URL is saved and when it is resolved.
+- **Flag reads with a public SDK key returned the flag owner's email
+  address.** It is now omitted for SDK keys.
+- **A revoked SDK key's open streams kept receiving updates** until they
+  reconnected. Revocation now closes them on every instance.
+- **Analytics storage could grow without bound** (N6). SDK keys are public,
+  ingestion was limited only per client address (600 requests of up to 500
+  rows a minute, so 300,000 rows a minute from each address), and nothing was
+  ever deleted. In a test, 40 concurrent 500-row batches with one key across
+  two instances were all stored. Ingestion is now also limited per key across
+  instances (with a 5,000-row budget the same test stores 10 or 11: the burst
+  plus what refills while it runs), and rows expire after the retention
+  period.
+
+### Fixed
+
+- **Integration "Send test message" did not test the selected integration.**
+  It queued a real `flag.updated` event for the environment, so it posted to
+  every enabled integration subscribed to that event, sent nothing to a
+  disabled or filtered one, and showed success (`202`) before anything was
+  sent, including when the channel rejected the message or could not be
+  reached. It now posts to that integration only and the dashboard shows the
+  channel's answer or the reason it failed. A malformed id answered `500`; it
+  is now `404`.
+- **A delayed stream replay could roll flags back (R20, every SDK, also in
+  0.1.30).** While an SDK polled during a stream outage, the next stream's
+  replay (read by the server when the stream opened) could arrive after polls
+  had delivered newer state; on `ready` the SDK swapped the older replay in,
+  so flags went back, and a flag deleted meanwhile came back, until the live
+  events behind the replay caught up. Polls carried no revisions, so the SDK
+  could not tell which was newer. The snapshot now carries them (`?v=2`), and
+  every SDK merges a complete flag set (replay or poll) per flag with what it
+  learned after requesting it: the newer version wins, and a set still
+  replaces everything older. Guarantee and limits:
+  `docs/operations/configuration-consistency.md`.
+- **A duplicate change event notified `onChange` listeners again**, and a
+  delete of a flag the SDK did not hold notified them too. Both now change
+  nothing and notify nobody.
+- **React Native: after a network error the SDK stayed on stale flags until
+  the app restarted.** `react-native-sse` (the polyfill the docs require)
+  supports `addEventListener('error')` but not `onerror`, so the SDK never saw
+  a stream failure, and the polyfill does not reconnect after one. The SDK now
+  listens properly, closes replaced streams for good (the polyfill re-opened a
+  stream closed during its own error dispatch) and skips the polyfill's 500 ms
+  delay before each connection.
+- **Flutter: the package could not be imported.** Its library was outside
+  `lib/` in every published version. It also bundles no compiled engine; the
+  docs now describe how to link one (verified on an iOS simulator).
+- **SDKs retried a rejected key forever** and `connect()` never settled.
+- **Web: `disconnect()` during WASM start-up leaked a stream**, and a
+  `disconnect()` + `connect()` without storage served `false` for every flag
+  the replay found unchanged (a fresh engine was created each time).
+- **Web: the TypeScript declarations did not describe `CheckgateWeb`** (the
+  package pointed `types` at the WebAssembly bindings), so the documented
+  TypeScript usage did not compile. The package now ships `index.d.ts` for
+  the client, its options, `getStatus()` and `CheckgateAuthError`.
+- **Flutter: `close()` followed quickly by `connect()` left two SSE loops.**
+- **Web, React Native and Flutter SDKs: one non-string attribute erased every
+  attribute**, so a user excluded by a `not_equals` rule was let through. Each
+  invalid attribute is now skipped on its own.
+- **Flutter: large bootstraps lost flags, and `connect()` could hang.** The
+  SSE parser split each network chunk on newlines without carrying partial
+  lines over, so lines cut across socket reads were dropped, sometimes
+  including the `ready` event.
+- **Flutter: a slow poll could roll back newer stream state** after a
+  reconnect. Polls are now single-flight, time out after 30 s, and discard
+  responses that arrive after the stream takes over.
+- **React Native: without an `EventSource` polyfill, `connect()` never
+  settled.** React Native ships none. The SDK now logs what to install and
+  polls meanwhile; the docs require `react-native-sse`.
+- **A flag change whose segments could not be read was published with its
+  segment rules stripped**, and reconciliation could not repair it. Such a
+  change now re-bootstraps the environment's clients instead
+  (`checkgate_resync_requests_total{trigger="segment_read_failed"}`).
+- `/flags/snapshot` read flags and segments in two statements (a segment edit
+  in between gave a mixed snapshot) and silently dropped undecodable flags.
+- **All-in-one container: PostgreSQL and Redis were SIGKILLed on every
+  `docker stop`**, so PostgreSQL ran crash recovery on each start. They are
+  now shut down cleanly. `scripts/docker-smoke.sh` checks this, and also runs
+  on macOS's bash 3.2.
+
+### Performance
+
+- **Node SDK evaluation is 1.9–8.8× faster** (boolean flag: 6.9 µs → 0.78 µs,
+  5 attributes). The binding reads only the attributes the flag's rules
+  reference, instead of converting the whole object on every call. Results
+  are identical (360 000-call differential check against 0.1.30). An attribute
+  that no rule reads is no longer validated, and `null` attributes no longer
+  throw.
+- **`/flags/snapshot` and SSE bootstrap use about a third less CPU per
+  request**: flags are decoded straight from `jsonb`, without an intermediate
+  JSON tree, and the snapshot is one query. An isolated A/B at 10 concurrent
+  clients measured −33 % server CPU per request and +44 % throughput; the
+  public benchmark (1 vCPU server) shows −11 % to −21 % CPU per request at 100
+  to 1,000 clients.
+
+### Documentation
+
+- Performance claims now match measurements: "sub-microsecond" only for the
+  Rust core, "a few microseconds" for the Node SDK, "tens of milliseconds" for
+  propagation. Unsourced numbers about other products were removed.
+- The evaluation diagram includes prerequisites.
+- New pages: [Upgrading to 0.1.31](docs/operations/upgrading.md) and
+  [Configuration consistency](docs/operations/configuration-consistency.md).
+- Internal release-engineering reports are no longer kept in the repository's
+  `docs/` tree (they remain in Git history); the docs build fails if internal
+  files would be published.
+- Self-hosting, API reference, observability and upgrade pages document
+  analytics retention, the per-key ingest quota and its `429`, the ingest
+  error responses, how to size both, and SQL to inspect analytics storage.
+- The API reference covers the Slack/Teams integration routes, flag
+  archive/unarchive and `GET /api/projects/{id}`. The docs site now installs
+  from its pnpm lockfile (`--frozen-lockfile`), so every build uses the same
+  dependency versions.
+
 ## [0.1.30] - 2026-11-11
 
 Versions 0.1.26–0.1.29 were skipped; 0.1.30 directly follows 0.1.25.

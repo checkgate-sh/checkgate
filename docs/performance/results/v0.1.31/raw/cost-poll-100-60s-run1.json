@@ -1,0 +1,54 @@
+{
+  "schema": "checkgate-cost/v1",
+  "mode": "poll",
+  "clients": 100,
+  "workers": 1,
+  "interval_s": 60,
+  "windows": {
+    "poll": {
+      "secs": 180.005,
+      "server_cpu_pct": 0.678,
+      "server_rss_mib": 12.406,
+      "server_rss_peak_mib": 30.555,
+      "net_rx_bytes": 6557874,
+      "net_tx_bytes": 5626460,
+      "requests": 300,
+      "requests_per_s": 1.667,
+      "target_requests_per_s": 1.667,
+      "errors": 0,
+      "error_rate": 0,
+      "client_bytes": {
+        "bootstrap": 0,
+        "heartbeat": 0,
+        "update": 0,
+        "other": 0,
+        "poll": 4583959
+      },
+      "bytes_per_request": 15279.863,
+      "request_ms": {
+        "samples": 300,
+        "p50_ms": 5.858,
+        "p90_ms": 8.074,
+        "p95_ms": 8.38,
+        "p99_ms": 8.833,
+        "p999_ms": 17.691,
+        "max_ms": 17.691,
+        "min_ms": 3.488,
+        "mean_ms": 6.103
+      },
+      "updates": 89,
+      "staleness_ms": {
+        "samples": 8900,
+        "p50_ms": 30020.694,
+        "p90_ms": 54025.865,
+        "p95_ms": 57022.055,
+        "p99_ms": 59419.031,
+        "p999_ms": 59970.566,
+        "max_ms": 60031.068,
+        "min_ms": 27.723,
+        "mean_ms": 30025.173
+      }
+    }
+  },
+  "notes": []
+}

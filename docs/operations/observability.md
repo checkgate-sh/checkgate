@@ -58,7 +58,7 @@ to forward metrics to any OTel backend.
 | `checkgate_flag_publish_duration_seconds` | histogram | Time to publish one event, retry included. |
 | `checkgate_redis_connected` | gauge | `1` while the subscription is up and answering pings. |
 | `checkgate_redis_reconnections_total{reason}` | counter | Subscription losses: `closed`, `ping_timeout`, `connect_failed`. |
-| `checkgate_resync_requests_total{trigger}` | counter | Times clients were told to re-bootstrap: `subscriber_reconnect`, `remote`, `reconciliation`, `environment_removed`. |
+| `checkgate_resync_requests_total{trigger}` | counter | Times clients were told to re-bootstrap: `subscriber_reconnect`, `remote`, `reconciliation`, `environment_removed`, `segment_read_failed` (a committed change could not be expanded with its segments, so its environment re-bootstraps instead), `key_revoked` (an SDK key was revoked, so its environment's open streams close and reconnect). |
 | `checkgate_resync_failures_total` | counter | Failed attempts to broadcast a `RESYNC` through Redis. |
 | `checkgate_resync_pending` | gauge | `1` while a `RESYNC` broadcast is waiting for Redis. |
 | `checkgate_sync_reconciliations_total{outcome}` | counter | Reconciliation passes, `success`/`failure`. |
@@ -75,7 +75,24 @@ to forward metrics to any OTel backend.
 | `checkgate_db_pool_connections` / `_idle_connections` / `_max_connections` | gauge | PostgreSQL pool. |
 | `checkgate_database_up` | gauge | `1` if the last database check (readiness or reconciliation) succeeded. |
 | `checkgate_ready` | gauge | `1` while ready (not draining). |
+| `checkgate_analytics_rows_total{table,outcome}` | counter | Impression (`table="impressions"`) and event (`events`) rows sent for ingestion: `accepted` (stored), `invalid` (skipped inside an accepted batch: empty or over-long key), `quota` (in a batch refused by the per-key quota), `batch_too_large` (in a batch of more than 500). |
+| `checkgate_ingest_quota_rejections_total{limit}` | counter | Ingest requests refused with `429` by the per-key quota, by the budget that refused them: `requests` or `rows`. |
+| `checkgate_ingest_quota_local_decisions_total` | counter | Quota decisions this instance made alone because Redis did not answer (the budget is then per instance). |
+| `checkgate_analytics_cleanup_runs_total{outcome}` | counter | Retention passes this instance ran: `success`/`failure`. Passes skipped because another instance holds the lock, or because one ran within the interval, are not counted. |
+| `checkgate_analytics_cleanup_deleted_rows_total{table}` | counter | Expired rows deleted by this instance's passes. |
+| `checkgate_analytics_cleanup_duration_seconds` | histogram | Duration of one retention pass (buckets 10 ms to 44 min). |
+| `checkgate_analytics_cleanup_last_success_timestamp_seconds` | gauge | Unix time this instance last completed a pass; `0` if it never has (with several instances, take the `max` across them). |
 | `checkgate_build_info{version}` | info | Build version. |
+| `process_cpu_seconds_total` | counter | CPU time (user + system) of the server process. Linux only. |
+| `process_resident_memory_bytes` / `process_virtual_memory_bytes` | gauge | Resident and virtual memory. Linux only. |
+| `process_open_fds` / `process_threads` | gauge | Open file descriptors (each SSE stream holds one) and OS threads. Linux only. |
+| `process_start_time_seconds` | gauge | Process start time, Unix epoch. Linux only. |
+
+The `process_*` metrics use the standard names of every Prometheus client
+library, so existing dashboards work. They are read from `/proc/self` only when
+`/metrics` is scraped (no background sampling) and are absent on non-Linux
+hosts. No metric carries a user key, attribute value, SDK key or flag key as a
+label: every label is from a fixed set (route templates, reasons, outcomes).
 
 ### Reading the signals
 
@@ -89,6 +106,9 @@ to forward metrics to any OTel backend.
 | Reconnect wave / slow database | `sse_bootstrap_duration_seconds` p95 rising; `sse_rejections_total{reason="bootstrap_busy"}`; `db_pool_idle_connections` at 0. |
 | Lagging clients | `sse_disconnects_total{reason="lagged"}` and `sse_lagged_messages_total` rising. |
 | Lost notifications repaired | `sync_divergences_total` and `resync_requests_total{trigger="reconciliation"}` increment, with a `WARN` log naming the environment. |
+| Analytics quota reached | `ingest_quota_rejections_total` rising and `analytics_rows_total{outcome="quota"}` growing; SDKs drop those batches (flags unaffected). Raise `RATE_LIMIT_INGEST_ROWS_PER_MINUTE` if the traffic is legitimate. |
+| Quota backend down | `ingest_quota_local_decisions_total` rising (with `redis_connected=0`): each instance enforces the quota alone until Redis answers. |
+| Retention not running | `max(checkgate_analytics_cleanup_last_success_timestamp_seconds)` older than a few intervals, or `analytics_cleanup_runs_total{outcome="failure"}` rising with an `ERROR` log "Analytics retention pass failed". |
 | Persistent publish errors | `flag_update_publish_failures_total` rising while `redis_connected=1`: the publisher connection (not the subscriber) is failing — check Redis `maxclients`, ACLs, network policy. |
 
 ### Suggested alerts
@@ -114,7 +134,32 @@ groups:
       - alert: CheckgateSlowBootstrap
         expr: histogram_quantile(0.95, rate(checkgate_sse_bootstrap_duration_seconds_bucket[5m])) > 1
         for: 10m
+      - alert: CheckgateAnalyticsRetentionStalled
+        # Default interval is one hour; allow a few missed passes. Leave this
+        # out if ANALYTICS_RETENTION_DAYS=0 (no passes run).
+        expr: time() - max(checkgate_analytics_cleanup_last_success_timestamp_seconds) > 4 * 3600
+        for: 15m
+      - alert: CheckgateIngestQuotaRejecting
+        expr: increase(checkgate_ingest_quota_rejections_total[15m]) > 0
 ```
+
+### Analytics ingestion and retention
+
+Ingestion volume is `rate(checkgate_analytics_rows_total{outcome="accepted"}[5m])`
+(rows per second, by table). Rows refused by the per-key quota appear under
+`outcome="quota"`; a steady stream of them from one deployment either means
+an SDK key is being abused or that the quota is set below the real traffic
+(the server logs each refusal as `Ingest quota exceeded`, with the credential's
+numeric id but never its value). Per-address limit refusals of ingest requests
+are `checkgate_http_requests_total{route="/api/environments/{env_id}/impressions",status_class="4xx"}`.
+
+Each completed retention pass is logged at `INFO` as `Analytics retention pass
+complete`, with `deleted_impressions`, `deleted_events`, `batches` and
+`elapsed_ms`; one pass at most per `ANALYTICS_RETENTION_INTERVAL_SECS` runs
+across all instances, on whichever instance checks first. A table's size in
+steady state is about its accepted-row rate × the retention period; the SQL in
+[Self-Hosting → Analytics retention](../self-hosting.md#analytics-retention)
+shows the current size and the rows kept for running experiments.
 
 ## Health endpoints
 
@@ -156,6 +201,7 @@ and fields for operations:
 | `Redis reachable again — resync broadcast sent` | INFO | |
 | `Committed flag changes were never relayed to this instance — resyncing the environment's clients` | WARN | `environment_id`, `flags`, `sample_keys` |
 | `Sync reconciliation failed — will retry` | WARN | `error` |
+| `Could not read segments to expand a committed flag change — resyncing this environment's clients instead of publishing it` | WARN | `operation`, `env_id`, `error` |
 | `SSE client connected` | INFO | `connection_id`, `environment_id`, `sdk_key_name`, `bootstrap_flags`, `bootstrap_ms`, `client_ip` |
 | `SSE client disconnected` | INFO | `connection_id`, `reason` |
 | `SSE client lagged — closing connection to trigger reconnect` | WARN | `missed_messages` |

@@ -1,0 +1,41 @@
+{
+  "comment": "Seeds every pull request runs. Append any seed the extended suite fails on (CONFORMANCE_SEEDS=1-500), with a note, so it stays a regression test.",
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    173,
+    184
+  ],
+  "regressions": [
+    {
+      "seed": 11,
+      "sdk": "flutter",
+      "found": "2026-11-18",
+      "note": "A stream that trickled bytes without completing a frame kept the Flutter client attached (liveness counted bytes); now counts complete frames, as the JS SDKs do."
+    },
+    {
+      "seed": 173,
+      "sdk": "node, web, react-native, flutter",
+      "found": "2026-11-19",
+      "fixed": "2026-11-19 (RC3)",
+      "note": "R20: a stream replay read before a poll but delivered after it rolled the polled flags back at 'ready'. Fixed by revisioned snapshots (?v=2) and the per-flag merge at 'ready'; deterministic form: named scenario 'a delayed replay does not roll back newer polled flags (R20, seed 173)'."
+    },
+    {
+      "seed": 184,
+      "sdk": "web, flutter (timing-dependent)",
+      "found": "2026-11-19",
+      "fixed": "2026-11-19 (RC3)",
+      "note": "R20: the same sequence brought back a flag deleted meanwhile. Deterministic form: named scenario 'a delayed replay does not resurrect a flag deleted meanwhile (R20, seed 184)'."
+    }
+  ]
+}

@@ -47,6 +47,8 @@ struct Args {
     pause_secs: u64,
     server_pid: u32,
     out: Option<String>,
+    /// Appended to `/flags/snapshot`, e.g. `?v=2` for the revisioned format.
+    query: String,
 }
 
 fn args() -> Args {
@@ -59,6 +61,7 @@ fn args() -> Args {
         pause_secs: 5,
         server_pid: 1,
         out: None,
+        query: String::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -74,6 +77,7 @@ fn args() -> Args {
             "--pause-secs" => a.pause_secs = v().parse().unwrap(),
             "--server-pid" => a.server_pid = v().parse().unwrap(),
             "--out" => a.out = Some(v()),
+            "--query" => a.query = v(),
             other => panic!("unknown argument {other}"),
         }
     }
@@ -248,7 +252,7 @@ async fn level(a: &Args, key: &str, expected_len: usize, concurrency: usize) -> 
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap();
-    let url = format!("{}/flags/snapshot", a.url);
+    let url = format!("{}/flags/snapshot{}", a.url, a.query);
     let started = Instant::now();
     let measure_from = started + Duration::from_secs(a.warmup_secs);
     let measure_to = measure_from + Duration::from_secs(a.secs);
@@ -333,7 +337,7 @@ async fn main() {
     // Validate the payload once: the right flag count, parsed as JSON. During
     // load only the status and the body length are checked.
     let probe = reqwest::Client::new()
-        .get(format!("{}/flags/snapshot", a.url))
+        .get(format!("{}/flags/snapshot{}", a.url, a.query))
         .bearer_auth(&key)
         .send()
         .await
@@ -344,8 +348,17 @@ async fn main() {
         probe.status()
     );
     let body = probe.bytes().await.expect("probe body");
-    let flags: Vec<Value> = serde_json::from_slice(&body).expect("snapshot is a JSON array");
+    let parsed: Value = serde_json::from_slice(&body).expect("snapshot is JSON");
+    // A bare array, or the revisioned object (`?v=2`) with one revision per flag.
+    let flags = parsed
+        .as_array()
+        .or_else(|| parsed["flags"].as_array())
+        .expect("snapshot flags");
     assert_eq!(flags.len() as u64, expected_flags, "snapshot flag count");
+    if !parsed.is_array() {
+        let revisions = parsed["revisions"].as_object().map_or(0, |r| r.len());
+        assert_eq!(revisions as u64, expected_flags, "one revision per flag");
+    }
     let expected_len = body.len();
 
     let server_proc_visible = proc_usage(&a.server_pid.to_string()).is_some();
@@ -374,7 +387,7 @@ async fn main() {
     let mib = |b: u64| round3(b as f64 / (1024.0 * 1024.0));
     let result = json!({
         "generated_by": "server/examples/throughput.rs",
-        "endpoint": "GET /flags/snapshot",
+        "endpoint": format!("GET /flags/snapshot{}", a.query),
         "flags_in_snapshot": expected_flags,
         "response_bytes": expected_len,
         "server_proc_visible": server_proc_visible,

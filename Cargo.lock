@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "browser"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "checkgate-core",
  "console_error_panic_hook",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "checkgate-bench"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "checkgate-core",
  "criterion",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "checkgate-core"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "dashmap",
  "murmur3",
@@ -832,7 +832,7 @@ dependencies = [
 
 [[package]]
 name = "flutter"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "checkgate-core",
  "serde_json",
@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "nodejs"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "checkgate-core",
  "napi",
@@ -2008,16 +2008,16 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.14"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "addec6a0dcad8a8d96a771f815f0eaf55f9d1805756410b39f5fa81332574cbd"
+checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
 dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2157,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "react-native"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "checkgate-core",
  "serde_json",
@@ -2468,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "argon2",
  "async-stream",

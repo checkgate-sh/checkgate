@@ -1,0 +1,232 @@
+    Finished `bench` profile [optimized] target(s) in 0.98s
+     Running benches/evaluation.rs (target/bench-public/release/deps/evaluation-441587d0a3802553)
+{"allocations":0.0,"case":"boolean","profile":"allocations_per_evaluation"}
+{"allocations":0.0,"case":"missing","profile":"allocations_per_evaluation"}
+{"allocations":0.0,"case":"targeting_10_rules","profile":"allocations_per_evaluation"}
+{"allocations":0.0,"case":"rollout","profile":"allocations_per_evaluation"}
+{"allocations":1.0,"case":"multivariate","profile":"allocations_per_evaluation"}
+{"allocations":0.0,"case":"prerequisite_chain_5","profile":"allocations_per_evaluation"}
+{"bytes_per_flag":746.8,"flags":10,"profile":"store_memory","retained_bytes":7468}
+{"bytes_per_flag":332.72,"flags":100,"profile":"store_memory","retained_bytes":33272}
+{"bytes_per_flag":294.524,"flags":1000,"profile":"store_memory","retained_bytes":294524}
+{"bytes_per_flag":288.3116,"flags":10000,"profile":"store_memory","retained_bytes":2883116}
+{"flags":1000,"profile":"replacement_growth","retained_delta_bytes":5280,"rounds":20}
+Benchmarking boolean_lookup_eval/10
+Benchmarking boolean_lookup_eval/10: Warming up for 3.0000 s
+Benchmarking boolean_lookup_eval/10: Collecting 100 samples in estimated 5.0002 s (62M iterations)
+Benchmarking boolean_lookup_eval/10: Analyzing
+boolean_lookup_eval/10  time:   [79.860 ns 82.870 ns 86.873 ns]
+                        thrpt:  [11.511 Melem/s 12.067 Melem/s 12.522 Melem/s]
+Found 13 outliers among 100 measurements (13.00%)
+  5 (5.00%) high mild
+  8 (8.00%) high severe
+Benchmarking boolean_lookup_eval/100
+Benchmarking boolean_lookup_eval/100: Warming up for 3.0000 s
+Benchmarking boolean_lookup_eval/100: Collecting 100 samples in estimated 5.0001 s (58M iterations)
+Benchmarking boolean_lookup_eval/100: Analyzing
+boolean_lookup_eval/100 time:   [85.025 ns 85.835 ns 86.916 ns]
+                        thrpt:  [11.505 Melem/s 11.650 Melem/s 11.761 Melem/s]
+Found 9 outliers among 100 measurements (9.00%)
+  2 (2.00%) high mild
+  7 (7.00%) high severe
+Benchmarking boolean_lookup_eval/1000
+Benchmarking boolean_lookup_eval/1000: Warming up for 3.0000 s
+Benchmarking boolean_lookup_eval/1000: Collecting 100 samples in estimated 5.0002 s (60M iterations)
+Benchmarking boolean_lookup_eval/1000: Analyzing
+boolean_lookup_eval/1000
+                        time:   [83.090 ns 83.389 ns 83.765 ns]
+                        thrpt:  [11.938 Melem/s 11.992 Melem/s 12.035 Melem/s]
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+Benchmarking boolean_lookup_eval/10000
+Benchmarking boolean_lookup_eval/10000: Warming up for 3.0000 s
+Benchmarking boolean_lookup_eval/10000: Collecting 100 samples in estimated 5.0001 s (54M iterations)
+Benchmarking boolean_lookup_eval/10000: Analyzing
+boolean_lookup_eval/10000
+                        time:   [84.302 ns 85.602 ns 88.130 ns]
+                        thrpt:  [11.347 Melem/s 11.682 Melem/s 11.862 Melem/s]
+Found 7 outliers among 100 measurements (7.00%)
+  4 (4.00%) high mild
+  3 (3.00%) high severe
+
+Benchmarking missing_flag/10
+Benchmarking missing_flag/10: Warming up for 3.0000 s
+Benchmarking missing_flag/10: Collecting 100 samples in estimated 5.0001 s (111M iterations)
+Benchmarking missing_flag/10: Analyzing
+missing_flag/10         time:   [44.852 ns 46.679 ns 49.440 ns]
+                        thrpt:  [20.227 Melem/s 21.423 Melem/s 22.295 Melem/s]
+Found 9 outliers among 100 measurements (9.00%)
+  1 (1.00%) high mild
+  8 (8.00%) high severe
+Benchmarking missing_flag/100
+Benchmarking missing_flag/100: Warming up for 3.0000 s
+Benchmarking missing_flag/100: Collecting 100 samples in estimated 5.0001 s (110M iterations)
+Benchmarking missing_flag/100: Analyzing
+missing_flag/100        time:   [44.742 ns 46.535 ns 49.001 ns]
+                        thrpt:  [20.408 Melem/s 21.489 Melem/s 22.350 Melem/s]
+Found 6 outliers among 100 measurements (6.00%)
+  3 (3.00%) high mild
+  3 (3.00%) high severe
+Benchmarking missing_flag/1000
+Benchmarking missing_flag/1000: Warming up for 3.0000 s
+Benchmarking missing_flag/1000: Collecting 100 samples in estimated 5.0002 s (109M iterations)
+Benchmarking missing_flag/1000: Analyzing
+missing_flag/1000       time:   [44.534 ns 44.614 ns 44.711 ns]
+                        thrpt:  [22.366 Melem/s 22.414 Melem/s 22.455 Melem/s]
+Found 7 outliers among 100 measurements (7.00%)
+  4 (4.00%) high mild
+  3 (3.00%) high severe
+Benchmarking missing_flag/10000
+Benchmarking missing_flag/10000: Warming up for 3.0000 s
+Benchmarking missing_flag/10000: Collecting 100 samples in estimated 5.0000 s (110M iterations)
+Benchmarking missing_flag/10000: Analyzing
+missing_flag/10000      time:   [45.199 ns 46.495 ns 48.594 ns]
+                        thrpt:  [20.579 Melem/s 21.508 Melem/s 22.124 Melem/s]
+Found 6 outliers among 100 measurements (6.00%)
+  1 (1.00%) high mild
+  5 (5.00%) high severe
+
+Benchmarking evaluation_1000_flags/targeting_1_rule
+Benchmarking evaluation_1000_flags/targeting_1_rule: Warming up for 3.0000 s
+Benchmarking evaluation_1000_flags/targeting_1_rule: Collecting 100 samples in estimated 5.0005 s (44M iterations)
+Benchmarking evaluation_1000_flags/targeting_1_rule: Analyzing
+evaluation_1000_flags/targeting_1_rule
+                        time:   [112.47 ns 113.56 ns 115.34 ns]
+                        thrpt:  [8.6702 Melem/s 8.8060 Melem/s 8.8914 Melem/s]
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+Benchmarking evaluation_1000_flags/targeting_10_rules
+Benchmarking evaluation_1000_flags/targeting_10_rules: Warming up for 3.0000 s
+Benchmarking evaluation_1000_flags/targeting_10_rules: Collecting 100 samples in estimated 5.0021 s (11M iterations)
+Benchmarking evaluation_1000_flags/targeting_10_rules: Analyzing
+evaluation_1000_flags/targeting_10_rules
+                        time:   [423.87 ns 424.75 ns 425.88 ns]
+                        thrpt:  [2.3481 Melem/s 2.3543 Melem/s 2.3592 Melem/s]
+Found 12 outliers among 100 measurements (12.00%)
+  5 (5.00%) high mild
+  7 (7.00%) high severe
+Benchmarking evaluation_1000_flags/percentage_rollout
+Benchmarking evaluation_1000_flags/percentage_rollout: Warming up for 3.0000 s
+Benchmarking evaluation_1000_flags/percentage_rollout: Collecting 100 samples in estimated 5.0014 s (16M iterations)
+Benchmarking evaluation_1000_flags/percentage_rollout: Analyzing
+evaluation_1000_flags/percentage_rollout
+                        time:   [296.63 ns 303.43 ns 315.15 ns]
+                        thrpt:  [3.1731 Melem/s 3.2957 Melem/s 3.3712 Melem/s]
+Found 7 outliers among 100 measurements (7.00%)
+  3 (3.00%) high mild
+  4 (4.00%) high severe
+Benchmarking evaluation_1000_flags/weighted_multivariate
+Benchmarking evaluation_1000_flags/weighted_multivariate: Warming up for 3.0000 s
+Benchmarking evaluation_1000_flags/weighted_multivariate: Collecting 100 samples in estimated 5.0019 s (12M iterations)
+Benchmarking evaluation_1000_flags/weighted_multivariate: Analyzing
+evaluation_1000_flags/weighted_multivariate
+                        time:   [438.70 ns 461.68 ns 491.55 ns]
+                        thrpt:  [2.0344 Melem/s 2.1660 Melem/s 2.2795 Melem/s]
+Found 11 outliers among 100 measurements (11.00%)
+  5 (5.00%) high mild
+  6 (6.00%) high severe
+Benchmarking evaluation_1000_flags/prerequisite_chain/2
+Benchmarking evaluation_1000_flags/prerequisite_chain/2: Warming up for 3.0000 s
+Benchmarking evaluation_1000_flags/prerequisite_chain/2: Collecting 100 samples in estimated 5.0007 s (30M iterations)
+Benchmarking evaluation_1000_flags/prerequisite_chain/2: Analyzing
+evaluation_1000_flags/prerequisite_chain/2
+                        time:   [167.24 ns 169.02 ns 171.47 ns]
+                        thrpt:  [5.8320 Melem/s 5.9166 Melem/s 5.9795 Melem/s]
+Found 9 outliers among 100 measurements (9.00%)
+  4 (4.00%) high mild
+  5 (5.00%) high severe
+Benchmarking evaluation_1000_flags/prerequisite_chain/3
+Benchmarking evaluation_1000_flags/prerequisite_chain/3: Warming up for 3.0000 s
+Benchmarking evaluation_1000_flags/prerequisite_chain/3: Collecting 100 samples in estimated 5.0022 s (11M iterations)
+Benchmarking evaluation_1000_flags/prerequisite_chain/3: Analyzing
+evaluation_1000_flags/prerequisite_chain/3
+                        time:   [274.98 ns 281.75 ns 290.04 ns]
+                        thrpt:  [3.4478 Melem/s 3.5493 Melem/s 3.6367 Melem/s]
+Found 6 outliers among 100 measurements (6.00%)
+  3 (3.00%) high mild
+  3 (3.00%) high severe
+Benchmarking evaluation_1000_flags/prerequisite_chain/5
+Benchmarking evaluation_1000_flags/prerequisite_chain/5: Warming up for 3.0000 s
+Benchmarking evaluation_1000_flags/prerequisite_chain/5: Collecting 100 samples in estimated 5.0000 s (11M iterations)
+Benchmarking evaluation_1000_flags/prerequisite_chain/5: Analyzing
+evaluation_1000_flags/prerequisite_chain/5
+                        time:   [427.34 ns 431.90 ns 437.01 ns]
+                        thrpt:  [2.2883 Melem/s 2.3154 Melem/s 2.3401 Melem/s]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) high mild
+  3 (3.00%) high severe
+
+Benchmarking concurrent_evaluation_1000_flags/readers/1
+Benchmarking concurrent_evaluation_1000_flags/readers/1: Warming up for 3.0000 s
+Benchmarking concurrent_evaluation_1000_flags/readers/1: Collecting 100 samples in estimated 5.0002 s (46M iterations)
+Benchmarking concurrent_evaluation_1000_flags/readers/1: Analyzing
+concurrent_evaluation_1000_flags/readers/1
+                        time:   [93.386 ns 97.190 ns 102.19 ns]
+                        thrpt:  [9.7856 Melem/s 10.289 Melem/s 10.708 Melem/s]
+Found 9 outliers among 100 measurements (9.00%)
+  6 (6.00%) high mild
+  3 (3.00%) high severe
+Benchmarking concurrent_evaluation_1000_flags/readers/2
+Benchmarking concurrent_evaluation_1000_flags/readers/2: Warming up for 3.0000 s
+Benchmarking concurrent_evaluation_1000_flags/readers/2: Collecting 100 samples in estimated 5.0001 s (76M iterations)
+Benchmarking concurrent_evaluation_1000_flags/readers/2: Analyzing
+concurrent_evaluation_1000_flags/readers/2
+                        time:   [64.016 ns 64.902 ns 66.070 ns]
+                        thrpt:  [15.135 Melem/s 15.408 Melem/s 15.621 Melem/s]
+Found 6 outliers among 100 measurements (6.00%)
+  1 (1.00%) high mild
+  5 (5.00%) high severe
+Benchmarking concurrent_evaluation_1000_flags/readers/4
+Benchmarking concurrent_evaluation_1000_flags/readers/4: Warming up for 3.0000 s
+Benchmarking concurrent_evaluation_1000_flags/readers/4: Collecting 100 samples in estimated 5.0000 s (125M iterations)
+Benchmarking concurrent_evaluation_1000_flags/readers/4: Analyzing
+concurrent_evaluation_1000_flags/readers/4
+                        time:   [37.640 ns 37.906 ns 38.239 ns]
+                        thrpt:  [26.151 Melem/s 26.381 Melem/s 26.568 Melem/s]
+Found 11 outliers among 100 measurements (11.00%)
+  5 (5.00%) high mild
+  6 (6.00%) high severe
+Benchmarking concurrent_evaluation_1000_flags/readers/8
+Benchmarking concurrent_evaluation_1000_flags/readers/8: Warming up for 3.0000 s
+Benchmarking concurrent_evaluation_1000_flags/readers/8: Collecting 100 samples in estimated 5.0000 s (173M iterations)
+Benchmarking concurrent_evaluation_1000_flags/readers/8: Analyzing
+concurrent_evaluation_1000_flags/readers/8
+                        time:   [28.660 ns 28.851 ns 29.069 ns]
+                        thrpt:  [34.401 Melem/s 34.660 Melem/s 34.892 Melem/s]
+Found 6 outliers among 100 measurements (6.00%)
+  3 (3.00%) high mild
+  3 (3.00%) high severe
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/1
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/1: Warming up for 3.0000 s
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/1: Collecting 100 samples in estimated 5.0004 s (48M iterations)
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/1: Analyzing
+concurrent_evaluation_1000_flags/readers_with_writer/1
+                        time:   [98.791 ns 99.140 ns 99.541 ns]
+                        thrpt:  [10.046 Melem/s 10.087 Melem/s 10.122 Melem/s]
+Found 11 outliers among 100 measurements (11.00%)
+  6 (6.00%) high mild
+  5 (5.00%) high severe
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/4
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/4: Warming up for 3.0000 s
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/4: Collecting 100 samples in estimated 5.0001 s (119M iterations)
+Benchmarking concurrent_evaluation_1000_flags/readers_with_writer/4: Analyzing
+concurrent_evaluation_1000_flags/readers_with_writer/4
+                        time:   [41.968 ns 42.239 ns 42.543 ns]
+                        thrpt:  [23.506 Melem/s 23.675 Melem/s 23.828 Melem/s]
+Found 9 outliers among 100 measurements (9.00%)
+  5 (5.00%) high mild
+  4 (4.00%) high severe
+
+Benchmarking sdk_apply_upsert_event
+Benchmarking sdk_apply_upsert_event: Warming up for 3.0000 s
+Benchmarking sdk_apply_upsert_event: Collecting 100 samples in estimated 5.0118 s (247k iterations)
+Benchmarking sdk_apply_upsert_event: Analyzing
+sdk_apply_upsert_event  time:   [20.229 µs 20.298 µs 20.353 µs]
+Found 9 outliers among 100 measurements (9.00%)
+  5 (5.00%) low severe
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+  1 (1.00%) high severe
+

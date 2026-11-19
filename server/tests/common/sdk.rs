@@ -3,13 +3,22 @@
 //!
 //! - every (re)connect stages the replayed flag set and swaps it in on
 //!   `ready`, so a replay cut short never goes live;
-//! - after `ready`, change events apply unless they are older than the
-//!   revision held for that flag, and after a delete only a strictly newer
-//!   upsert brings a flag back;
+//! - change events (staged or live) apply only if they supersede the version
+//!   held for that flag: newer revision, or a delete at the same revision;
+//!   duplicates and older events are dropped;
 //! - a closed or failed stream reconnects with exponential backoff and
 //!   jitter, and after `poll_fallback_threshold` consecutive failures the
-//!   client also polls `GET /flags/snapshot` (which carries no revisions, so
-//!   it clears them, as the Node SDK does) until a stream connects again.
+//!   client also polls `GET /flags/snapshot?v=2` (flags with revisions and
+//!   tombstones) until a stream connects again;
+//! - a complete set (the replay on `ready`, or a poll) replaces what the
+//!   client learned before it was requested, and is merged per flag, newer
+//!   version winning, with what it learned after (R20; `merge_full_set`
+//!   mirrors the SDKs' `mergeFullSet`);
+//! - an attempt that has not seen `connected` within `connect_timeout` is
+//!   abandoned, and a connected stream that announced `heartbeat_ms` is
+//!   abandoned after `idle_heartbeats` intervals without a complete frame
+//!   (servers that announce nothing get no idle deadline);
+//! - HTTP 401/403, from the stream or a poll, is terminal: the client stops.
 //!
 //! Delays are shortened so tests run quickly; the logic is unchanged.
 #![allow(dead_code, reason = "each test binary uses a different subset")]
@@ -30,6 +39,10 @@ pub struct SdkOptions {
     /// Where snapshots are polled, if not the stream's server (a proxy may
     /// block only long-lived connections).
     pub poll_base: Option<String>,
+    /// From the start of an attempt until `connected`.
+    pub connect_timeout: Duration,
+    /// Heartbeat intervals a connected stream may stay silent.
+    pub idle_heartbeats: u32,
 }
 
 impl Default for SdkOptions {
@@ -40,15 +53,27 @@ impl Default for SdkOptions {
             poll_fallback_threshold: 3,
             poll_interval: Duration::from_millis(500),
             poll_base: None,
+            connect_timeout: Duration::from_secs(5),
+            idle_heartbeats: 3,
         }
     }
 }
 
-/// A flag's last known revision, and whether that revision deleted it.
+/// A flag's last known revision, whether that revision deleted it, and the
+/// learn counter value when the client applied it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Known {
     pub revision: i64,
     pub deleted: bool,
+    pub at: u64,
+}
+
+impl Known {
+    /// A delete at revision `r` supersedes the flag at `r`; anything newer
+    /// supersedes both (the server's `sync::Version` order).
+    fn supersedes(&self, other: &Known) -> bool {
+        (self.revision, self.deleted) > (other.revision, other.deleted)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -69,7 +94,19 @@ pub struct SdkState {
     pub stale_dropped: u64,
     /// Every `env_id` a change event was received for.
     pub seen_envs: HashSet<String>,
+    /// The interval the server announced on the last `connected`.
+    pub heartbeat_ms: Option<u64>,
+    pub heartbeats: u64,
+    /// Stream attempts made, and how many a deadline abandoned.
+    pub attempts: u32,
+    pub deadline_trips: u32,
+    /// Set when the server rejected the key: the client has stopped.
+    pub auth_rejected: Option<u16>,
     staged: Option<(HashMap<String, Value>, HashMap<String, Known>)>,
+    /// Grows with every applied change (see `merge_full_set`).
+    learn_seq: u64,
+    /// `learn_seq` when the current stream attempt was sent.
+    stream_started_at: u64,
 }
 
 pub struct SimSdk {
@@ -128,12 +165,60 @@ impl SimSdk {
     }
 }
 
-fn is_stale(known: Option<&Known>, revision: Option<i64>, is_upsert: bool) -> bool {
-    match (known, revision) {
-        (Some(k), Some(r)) if is_upsert && k.deleted => r <= k.revision,
-        (Some(k), Some(r)) => r < k.revision,
+fn is_stale(known: Option<&Known>, incoming: Option<&Known>) -> bool {
+    match (known, incoming) {
+        (Some(k), Some(i)) => !i.supersedes(k),
         _ => false,
     }
+}
+
+/// The state after a complete set requested when `learn_seq` was
+/// `started_at`: what was learned before is replaced (absences included),
+/// what was learned after is kept unless the set has a newer version.
+/// `incoming_revisions` is `None` for a server that sends none.
+fn merge_full_set(
+    state: &mut SdkState,
+    incoming: HashMap<String, Value>,
+    incoming_revisions: Option<HashMap<String, Known>>,
+    started_at: u64,
+) {
+    state.learn_seq += 1;
+    let at = state.learn_seq;
+    let Some(offered_revisions) = incoming_revisions else {
+        state.flags = incoming;
+        state.revisions.clear();
+        return;
+    };
+    let mut keys: HashSet<String> = incoming.keys().cloned().collect();
+    keys.extend(offered_revisions.keys().cloned());
+    keys.extend(state.revisions.keys().cloned());
+    let mut flags = HashMap::new();
+    let mut revisions = HashMap::new();
+    for key in keys {
+        let held = state.revisions.get(&key).copied();
+        let offered = offered_revisions.get(&key).copied();
+        if let Some(h) = held
+            && h.at > started_at
+            && offered.is_none_or(|o| !o.supersedes(&h))
+        {
+            revisions.insert(key.clone(), h);
+            if let Some(flag) = state.flags.get(&key).filter(|_| !h.deleted) {
+                flags.insert(key, flag.clone());
+            }
+            continue;
+        }
+        if let Some(o) = offered {
+            revisions.insert(key.clone(), Known { at, ..o });
+        }
+        if let Some(flag) = incoming
+            .get(&key)
+            .filter(|_| !offered.is_some_and(|o| o.deleted))
+        {
+            flags.insert(key, flag.clone());
+        }
+    }
+    state.flags = flags;
+    state.revisions = revisions;
 }
 
 fn apply(state: &mut SdkState, data: &str) {
@@ -159,9 +244,13 @@ fn apply(state: &mut SdkState, data: &str) {
     let known = revision.map(|revision| Known {
         revision,
         deleted: !is_upsert,
+        at: 0,
     });
 
     if let Some((flags, revisions)) = state.staged.as_mut() {
+        if is_stale(revisions.get(&key), known.as_ref()) {
+            return;
+        }
         if is_upsert {
             flags.insert(key.clone(), event["flag"].clone());
         } else {
@@ -174,12 +263,14 @@ fn apply(state: &mut SdkState, data: &str) {
     }
 
     state.live_events += 1;
-    if is_stale(state.revisions.get(&key), revision, is_upsert) {
+    if is_stale(state.revisions.get(&key), known.as_ref()) {
         state.stale_dropped += 1;
         return;
     }
     if let Some(k) = known {
-        state.revisions.insert(key.clone(), k);
+        state.learn_seq += 1;
+        let at = state.learn_seq;
+        state.revisions.insert(key.clone(), Known { at, ..k });
     }
     if is_upsert {
         state.flags.insert(key, event["flag"].clone());
@@ -196,14 +287,20 @@ fn on_frame(state: &Mutex<SdkState>, event: &str, data: &str) {
             s.connects += 1;
             s.streaming = true;
             s.polling = false;
-            s.env_id = serde_json::from_str::<Value>(data)
-                .ok()
+            let payload = serde_json::from_str::<Value>(data).ok();
+            s.env_id = payload
+                .as_ref()
                 .and_then(|v| v["environment_id"].as_str().map(str::to_string));
+            s.heartbeat_ms = payload
+                .as_ref()
+                .and_then(|v| v["heartbeat_ms"].as_u64())
+                .filter(|ms| *ms > 0);
         }
+        "heartbeat" => s.heartbeats += 1,
         "ready" => {
             if let Some((flags, revisions)) = s.staged.take() {
-                s.flags = flags;
-                s.revisions = revisions;
+                let started_at = s.stream_started_at;
+                merge_full_set(&mut s, flags, Some(revisions), started_at);
                 s.ready = true;
                 s.readies += 1;
             }
@@ -213,39 +310,81 @@ fn on_frame(state: &Mutex<SdkState>, event: &str, data: &str) {
     }
 }
 
-/// Reads one `/stream` connection to its end. Returns whether the server
-/// accepted it (sent `connected`).
+/// How one `/stream` attempt ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Attempt {
+    /// The server sent `connected`; the stream later ended or went silent.
+    Connected,
+    /// Refused, failed or abandoned before `connected`.
+    Failed,
+    /// HTTP 401/403: the key is rejected.
+    Rejected(u16),
+}
+
+fn is_auth_failure(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 401 | 403)
+}
+
+/// Reads one `/stream` connection to its end, or until it misses a deadline.
 async fn stream_once(
     client: &reqwest::Client,
     base: &str,
     key: &str,
+    opts: &SdkOptions,
     state: &Mutex<SdkState>,
-) -> bool {
-    let Ok(resp) = client
+) -> Attempt {
+    {
+        let mut s = state.lock().unwrap();
+        s.attempts += 1;
+        // The replay this attempt receives is read after this point.
+        s.stream_started_at = s.learn_seq;
+    }
+    let mut deadline = tokio::time::Instant::now() + opts.connect_timeout;
+    let sent = client
         .get(format!("{base}/stream"))
         .bearer_auth(key)
         .header("Accept", "text/event-stream")
-        .send()
-        .await
-    else {
-        return false;
+        .send();
+    let Ok(Ok(resp)) = tokio::time::timeout_at(deadline, sent).await else {
+        return Attempt::Failed;
     };
+    if is_auth_failure(resp.status()) {
+        return Attempt::Rejected(resp.status().as_u16());
+    }
     if !resp.status().is_success() {
-        return false;
+        return Attempt::Failed;
     }
     let mut body = resp.bytes_stream();
     let mut buf = String::new();
     let (mut event, mut data) = (String::new(), String::new());
     let mut connected = false;
-    while let Some(Ok(chunk)) = body.next().await {
+    let mut idle: Option<Duration> = None;
+    loop {
+        let Ok(next) = tokio::time::timeout_at(deadline, body.next()).await else {
+            state.lock().unwrap().deadline_trips += 1;
+            break;
+        };
+        let Some(Ok(chunk)) = next else { break };
         buf.push_str(&String::from_utf8_lossy(&chunk));
         while let Some(nl) = buf.find('\n') {
             let line = buf[..nl].trim_end_matches('\r').to_string();
             buf.drain(..=nl);
             if line.is_empty() {
+                // Any complete frame, comments included, is proof of life.
+                if let Some(idle) = idle {
+                    deadline = tokio::time::Instant::now() + idle;
+                }
                 if !event.is_empty() || !data.is_empty() {
-                    connected |= event == "connected";
                     on_frame(state, &event, &data);
+                    if event == "connected" {
+                        connected = true;
+                        idle = state.lock().unwrap().heartbeat_ms.map(|ms| {
+                            Duration::from_millis(ms).saturating_mul(opts.idle_heartbeats)
+                        });
+                        // No heartbeat announced: no idle deadline.
+                        deadline = tokio::time::Instant::now()
+                            + idle.unwrap_or(Duration::from_secs(24 * 3600));
+                    }
                     event.clear();
                     data.clear();
                 }
@@ -256,33 +395,83 @@ async fn stream_once(
             }
         }
     }
-    connected
+    if connected {
+        Attempt::Connected
+    } else {
+        Attempt::Failed
+    }
 }
 
-async fn poll_once(client: &reqwest::Client, base: &str, key: &str, state: &Mutex<SdkState>) {
+/// Returns the status when the server rejected the key.
+async fn poll_once(
+    client: &reqwest::Client,
+    base: &str,
+    key: &str,
+    state: &Mutex<SdkState>,
+) -> Option<u16> {
+    let started_at = state.lock().unwrap().learn_seq;
     let Ok(resp) = client
-        .get(format!("{base}/flags/snapshot"))
+        .get(format!("{base}/flags/snapshot?v=2"))
         .bearer_auth(key)
         .timeout(Duration::from_secs(5))
         .send()
         .await
     else {
-        return;
+        return None;
     };
-    if !resp.status().is_success() {
-        return;
+    if is_auth_failure(resp.status()) {
+        return Some(resp.status().as_u16());
     }
-    let Ok(flags) = resp.json::<Vec<Value>>().await else {
-        return;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let Ok(body) = resp.json::<Value>().await else {
+        return None;
     };
+    let (flags, revisions) = parse_snapshot(body)?;
     let mut s = state.lock().unwrap();
-    s.flags = flags
-        .into_iter()
-        .filter_map(|f| Some((f["key"].as_str()?.to_string(), f)))
-        .collect();
-    s.revisions.clear();
+    merge_full_set(&mut s, flags, revisions, started_at);
     s.polls += 1;
     s.ready = true;
+    None
+}
+
+type FullSet = (HashMap<String, Value>, Option<HashMap<String, Known>>);
+
+/// A `?v=2` snapshot (flags, revisions, tombstones), or a bare array from a
+/// server that predates it. `None` if malformed: nothing is applied.
+fn parse_snapshot(body: Value) -> Option<FullSet> {
+    let keyed = |flags: Vec<Value>| -> HashMap<String, Value> {
+        flags
+            .into_iter()
+            .filter_map(|f| Some((f["key"].as_str()?.to_string(), f)))
+            .collect()
+    };
+    if let Value::Array(flags) = body {
+        return Some((keyed(flags), None));
+    }
+    let flags = keyed(body["flags"].as_array()?.clone());
+    let mut revisions = HashMap::new();
+    for key in flags.keys() {
+        let revision = body["revisions"][key].as_i64()?;
+        revisions.insert(
+            key.clone(),
+            Known {
+                revision,
+                deleted: false,
+                at: 0,
+            },
+        );
+    }
+    for (key, revision) in body["tombstones"].as_object()? {
+        let revision = revision.as_i64()?;
+        revisions.entry(key.clone()).or_insert(Known {
+            revision,
+            deleted: true,
+            at: 0,
+        });
+    }
+    Some((flags, Some(revisions)))
 }
 
 async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkState>>) {
@@ -292,7 +481,7 @@ async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkSt
         .unwrap();
     let mut failures: u32 = 0;
     loop {
-        let connected = stream_once(&client, &base, &key, &state).await;
+        let attempt = stream_once(&client, &base, &key, &opts, &state).await;
         {
             let mut s = state.lock().unwrap();
             s.staged = None;
@@ -300,8 +489,17 @@ async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkSt
                 s.disconnects += 1;
             }
             s.streaming = false;
+            if let Attempt::Rejected(status) = attempt {
+                s.auth_rejected = Some(status);
+                s.polling = false;
+                return;
+            }
         }
-        failures = if connected { 1 } else { failures + 1 };
+        failures = if attempt == Attempt::Connected {
+            1
+        } else {
+            failures + 1
+        };
 
         let base_delay = opts
             .reconnect_base
@@ -314,7 +512,12 @@ async fn run(base: String, key: String, opts: SdkOptions, state: Arc<Mutex<SdkSt
             state.lock().unwrap().polling = true;
             while tokio::time::Instant::now() < wake {
                 let poll_base = opts.poll_base.as_deref().unwrap_or(&base);
-                poll_once(&client, poll_base, &key, &state).await;
+                if let Some(status) = poll_once(&client, poll_base, &key, &state).await {
+                    let mut s = state.lock().unwrap();
+                    s.auth_rejected = Some(status);
+                    s.polling = false;
+                    return;
+                }
                 let left = wake.saturating_duration_since(tokio::time::Instant::now());
                 tokio::time::sleep(opts.poll_interval.min(left)).await;
             }

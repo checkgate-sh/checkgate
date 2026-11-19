@@ -48,13 +48,14 @@ services:
       - "3000:3000"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
-      SESSION_SECRET: ${SESSION_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - checkgate_pgdata:/var/lib/postgresql/data
       - checkgate_redis:/var/lib/redis
     restart: unless-stopped
+    stop_grace_period: 30s   # longer than the server's 20 s shutdown grace
 
 volumes:
   checkgate_pgdata:
@@ -109,6 +110,7 @@ services:
       SETUP_TOKEN: ${SETUP_TOKEN}
       COOKIE_SECURE: "true"
     restart: unless-stopped
+    stop_grace_period: 30s   # longer than the server's 20 s shutdown grace
 ```
 
 Requirements and behaviour:
@@ -202,6 +204,11 @@ The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects
 | `RATE_LIMIT_SDK_PER_MINUTE` | `600` | Per-client `/flags/snapshot` budget; `0` disables |
 | `RATE_LIMIT_SSE_PER_MINUTE` | `120` | Per-client SSE connection budget; `0` disables |
 | `RATE_LIMIT_INGEST_PER_MINUTE` | `600` | Per-client impression/event budget; `0` disables |
+| `RATE_LIMIT_INGEST_KEY_PER_MINUTE` | `20000` | Ingest requests per SDK key (or user), shared by all instances; `0` disables (see [Per-key ingest quota](#per-key-ingest-quota)) |
+| `RATE_LIMIT_INGEST_ROWS_PER_MINUTE` | `60000` | Impression and event rows per SDK key (or user), shared by all instances; `0` disables, otherwise at least `500` |
+| `ANALYTICS_RETENTION_DAYS` | `90` | Days impressions and events are kept (0–3650); `0` keeps them forever (see [Analytics retention](#analytics-retention)) |
+| `ANALYTICS_RETENTION_INTERVAL_SECS` | `3600` | Minimum time between retention passes across all instances (1–604800) |
+| `ANALYTICS_RETENTION_BATCH_SIZE` | `5000` | Rows examined per retention batch (100–100000) |
 | `SDK_KEY` | _(unset)_ | Legacy env var: adds an extra accepted SDK key without a DB entry |
 | `PUBLIC_DIR` | `public` | Directory to serve dashboard static files from |
 | `PORT` | `3000` | Port the server listens on |
@@ -214,9 +221,10 @@ The image is multi-architecture: `linux/amd64` and `linux/arm64`. Docker selects
 | `SSE_MAX_CONNECTIONS` | `10000` | Open SSE streams per instance; `0` = unlimited. Beyond it: `503` + `Retry-After` |
 | `SSE_BOOTSTRAP_CONCURRENCY` | `DB_MAX_CONNECTIONS / 2` | Concurrent SSE bootstraps and snapshot reads |
 | `SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS` | `10` | Wait for a bootstrap slot before `503` |
+| `SSE_HEARTBEAT_INTERVAL_SECS` | `15` | Quiet time before a stream gets a `heartbeat` event (1–300). SDKs reconnect after 3 missed intervals; keep it below your proxy's idle timeout |
 | `SSE_RESYNC_SPREAD_MS` | `5000` | Window over which resynced streams are closed |
 | `TCP_USER_TIMEOUT_SECS` | `60` | Linux: abort connections whose data stays unacknowledged this long; `0` disables |
-| `REDIS_CHANNEL` | `checkgate_updates` | Redis Pub/Sub channel for change events |
+| `REDIS_CHANNEL` | `checkgate_updates` | Redis Pub/Sub channel for change events; also prefixes the ingest-quota keys, so deployments sharing one Redis must use different values |
 | `REDIS_PING_INTERVAL_SECS` | `10` | Liveness ping on the Redis subscription |
 | `SYNC_RECONCILE_INTERVAL_SECS` | `30` | Reconciliation against PostgreSQL; `0` disables (see [Reliability](./operations/reliability.md)) |
 | `SYNC_RECONCILE_GRACE_SECS` | `10` | How long a change may stay unrelayed before it is repaired |
@@ -232,6 +240,14 @@ openssl rand -hex 32
 ```
 
 SDK keys are managed through the dashboard Settings page. The first key is auto-generated on first boot. Additional keys can be created and revoked without restarting the server.
+
+SDK keys ship inside browser and mobile apps, so treat them as **public**: a
+key can only stream, poll and read the flags of its own environment and report
+impressions and events for it. What someone holding a key can send is bounded
+by the [per-key ingest quota](#per-key-ingest-quota), the 500-row and 256 KiB
+limits per request and the [per-address limits](#rate-limits), and what is
+stored expires with [analytics retention](#analytics-retention). Revoke a key
+that is being abused; its open streams close on every instance.
 
 ## First-run setup
 
@@ -282,8 +298,126 @@ are never counted.
 Set a variable to `0` to disable that class (for example, when a gateway in
 front of Checkgate already limits it). Many SDK instances behind one NAT or
 egress IP share a budget; raise the SDK, SSE and ingest limits accordingly.
+Ingestion also has a [quota per SDK key](#per-key-ingest-quota), which holds
+however many addresses use the key.
 Limiter state holds only recently active clients (IPv6 clients are grouped by
 /64) and is pruned every minute.
+
+### Per-key ingest quota
+
+The per-address limits above cannot stop a public SDK key from being used by
+many addresses, and they count requests, while one ingest request can carry
+500 rows. Impression and event ingestion therefore also has a quota per
+**credential**: each SDK key separately (the legacy `SDK_KEY` variable counts
+as one key), and each user ingesting with a session or personal access token.
+
+| Budget | Variable | Default (per minute) | Charged |
+|---|---|---|---|
+| Requests | `RATE_LIMIT_INGEST_KEY_PER_MINUTE` | `20000` | one per ingest request, empty batches included |
+| Rows | `RATE_LIMIT_INGEST_ROWS_PER_MINUTE` | `60000` | one per row, or one per started KiB of request body when that is larger |
+
+Impressions and events draw on the same budgets. A key may spend a full
+minute's budget at once and then refills evenly (1,000 rows a second with the
+defaults), like the per-address limits. A request is charged only if both
+budgets admit it; otherwise it gets `429 Too Many Requests` with `Retry-After`
+(at most 61 seconds) and **none of its rows are stored**. The per-address
+limit is checked first, then the key, the batch size and the body size, then
+the quota, all before anything is written to PostgreSQL.
+
+The quota state is shared through Redis, so every instance enforces one
+budget per key: a script checks and charges both budgets atomically, using the
+Redis clock. It keeps one small hash per active credential, under
+`<REDIS_CHANNEL>:ingest-quota:`, that expires about a second after the
+credential's budgets have refilled (so at most about 61 seconds after its last
+request). **If Redis does not answer within 0.5 s**, each instance enforces
+the same budgets on its own for 5 seconds before trying Redis again: with *N*
+instances a key can then reach up to *N* times its budget. Flag evaluation and
+streaming are unaffected either way, and
+`checkgate_ingest_quota_local_decisions_total` counts the requests decided
+this way.
+
+The SDKs send analytics fire-and-forget: a refused batch is dropped, not
+retried, so a quota never causes a retry storm or unbounded buffering in the
+SDK (each SDK buffers at most 10,000 impressions and 10,000 events). Analytics
+beyond the quota are lost; flags keep working.
+
+**Sizing.** Each SDK instance sends at most one impressions request and one
+events request per flush interval (10 s by default), plus one per 50 buffered
+rows. The defaults admit, per key, about 1,600 sessions that each flush both
+every 10 s, or 1,000 rows a second in any mix. They bound the *rate* of growth, not the size of a small disk: sustained, the
+default row budget is 86 million rows a day per key. Set the row budget to
+about two to three times your measured peak
+(`rate(checkgate_analytics_rows_total{outcome="accepted"}[5m]) * 60`) and
+watch `checkgate_ingest_quota_rejections_total`. A deployment that limits at a
+gateway can set both variables to `0`.
+
+### Analytics retention
+
+Impressions and goal events older than `ANALYTICS_RETENTION_DAYS` (default
+**90**) are deleted automatically. Age is measured from when the server
+received the row (`received_at`), not from the time an SDK reported, so a
+client clock cannot make a row expire early or live longer.
+
+What is **kept** regardless of age: the impressions of a **running or
+paused** experiment's flag and the events of its goal, in the experiment's
+environment. They expire normally once the experiment is completed or deleted.
+Nothing else is touched: flags, revisions, audit logs, segments, experiments,
+webhook and integration deliveries and the rest keep their own lifetimes.
+
+How cleanup runs:
+
+- Every instance checks once a minute (or every
+  `ANALYTICS_RETENTION_INTERVAL_SECS`, if shorter). Only one instance at a time
+  can run a pass (a PostgreSQL advisory lock), and a pass runs only if the last
+  completed one, on any instance, finished at least
+  `ANALYTICS_RETENTION_INTERVAL_SECS` ago (default one hour).
+- A pass deletes in batches of `ANALYTICS_RETENTION_BATCH_SIZE` rows (default
+  5,000) in `received_at` order, using the existing `received_at` indexes. Each
+  batch is a short transaction of its own, with a 30 s statement timeout, and
+  the pass pauses 50 ms between batches. A running pass uses one connection
+  of the instance's pool (`DB_MAX_CONNECTIONS`). Flag reads and writes never
+  touch these tables, so ingestion, evaluation and streaming are not blocked.
+- A failed batch rolls back whole; the next check (on any instance) resumes
+  from the oldest remaining row. A pass interrupted by shutdown stops between
+  batches and is resumed the same way.
+- Startup deletes nothing: the first check comes a minute after the server
+  starts (or after the interval, if shorter).
+
+`ANALYTICS_RETENTION_DAYS=0` turns retention off; the server logs a warning
+at startup that the tables grow without bound. Changing the value takes effect
+at the next pass; lowering it deletes the newly expired rows in batches.
+
+**Effect on analytics.** Every report reads only the rows that are kept:
+
+| Report | Reads | With retention |
+|---|---|---|
+| Experiment results | all impressions of the flag and events of the goal | Complete while the experiment is running or paused. After it is completed, rows older than the retention expire and its results shrink, so record the results before completing an experiment that ran longer than the retention |
+| Exposure (`/impressions/exposure`) | totals over all kept rows; daily timeline up to 90 days | Totals cover the retention period; with the default of 90 days the longest timeline is complete |
+| Impression stats, impression list, event keys | all kept rows | Cover the retention period |
+
+**Storage.** To see what the analytics tables hold:
+
+```sql
+SELECT relname,
+       pg_size_pretty(pg_total_relation_size(oid)) AS total_size,
+       reltuples::bigint AS approx_rows
+FROM pg_class WHERE relname IN ('impressions', 'events');
+
+-- Rows kept past the retention by running or paused experiments:
+SELECT x.key, x.status, count(i.*) AS impressions
+FROM experiments x JOIN impressions i
+  ON i.environment_id = x.environment_id AND i.flag_key = x.flag_key
+WHERE x.status IN ('running', 'paused')
+  AND i.received_at < NOW() - INTERVAL '90 days'
+GROUP BY x.key, x.status;
+```
+
+PostgreSQL reuses the space of deleted rows for new ones after `VACUUM`
+(autovacuum does this); the files shrink only after `VACUUM FULL` or
+`pg_repack`. With retention in steady state, the tables stay at about
+*ingestion rate × retention period*. Use the metrics in
+[Observability](./operations/observability.md#analytics-ingestion-and-retention)
+to watch ingestion and cleanup.
 
 ### Behind a reverse proxy or load balancer
 
@@ -314,7 +448,8 @@ trusted proxy.
 Rate limits are kept per instance: with *N* replicas behind a balancer that
 spreads one client's requests, that client can make up to *N* times the
 configured budget. Divide the limits by your replica count if you need a
-cluster-wide figure.
+cluster-wide figure. (The per-key ingest quota is shared by all instances
+through Redis.)
 
 ## AWS
 
@@ -384,7 +519,7 @@ Checkgate keeps no flag state in server memory: SSE bootstrap, snapshot polling 
 
 No sticky sessions are needed: every instance relays every change to its own
 SSE clients, and a reconnecting client may land on any instance. Keep the idle
-timeout above 30 s (keep-alives are sent every 15 s), health-check
+timeout above 30 s (heartbeats are sent after 15 s of silence, `SSE_HEARTBEAT_INTERVAL_SECS`), health-check
 `/health/ready`, and set the deregistration delay to about
 `SHUTDOWN_DRAIN_DELAY_SECS`. See
 [Deployment, failure and recovery](./operations/failure-recovery.md#load-balancers).
@@ -428,7 +563,10 @@ docker compose pull checkgate
 docker compose up -d checkgate
 ```
 
-The server applies any new migrations before accepting traffic. Existing data is preserved.
+The server applies any new migrations before accepting traffic. Existing data is preserved,
+except as the release notes say: from 0.1.31, impressions and events older than
+`ANALYTICS_RETENTION_DAYS` (default 90) are deleted after the upgrade — set it
+before upgrading if you need them (see [Upgrading to 0.1.31](./operations/upgrading.md)).
 
 ### Upgrading to the release with deployment modes and setup tokens
 

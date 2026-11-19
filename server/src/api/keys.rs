@@ -351,19 +351,20 @@ pub async fn revoke_key(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let result = sqlx::query("DELETE FROM sdk_keys WHERE id = $1")
-        .bind(key_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to revoke SDK key");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let revoked_env: Option<String> =
+        sqlx::query_scalar("DELETE FROM sdk_keys WHERE id = $1 RETURNING environment_id::text")
+            .bind(key_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to revoke SDK key");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
-    if result.rows_affected() == 0 {
+    let Some(env_id) = revoked_env else {
         let _ = tx.rollback().await;
         return Err(StatusCode::NOT_FOUND);
-    }
+    };
 
     tx.commit().await.map_err(|e| {
         error!(error = %e, "Failed to commit revoke transaction");
@@ -371,9 +372,43 @@ pub async fn revoke_key(
     })?;
 
     state.sdk_keys.write().await.retain(|e| e.id != key_id);
+    close_streams_of_environment(&state, env_id).await;
 
     info!(key_id = %key_id, project_id = %project_id, "SDK key revoked");
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Streams authenticate once, when they open, so a revoked key's open
+/// streams would keep receiving updates until they reconnect. The stream does
+/// not know which key opened it beyond its environment, so the environment's
+/// streams are resynced: each closes within `SSE_RESYNC_SPREAD_MS` and its
+/// client reconnects. The revoked key's reconnect is refused (401, terminal in
+/// the SDKs); the others re-bootstrap. Here directly, and through Redis on
+/// every other instance (v0.1.30 instances read the same scoped message). If
+/// Redis is unavailable, other instances' streams close on their next
+/// reconnect, as before.
+async fn close_streams_of_environment(state: &AppState, env_id: String) {
+    let event = crate::sync::SyncEvent::resync_env(env_id);
+    state
+        .metrics
+        .resync(crate::metrics::ResyncTrigger::key_revoked);
+    let mut conn = state.redis_conn.clone();
+    let published = tokio::time::timeout(
+        std::time::Duration::from_millis(1500),
+        redis::AsyncCommands::publish::<_, _, ()>(
+            &mut conn,
+            crate::sync::updates_channel(),
+            event.payload.as_str(),
+        ),
+    )
+    .await;
+    if !matches!(published, Ok(Ok(()))) {
+        tracing::warn!(
+            "SDK key revoked, but the resync could not be published to Redis: \
+             streams on other instances close on their next reconnect"
+        );
+    }
+    crate::sync::relay(state, event);
 }
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ bootstraps — so the "old" UI paints first and snaps to the "new" one a moment
 later. `@checkgate/ssr` removes that flash:
 
 1. **On the server**, evaluate the flags a page needs for the current user and
-   build a tiny, serializable **bootstrap payload**.
+   build a serializable **bootstrap payload** (it embeds the flag snapshot for the live client unless `includeSnapshot: false`).
 2. **Embed** it in the HTML (a single `<script>` tag, XSS-safe).
 3. **On the client**, render the first paint straight from that payload — byte
    for byte what the server rendered — then let the live SDK take over for
@@ -60,53 +60,74 @@ export async function getBootstrap(userKey: string, keys: string[]) {
 }
 ```
 
-### 2. Embed it in the document
+### 2. Pass it to the client
+
+In the App Router, hand the payload to a client provider as a prop. The server
+render and the first client render then read the same values (no hydration
+mismatch). Keep the user's attributes next to it so the live client evaluates
+with the same inputs as the server.
 
 ```tsx
-// app/layout.tsx
-import { bootstrapScriptTag } from '@checkgate/ssr'
+// app/layout.tsx (Server Component)
 import { getBootstrap } from '@/lib/checkgate-server'
+import { FlagsProvider } from './flags-provider'
 
 export default async function RootLayout({ children }) {
   const userKey = /* cookie/session id */ 'anonymous'
+  const attributes = { plan: 'free' }  // the same attributes passed to buildBootstrap
   const payload = await getBootstrap(userKey, ['new-homepage', 'checkout-color'])
   return (
     <html>
-      <head dangerouslySetInnerHTML={{ __html: bootstrapScriptTag(payload) }} />
-      <body>{children}</body>
+      <body>
+        <FlagsProvider payload={payload} attributes={attributes}>{children}</FlagsProvider>
+      </body>
     </html>
   )
 }
 ```
 
-### 3. Hydrate on the client
+Outside React (or with a streaming template), embed it instead with
+`bootstrapScriptTag(payload)` and read it on the client with `readBootstrap()`;
+`readBootstrap()` returns `null` on the server, so call it only in the browser.
+
+### 3. Go live on the client
+
+One `CheckgateWeb` client for the whole app, seeded from the same payload:
 
 ```tsx
 'use client'
-import { useEffect, useState } from 'react'
-import { readBootstrap, BootstrapValues } from '@checkgate/ssr'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { BootstrapValues } from '@checkgate/ssr'
 import { CheckgateWeb } from '@checkgate/web'
 
-const bootstrap = readBootstrap()            // the embedded payload
-const initial = new BootstrapValues(bootstrap)
+type Read = (key: string) => boolean
+const FlagsContext = createContext<Read>(() => false)
 
-export function useFlag(key: string) {
-  // First paint uses the server-resolved value → no flicker.
-  const [enabled, setEnabled] = useState(() => initial.isEnabled(key))
+export function FlagsProvider({ payload, attributes = {}, children }) {
+  const initial = useMemo(() => new BootstrapValues(payload), [payload])
+  const [client, setClient] = useState<CheckgateWeb | null>(null)
+  const [, setVersion] = useState(0)
 
   useEffect(() => {
-    // Seed the live client from the same snapshot, then subscribe to updates.
-    const client = new CheckgateWeb({
+    const live = new CheckgateWeb({
       serverUrl: process.env.NEXT_PUBLIC_CHECKGATE_URL!,
       sdkKey: process.env.NEXT_PUBLIC_CHECKGATE_SDK_KEY!,
-      bootstrap, // ← live-ready without waiting for SSE
+      bootstrap: payload,               // live-ready without waiting for SSE
     })
-    client.connect().then(() => setEnabled(client.isEnabled(key, bootstrap.userKey)))
-    return () => client.disconnect()
-  }, [key])
+    const off = live.onChange(() => setVersion((v) => v + 1))
+    live.connect().then(() => setClient(live)).catch(() => {})
+    return () => { off(); live.disconnect() }
+  }, [payload])
 
-  return enabled
+  // Server-resolved values until the live client is ready, then live ones.
+  const read: Read = (key) =>
+    client && initial.userKey
+      ? client.isEnabled(key, initial.userKey, attributes)
+      : initial.isEnabled(key)
+  return <FlagsContext.Provider value={read}>{children}</FlagsContext.Provider>
 }
+
+export const useFlag = (key: string) => useContext(FlagsContext)(key)
 ```
 
 **Remix / SvelteKit** follow the same three steps — build the payload in the

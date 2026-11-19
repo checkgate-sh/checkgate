@@ -57,9 +57,9 @@ Once your Control Plane is accessible (e.g., at `https://flags.internal.com`), y
    operate this installation, so nobody else can claim it first.
 1. **Workspace name** — your company or team name, shown on the login page.
 2. **Admin account** — your name, work email, and a password (minimum 8 characters).
-3. **SDK key** — auto-generated on first boot; copy it now for use in your applications.
+3. **SDK key** — auto-generated on first boot for the default (Development) environment; copy it now for use in your applications.
 
-After completing the wizard you are logged in as the first admin. Additional users can be invited from the **Users** page, and additional SDK keys can be created from **Settings**.
+After completing the wizard you are logged in as the first admin. Additional users are created from the **Users** page, and SDK keys for other environments under **Project Settings → SDK Keys**.
 
 ---
 
@@ -71,17 +71,17 @@ Transitioning from LaunchDarkly involves replacing the LD client with a Checkgat
 ```dart
 // 1. Initialize the client
 final checkgate = CheckgateClient(
-  url: "https://flags.internal.com",
-  sdkKey: "sk_live_..."
+  serverUrl: "https://flags.internal.com",
+  sdkKey: "sk_live_...",
 );
 
-await checkgate.initialize();
+await checkgate.connect();
 
-// 2. Evaluate flags locally (zero latency)
-bool showNewFeature = checkgate.isEnabled("new_feature_v2");
+// 2. Evaluate flags locally (no request per evaluation)
+bool showNewFeature = checkgate.isEnabled("new_feature_v2", currentUserId, {"plan": "pro"});
 ```
 
 ## Why Enterprise Teams Choose Checkgate
 - **Data Sovereignty**: user identities and PII never leave your network.
-- **Zero-Latency Evaluation**: Decisions happen in microseconds inside your application's memory using Rust-powered FFI.
-- **Cost Transparency**: No per-user, per-seat, or per-flag pricing. Scale to millions of users at the cost of a small cloud instance.
+- **In-Process Evaluation**: Decisions happen in microseconds inside your application's memory, in the shared Rust core.
+- **Cost Transparency**: No per-user, per-seat, or per-flag pricing. Evaluation cost does not grow with users; server cost grows with connected clients (one server held 10,000 idle streams at 1 vCPU / 512 MiB in our [cost benchmark](/performance/cost-efficiency); `SSE_MAX_CONNECTIONS` defaults to 10,000 per instance).

@@ -1,6 +1,6 @@
 ---
 title: "REST API Reference — Checkgate Feature Flag Management API"
-description: "Complete REST API reference for Checkgate. Manage projects, environments, flags, users, and SDK keys via CRUD endpoints. Connect to the SSE stream to push flag changes to SDK clients in under 50 ms."
+description: "Complete REST API reference for Checkgate. Manage projects, environments, flags, users, and SDK keys via CRUD endpoints. Connect to the SSE stream to push flag changes to SDK clients in real time."
 ---
 
 # REST API Reference
@@ -226,6 +226,14 @@ A refused request gets `429 Too Many Requests` with a `Retry-After` header
 }
 ```
 
+Impression and event ingestion additionally has a **quota per credential**
+(each SDK key, and each user ingesting with a session or token), shared by all
+instances: 20,000 requests and 60,000 rows per minute by default, where a row
+counts as one unit, or one unit per started KiB of body if that is larger. A
+request over either budget gets the same `429` response (`Retry-After` at most
+61 s) and none of its rows are stored. See
+[Self-Hosting → Per-key ingest quota](./self-hosting.md#per-key-ingest-quota).
+
 ---
 
 ## Projects
@@ -257,6 +265,31 @@ Returns all projects the caller has access to (all projects for workspace admins
 
 ---
 
+### Get Project
+
+```http
+GET /api/projects/{project_id}
+```
+
+Any member of the project (workspace admins always have access).
+
+**Response** `200 OK`
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Mobile App",
+  "slug": "mobile-app",
+  "created_at": "2026-04-18T00:00:00Z"
+}
+```
+
+**Response** `403 Forbidden` — the caller is not a member of the project.
+
+**Response** `404 Not Found` — project does not exist.
+
+---
+
 ### Create Project
 
 ```http
@@ -264,7 +297,7 @@ POST /api/projects
 Content-Type: application/json
 ```
 
-Admin only. Creates a new project and seeds it with Production, Staging, and Development environments plus one SDK key for the Production environment.
+Admin only. Creates a new, empty project: add its environments (`POST /api/projects/{project_id}/environments`) and SDK keys before creating flags. (Only the first project, created at setup, is seeded with environments and an SDK key.)
 
 **Request Body**
 
@@ -428,21 +461,6 @@ Content-Type: application/json
 
 ---
 
-### Update Environment
-
-```http
-PATCH /api/projects/{project_id}/environments/{env_id}
-Content-Type: application/json
-```
-
-```json
-{ "name": "Canary East", "color": "#8b5cf6" }
-```
-
-**Response** `200 OK` — returns the updated environment.
-
----
-
 ### Delete Environment
 
 ```http
@@ -489,8 +507,11 @@ Flag endpoints remain environment-scoped via `{env_id}` (UUID). The environment 
 ### List Flags
 
 ```http
-GET /api/environments/{env_id}/flags
+GET /api/environments/{env_id}/flags?limit=200&offset=0&include_archived=false&tag=checkout
 ```
+
+All query parameters are optional: `limit` (default 200, capped at 500), `offset` (capped at
+1,000,000), `include_archived` (default `false`), and `tag` (only flags carrying that exact tag).
 
 **Response** `200 OK`
 
@@ -572,6 +593,12 @@ Applies a JSON merge patch. Only the provided fields are updated; omitted fields
 
 **Response** `404 Not Found` — flag does not exist.
 
+**Response** `422 Unprocessable Entity` — the flag is over a configuration limit (since 0.1.31;
+stored flags keep working, only writes are checked): more than 500 rules; the same segment
+referenced twice, or more than 50 distinct segments; a prerequisite on the flag itself, listed
+twice, or more than 50 prerequisites; more than 100 variants. The same applies to
+[Create or Replace a Flag](#create-or-replace-a-flag). Segments are limited to 500 rules.
+
 ---
 
 ### Delete a Flag
@@ -602,6 +629,27 @@ Copies the flag's configuration from `{env_id}` to another environment atomicall
 ```
 
 **Response** `200 OK` — returns the flag as it now exists in the target environment.
+
+---
+
+### Archive or Unarchive a Flag
+
+```http
+POST /api/environments/{env_id}/flags/{key}/archive
+POST /api/environments/{env_id}/flags/{key}/unarchive
+```
+
+No request body. Requires **editor** role or above.
+
+Archiving only hides a flag from the default list (`GET …/flags` without
+`include_archived=true`); it has **no effect on evaluation**. SDKs keep receiving and evaluating
+an archived flag exactly as before, so no SSE update or webhook is sent. Each call is recorded in
+the audit log (`ARCHIVE` / `UNARCHIVE`).
+
+**Response** `200 OK` — returns the flag with its metadata; `archived_at` (RFC 3339) is present
+while the flag is archived.
+
+**Response** `404 Not Found` — flag does not exist in this environment.
 
 ---
 
@@ -814,7 +862,7 @@ Only the original requester or a workspace admin may cancel, and only while stil
 | `variants` | `WeightedVariant[]` | No | Weighted multivariate distribution — see [Weighted Variants](guide/concepts.md#weighted-variants-a-b-testing). Defaults to `[]`. |
 | `prerequisites` | `Prerequisite[]` | No | Other flags this flag depends on — see [Prerequisite Flags](guide/concepts.md#prerequisite-flags). Defaults to `[]`. |
 | `tags` | `string[]` | No | Free-form lifecycle/organization tags. Defaults to `[]`. |
-| `owner_email` | `string \| null` | No | Email of the flag's owner. |
+| `owner_email` | `string \| null` | No | Email of the flag's owner. Omitted from reads made with an SDK key (SDK keys are public). |
 | `archived_at` | ISO-8601 string \| null | No | Set when the flag is archived; `null` for active flags. |
 
 ### TargetingRule Object
@@ -896,7 +944,19 @@ Reports a batch of flag evaluation events from an SDK client. Accepts an SDK key
 
 **Response** `204 No Content`
 
-**Response** `413 Payload Too Large` — batch exceeds 500 items.
+| Status | When | Rows stored |
+|---|---|---|
+| `400` / `422` | Body is not valid JSON / not an array of impression objects | None |
+| `403` | The SDK key is bound to another environment, or the user cannot write to it | None |
+| `413` | More than 500 items, or a body over 256 KiB | None |
+| `415` | `Content-Type` is not JSON | None |
+| `429` | Per-address rate limit or [per-key ingest quota](#rate-limits) exceeded; `Retry-After` says when to retry | None |
+
+Rows with an empty `flag_key` or one longer than 100 characters are skipped;
+the rest of the batch is stored. Rows are kept for
+`ANALYTICS_RETENTION_DAYS` (default 90) after they are received, longer while a
+running or paused experiment uses them
+([Self-Hosting → Analytics retention](./self-hosting.md#analytics-retention)).
 
 ---
 
@@ -1229,7 +1289,9 @@ Accepts an SDK key bound to `env_id`, or a user (session or `read_write` token) 
 
 **Response** `404 Not Found` — environment does not exist.
 
-**Response** `413 Payload Too Large` — batch exceeds 500 items.
+The other error responses (`400`, `403`, `413`, `415`, `422`, `429`) are the
+same as for [impression ingest](#ingest-impressions), and none of them stores
+any row. Events share the impressions' per-key quota and retention.
 
 ---
 
@@ -1323,7 +1385,10 @@ Content-Type: application/json
 DELETE /api/projects/{project_id}/keys/{id}
 ```
 
-**Response** `204 No Content`
+**Response** `204 No Content`. Requests with the key are refused (`401`) from then on, on
+every instance. Streams already open in the key's environment close within
+`SSE_RESYNC_SPREAD_MS` (default 5 s) on every instance: the revoked key's clients are refused
+when they reconnect, and clients using other keys reconnect and re-bootstrap once.
 
 **Response** `422 Unprocessable Entity` — cannot revoke the last key in the project.
 
@@ -1571,6 +1636,33 @@ Editor role or above. Only changes that have not yet executed can be deleted.
 
 Webhooks POST a JSON payload to an external URL when flags change in an environment. Delivery attempts are recorded in a per-webhook delivery log. All webhook routes require **admin** role. The `secret` is never returned after creation — responses expose only a `has_secret` boolean.
 
+**Delivery.** Each event is a `POST` with `Content-Type: application/json` and
+`User-Agent: Checkgate-Webhooks/1.0`:
+
+```json
+{
+  "event": "flag.updated",
+  "environment_id": "<uuid>",
+  "flag_key": "new-checkout-flow",
+  "flag": { "key": "new-checkout-flow", "is_enabled": true, "...": "..." },
+  "actor_email": "admin@example.com",
+  "metadata": null,
+  "timestamp": "<unix seconds>"
+}
+```
+
+Events include `flag.created`, `flag.updated`, `flag.deleted`, `flag.promoted`,
+`flag.scheduled_change_applied`, and `change_request.opened` / `approved` / `rejected`.
+
+- **Signature.** With a `secret`, the request carries
+  `X-Checkgate-Signature: sha256=<hex>`: HMAC-SHA256 of the raw request body, keyed with the
+  secret. Verify it against the exact bytes received, with a constant-time comparison.
+- **Retries.** Up to 3 attempts, 1 s and then 5 s apart, only when the request fails to complete
+  (connection or timeout errors). Any HTTP response, including a non-2xx one, is recorded and not
+  retried.
+- **Redirects are not followed** (a 3xx is recorded as the result), and at most 1 KiB of each
+  response body is stored in the delivery log.
+
 ### List Webhooks
 
 ```http
@@ -1616,13 +1708,18 @@ Admin only.
 ```
 
 - `name` — required
-- `url` — required, non-empty
+- `url` — required, non-empty. It may not name a link-local address (`169.254.0.0/16`, where
+  cloud metadata services answer, `fe80::/10`), `fd00:ec2::254` or the unspecified address
+  (`0.0.0.0/8`, `::`); a hostname that resolves only to such addresses fails at delivery.
+  Loopback and private addresses are allowed for internal receivers; restrict the server's
+  egress at the network layer if it must not reach them.
 - `secret` — optional; used to sign delivery payloads. Never returned afterwards.
 - `enabled` — optional, defaults to `true`
 
 **Response** `200 OK` — returns the created webhook (with `has_secret`, not the secret).
 
-**Response** `422 Unprocessable Entity` — empty `url`.
+**Response** `422 Unprocessable Entity` — empty `url`, or a refused address (above). The same
+check applies to `url` in an update.
 
 ---
 
@@ -1689,6 +1786,153 @@ Returns the 100 most recent delivery attempts for the webhook, newest first.
 
 ---
 
+## Integrations (Slack / Microsoft Teams)
+
+Chat integrations post a formatted message to a Slack or Microsoft Teams incoming webhook when
+something changes in an environment. Setup and troubleshooting:
+[Slack & Teams Alerts](/ecosystem/chat-alerts). Reading integrations needs access to the
+environment; creating, changing, deleting and testing them requires **admin** role (the URL is a
+credential that can post to the channel).
+
+The incoming-webhook URL is never returned after creation: responses carry
+`webhook_url_preview`, the last six characters.
+
+**Integration object**
+
+```json
+{
+  "id": "8f6c1c2e-1b7a-4d4e-9a55-0c4e2b6f1d3a",
+  "environment_id": "<uuid>",
+  "kind": "slack",
+  "name": "#releases",
+  "webhook_url_preview": "…Xy12Ab",
+  "events": ["flag.updated", "change_request.opened"],
+  "enabled": true,
+  "created_at": "2026-11-19 08:00:00+00"
+}
+```
+
+- `kind` — `slack` or `teams`.
+- `events` — the events to post. **Empty means all.** Supported: `flag.created`, `flag.updated`,
+  `flag.deleted`, `flag.promoted`, `change_request.opened`, `change_request.approved`,
+  `change_request.rejected`.
+- The URL must use `https://`; plain `http://` is accepted only for `localhost`, `127.0.0.1`
+  and `::1` (a local relay).
+
+### List Integrations
+
+```http
+GET /api/environments/{env_id}/integrations
+```
+
+**Response** `200 OK` — an array of integration objects.
+
+### Create an Integration
+
+```http
+POST /api/environments/{env_id}/integrations
+Content-Type: application/json
+```
+
+```json
+{
+  "kind": "slack",
+  "name": "#releases",
+  "webhook_url": "https://hooks.slack.com/services/T000/B000/XXXX",
+  "events": ["flag.updated"],
+  "enabled": true
+}
+```
+
+`events` (default `[]`, all events) and `enabled` (default `true`) are optional.
+
+**Response** `200 OK` — the created integration.
+
+**Response** `422 Unprocessable Entity` — unknown `kind`, an empty or non-HTTPS URL (plain
+`http://` is accepted only for `localhost`, `127.0.0.1` and `::1`), a refused address (the same
+rule as for [webhook URLs](#create-a-webhook)), or an unsupported event name.
+
+### Update an Integration
+
+```http
+PATCH /api/environments/{env_id}/integrations/{id}
+Content-Type: application/json
+```
+
+Any of `name`, `webhook_url`, `events`, `enabled`; omitted fields are unchanged.
+
+**Response** `200 OK` — the updated integration. **`404`** if it does not exist in this
+environment; **`422`** for an invalid URL or event name.
+
+### Delete an Integration
+
+```http
+DELETE /api/environments/{env_id}/integrations/{id}
+```
+
+**Response** `204 No Content`. **`404`** if it does not exist in this environment. Deleting the
+row stops Checkgate from posting; to invalidate the URL itself, remove the webhook in Slack or
+Teams.
+
+### Send a Test Message
+
+```http
+POST /api/environments/{env_id}/integrations/{id}/test
+```
+
+Sends a sample message (a `flag.updated` for flag `checkgate_test_flag`, rendered for the
+integration's provider) to **this integration only**, and waits for the receiver's answer. It is
+sent even when the integration is disabled or does not subscribe to `flag.updated`, so the wiring
+can be checked before it is turned on; no other integration receives it. One attempt, no retries,
+at most 10 seconds. The attempt is recorded in the integration's delivery log with event `test`.
+Admin role required.
+
+**Response** `200 OK`, whether or not the message was delivered:
+
+```json
+{ "delivered": false, "status_code": 404, "error": null }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `delivered` | The receiver answered with a 2xx status |
+| `status_code` | The receiver's HTTP status; `null` when it was never reached |
+| `error` | Why nothing was delivered when the receiver was not reached (for example `timed out after 10 s`, `could not connect: Connection refused (os error 111)`); never contains the URL. `null` otherwise |
+
+**`404`** if `{id}` is not an integration of this environment.
+
+Before v0.1.31 the endpoint answered `202 Accepted` without a body and queued the sample as an
+environment event, which reached every enabled integration subscribed to `flag.updated` and not
+a disabled or filtered `{id}`.
+
+### List Integration Deliveries
+
+```http
+GET /api/environments/{env_id}/integrations/{id}/deliveries
+```
+
+**Response** `200 OK` — the 50 most recent delivery attempts, newest first:
+
+```json
+[
+  {
+    "id": 31,
+    "integration_id": "8f6c1c2e-1b7a-4d4e-9a55-0c4e2b6f1d3a",
+    "event": "flag.updated",
+    "status_code": 200,
+    "response_body": "ok",
+    "error": null,
+    "delivered_at": "2026-11-19 08:00:01+00"
+  }
+]
+```
+
+`status_code` is `null` and `error` is set when the request could not be completed. At most
+1 KiB of each response body is stored. Delivery retries and redirects behave as for
+[webhooks](#webhooks).
+
+---
+
 ## Audit Log
 
 An append-only record of flag changes per environment. Each entry captures the actor, action, and before/after flag state.
@@ -1751,16 +1995,18 @@ Opens a persistent SSE connection scoped to the environment associated with the 
 2. One `update` event per existing flag in the key's environment (bootstrap)
 3. A `ready` event once the bootstrap replay is complete
 4. `update` events as flags change in that environment in real time
-5. Keep-alive comments every 15 seconds
+5. A `heartbeat` event whenever the stream has been quiet for `SSE_HEARTBEAT_INTERVAL_SECS` (default 15)
 
 ### Event: `connected`
 
 ```
 event: connected
-data: {"environment_id":"<uuid>"}
+data: {"environment_id":"<uuid>","heartbeat_ms":15000}
 ```
 
-Sent once when the connection is established. `environment_id` is `null` for session-cookie
+Sent once when the connection is established. `heartbeat_ms` (0.1.31+) is the longest the
+stream stays silent while healthy; a client should treat a stream that sends nothing for
+several intervals as dead (the SDKs use 3) and reconnect. `environment_id` is `null` for session-cookie
 (dashboard) connections, which aren't scoped to a single environment. SDK clients should start
 staging the bootstrap replay that follows (keeping their current flags live until `ready`), and
 use `environment_id` to route impression reporting (`POST /api/environments/{environment_id}/impressions`).
@@ -1799,13 +2045,24 @@ Sent once the full bootstrap replay (the `update` events above) is complete — 
 number of flags sent. SDK clients should resolve their `connect()` promise on this event rather
 than guessing when bootstrap has finished. Sent on every (re)connection, not just the first.
 
-### Keep-Alive
+### Event: `heartbeat`
 
 ```
-: keep-alive-text
+event: heartbeat
+data: {}
 ```
 
-Sent every 15 seconds to prevent proxy timeouts.
+Sent when the stream has carried nothing else for `heartbeat_ms`; any other event resets the
+timer, so a busy stream sends none. It keeps proxies from closing an idle stream and lets
+clients detect a dead one. It is a named event, not an SSE comment, because `EventSource`
+never surfaces comments; it has data because `EventSource` drops events without data.
+Servers before 0.1.31 sent the comment `: keep-alive-text` every 15 s instead.
+
+### Errors
+
+`401` (unknown or revoked key) and `403` (key not allowed here) mean the key itself is
+rejected: retrying does not help, and the SDKs stop. `503` (instance draining, at
+`SSE_MAX_CONNECTIONS`, or bootstrap queue full) carries `Retry-After`; retry with backoff.
 
 ### Reconnection
 
@@ -1816,8 +2073,11 @@ If the SSE connection drops, clients should reconnect with exponential backoff. 
 3. Server sends `ready` → SDK swaps the staged copy in as a whole, and resolves `connect()` if it
    hadn't already
 
-This guarantees consistency even after missed updates during the disconnected period, and a
+This brings the SDK back to the server's state after updates missed while disconnected, and a
 replay cut short by another disconnect never replaces a complete flag set with a partial one.
+With a 0.1.31 server and SDK, a replay is also merged per flag with anything newer learned
+meanwhile; ordering is per flag, not across flags
+([configuration consistency](/operations/configuration-consistency)).
 
 The server also closes streams itself to force this resync when it may have missed updates:
 after its Redis subscription is re-established, once Redis is reachable again after a failed
@@ -1859,6 +2119,35 @@ a plain JSON array — the same shape each flag has in an SSE `update` event, bu
 ```
 
 The response header `X-Checkgate-Environment-Id` identifies the environment for impression and conversion reporting. The response body remains a plain array, and the header is exposed through CORS.
+
+### Revisioned snapshot (`?v=2`, since 0.1.31)
+
+```http
+GET /flags/snapshot?v=2
+Authorization: Bearer sk_live_your_key
+```
+
+Returns the same flags with the revision of each and the environment's recent deletions:
+
+```json
+{
+  "v": 2,
+  "flags": [ { "key": "my-flag", "is_enabled": true, "rules": [], ... } ],
+  "revisions": { "my-flag": 4182 },
+  "tombstones": { "old-banner": 4011 }
+}
+```
+
+- `revisions` — each flag's committed revision: the same number its SSE `update` events carry.
+- `tombstones` — flags deleted within the tombstone retention (at least 24 hours) and not
+  re-created, at the revision of the version deleted (what the `DELETE` event carried).
+- `v` — the format answered. An unknown higher `v` gets the newest format the server knows; an
+  older or unparsable one gets the plain array. Servers before 0.1.31 ignore the parameter.
+
+Everything comes from one consistent read. Official SDKs from 0.1.31 request this format so they
+can merge a poll with a stream replay per flag and never go back to an older version
+([configuration consistency](/operations/configuration-consistency) describes the guarantee and its limits).
+Revisions are ordered per flag only; do not compare the revisions of different flags.
 
 Intended as a fallback for SDK clients when the SSE connection at `/stream` cannot be
 established at all — e.g. a corporate proxy or firewall blocking long-lived connections. Official

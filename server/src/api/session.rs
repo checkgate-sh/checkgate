@@ -105,15 +105,48 @@ fn cookie_secure() -> bool {
         .unwrap_or(true)
 }
 
-pub(crate) fn hash_password(password: &str) -> Result<String, StatusCode> {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map(|h| h.to_string())
-        .map_err(|e| {
-            error!(error = %e, "Failed to hash password");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })
+/// Runs `f` (an Argon2 hash or verification) on the blocking pool, at most one
+/// per CPU at a time.
+///
+/// Argon2 is deliberately expensive: about 19 MiB and tens of milliseconds per
+/// call in a release build. It used to run inline on a Tokio worker thread, so
+/// a burst of logins — an unauthenticated endpoint — could occupy every worker
+/// and stall all SSE streams and requests on the instance, including the
+/// transactions that other requests were waiting on. On the blocking pool the
+/// async workers stay free; the permit bounds the CPU spent on hashing to the
+/// machine's parallelism, and further callers wait their turn.
+async fn run_argon2<T: Send + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, StatusCode> {
+    static PERMITS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    let permits = PERMITS.get_or_init(|| {
+        tokio::sync::Semaphore::new(
+            std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get),
+        )
+    });
+    let _permit = permits
+        .acquire()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    tokio::task::spawn_blocking(f).await.map_err(|e| {
+        error!(error = %e, "Password hashing task failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
+}
+
+pub(crate) async fn hash_password(password: &str) -> Result<String, StatusCode> {
+    let password = password.to_owned();
+    run_argon2(move || {
+        let salt = SaltString::generate(&mut OsRng);
+        Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map(|h| h.to_string())
+    })
+    .await?
+    .map_err(|e| {
+        error!(error = %e, "Failed to hash password");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
 }
 
 /// Dummy Argon2id hash used when no real hash is available, so that the "user
@@ -121,13 +154,17 @@ pub(crate) fn hash_password(password: &str) -> Result<String, StatusCode> {
 /// default Argon2id parameters over an empty input; always fails verification.
 const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-fn verify_password(password: &str, hash: &str) -> bool {
-    let Ok(parsed) = PasswordHash::new(hash) else {
-        return false;
-    };
-    Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok()
+async fn verify_password(password: &str, hash: &str) -> bool {
+    let (password, hash) = (password.to_owned(), hash.to_owned());
+    run_argon2(move || {
+        PasswordHash::new(&hash).is_ok_and(|parsed| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok()
+        })
+    })
+    .await
+    .unwrap_or(false)
 }
 
 async fn get_workspace_name(state: &AppState) -> String {
@@ -198,17 +235,44 @@ async fn check_lockout(state: &AppState, email: &str) -> Result<Option<i64>, Sta
     Ok(Some(retry_after))
 }
 
-/// Records a failed login attempt and purges stale rows older than the window.
-async fn record_failure(state: &AppState, email: &str, ip: &str) {
-    if let Err(e) = sqlx::query("INSERT INTO login_attempts (email, ip) VALUES ($1, $2)")
+/// Records this attempt before its password is checked and reports whether
+/// it is within the limit.
+///
+/// Checking the count and recording a failure as separate steps let any
+/// number of concurrent attempts pass the check before the first failure was
+/// recorded, so a burst could test far more than `MAX_ATTEMPTS` passwords.
+/// Now each attempt inserts its row first and then counts: the k-th row to
+/// commit sees at least k rows, so at most `MAX_ATTEMPTS` attempts per window
+/// reach the password check. The row stays as the failure record if the
+/// password is wrong (or the attempt is refused), and is cleared with the rest
+/// on success.
+async fn reserve_attempt(state: &AppState, email: &str, ip: &str) -> Result<bool, StatusCode> {
+    sqlx::query("INSERT INTO login_attempts (email, ip) VALUES ($1, $2)")
         .bind(email)
         .bind(ip)
         .execute(&state.db)
         .await
-    {
-        error!(error = %e, "Failed to record login attempt");
-    }
+        .map_err(|e| {
+            error!(error = %e, "Failed to record login attempt");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let attempts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM login_attempts \
+         WHERE email = $1 AND attempted_at > NOW() - ($2 || ' minutes')::interval",
+    )
+    .bind(email)
+    .bind(WINDOW_MINUTES)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        error!(error = %e, "DB error checking login attempts");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(attempts <= MAX_ATTEMPTS)
+}
 
+/// Purges attempt rows older than twice the window.
+async fn prune_attempts(state: &AppState) {
     // Best-effort cleanup: delete rows older than the lockout window to keep
     // the table from growing unbounded.
     let _ = sqlx::query(
@@ -274,6 +338,31 @@ pub async fn login(
         ));
     }
 
+    // ── Reserve the attempt (see `reserve_attempt`) ───────────────────────────
+    let within_limit = reserve_attempt(&state, &email, &ip)
+        .await
+        .map_err(|s| (s, Json(serde_json::json!({ "error": "Internal error." }))))?;
+    if !within_limit {
+        let retry_after = check_lockout(&state, &email)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(LOCKOUT_MINUTES * 60);
+        warn!(
+            email = %email,
+            ip = %ip,
+            retry_after_seconds = retry_after,
+            "Login blocked: account locked out"
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": "Too many failed attempts. Account temporarily locked.",
+                "retry_after_seconds": retry_after
+            })),
+        ));
+    }
+
     // ── User lookup ───────────────────────────────────────────────────────────
     let row = sqlx::query("SELECT id, name, role, password_hash FROM users WHERE email = $1")
         .bind(&email)
@@ -293,24 +382,25 @@ pub async fn login(
     // time and cannot be distinguished by a timing side-channel.
     let auth_ok = match &row {
         None => {
-            verify_password(&req.password, DUMMY_HASH);
+            verify_password(&req.password, DUMMY_HASH).await;
             false
         }
         Some(r) => {
             let hash: Option<String> = r.get("password_hash");
             match hash {
                 None => {
-                    verify_password(&req.password, DUMMY_HASH);
+                    verify_password(&req.password, DUMMY_HASH).await;
                     false
                 }
-                Some(h) => verify_password(&req.password, &h),
+                Some(h) => verify_password(&req.password, &h).await,
             }
         }
     };
 
     if !auth_ok {
-        // Record failure regardless of whether the user exists.
-        record_failure(&state, &email, &ip).await;
+        // The reserved row is the failure record, whether or not the user
+        // exists.
+        prune_attempts(&state).await;
 
         // Re-check lockout count to tell the user how many attempts remain.
         let failures: i64 = sqlx::query_scalar(
@@ -466,7 +556,7 @@ pub async fn setup_complete(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
 
-    let password_hash = hash_password(&req.password)?;
+    let password_hash = hash_password(&req.password).await?;
 
     // Any early return drops `db_tx`, which rolls the transaction back and
     // releases the advisory lock.
@@ -628,4 +718,38 @@ pub fn auth_router() -> Router<AppState> {
         .route("/logout", post(logout))
         .route("/me", get(me))
         .route("/workspace", get(workspace_info))
+}
+
+#[cfg(test)]
+mod argon2_tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// On a single-threaded runtime, a task can only keep running while a
+    /// password is being hashed if the hash runs off the runtime thread.
+    #[tokio::test(flavor = "current_thread")]
+    async fn hashing_does_not_block_the_async_runtime() {
+        let ticks = Arc::new(AtomicU32::new(0));
+        let ticker = {
+            let ticks = Arc::clone(&ticks);
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    ticks.fetch_add(1, Ordering::Relaxed);
+                }
+            })
+        };
+        tokio::task::yield_now().await;
+        let hash = hash_password("correct horse battery").await.unwrap();
+        let during_hash = ticks.load(Ordering::Relaxed);
+        assert!(verify_password("correct horse battery", &hash).await);
+        assert!(!verify_password("wrong", &hash).await);
+        assert!(!verify_password("anything", DUMMY_HASH).await);
+        ticker.abort();
+        assert!(
+            during_hash >= 3,
+            "the runtime stalled while hashing ({during_hash} ticks)"
+        );
+    }
 }

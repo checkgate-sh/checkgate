@@ -50,6 +50,11 @@ async fn list_audit(
     Query(q): Query<AuditQuery>,
 ) -> Result<Json<Vec<AuditEntry>>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
+    // Clamped like the flag list: an unbounded `limit` returned the whole
+    // audit history (with before/after JSON) in one response, and a negative
+    // value reached PostgreSQL as an invalid LIMIT/OFFSET (500).
+    let limit = q.limit.clamp(0, super::flags::MAX_PAGE_LIMIT);
+    let offset = q.offset.clamp(0, super::flags::MAX_PAGE_OFFSET);
 
     let rows = if let Some(ref flag_key) = q.flag_key {
         sqlx::query(
@@ -61,8 +66,8 @@ async fn list_audit(
         )
         .bind(&env_id)
         .bind(flag_key)
-        .bind(q.limit)
-        .bind(q.offset)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&state.db)
         .await
     } else {
@@ -74,8 +79,8 @@ async fn list_audit(
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
         )
         .bind(&env_id)
-        .bind(q.limit)
-        .bind(q.offset)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&state.db)
         .await
     }

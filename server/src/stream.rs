@@ -12,10 +12,12 @@ use axum::{
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
 };
+use checkgate_core::evaluator::TargetingRule;
 use dashmap::DashMap;
 use futures_util::stream::Stream;
 use rand::RngExt as _;
 use sqlx::Row;
+use sqlx::types::Json as DbJson;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -34,12 +36,21 @@ use tracing::{info, warn};
 ///   so a reconnect wave cannot take every pool connection from the REST API.
 ///   A request that waits longer than `SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS`
 ///   (default 10) for a slot gets 503 with `Retry-After`.
+/// - A stream that has been quiet for `SSE_HEARTBEAT_INTERVAL_SECS` (default
+///   15, 1–300) gets an `event: heartbeat`. The interval is announced in the
+///   `connected` event (`heartbeat_ms`), so SDKs can treat a stream that
+///   stays silent for several intervals as dead and reconnect.
 pub struct SseLimits {
     max_connections: Option<usize>,
     active: AtomicUsize,
     bootstrap: Arc<Semaphore>,
     bootstrap_wait: Duration,
+    heartbeat: Duration,
 }
+
+/// Bounds of `SSE_HEARTBEAT_INTERVAL_SECS`. Below 1 s the heartbeat is load,
+/// not liveness; above 300 s common proxies close the idle stream first.
+const HEARTBEAT_SECS_RANGE: std::ops::RangeInclusive<u64> = 1..=300;
 
 impl SseLimits {
     pub fn from_env(db_max_connections: u32) -> Result<Self, String> {
@@ -68,6 +79,14 @@ impl SseLimits {
             return Err("SSE_BOOTSTRAP_CONCURRENCY must be at least 1".into());
         }
         let wait = read("SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS", 10)?;
+        let heartbeat = read("SSE_HEARTBEAT_INTERVAL_SECS", 15)?;
+        if !HEARTBEAT_SECS_RANGE.contains(&heartbeat) {
+            return Err(format!(
+                "SSE_HEARTBEAT_INTERVAL_SECS must be between {} and {}, got {heartbeat}",
+                HEARTBEAT_SECS_RANGE.start(),
+                HEARTBEAT_SECS_RANGE.end()
+            ));
+        }
         let to_usize = |v: u64| usize::try_from(v).unwrap_or(usize::MAX);
         Ok(Self {
             max_connections: (max > 0).then(|| to_usize(max)),
@@ -76,6 +95,7 @@ impl SseLimits {
                 to_usize(concurrency).min(Semaphore::MAX_PERMITS),
             )),
             bootstrap_wait: Duration::from_secs(wait),
+            heartbeat: Duration::from_secs(heartbeat),
         })
     }
 
@@ -251,9 +271,10 @@ pub async fn sse_handler(
         .await
         .map_err(|_| internal())?;
         for row in rows {
-            let data: serde_json::Value = row.try_get("data").map_err(|_| internal())?;
+            let DbJson(flag) = row
+                .try_get::<DbJson<checkgate_core::evaluator::Flag>, _>("data")
+                .map_err(|_| internal())?;
             let revision: i64 = row.try_get("revision").map_err(|_| internal())?;
-            let flag = serde_json::from_value(data).map_err(|_| internal())?;
             let flag = crate::api::segments::expand_flag_with_segments(flag, &segments);
             bootstrap.push(crate::api::flags::upsert_message(env_id, &flag, revision));
             flag_count = flag_count.saturating_add(1);
@@ -323,13 +344,19 @@ pub async fn sse_handler(
     let mut rx = rx;
     let shutdown = state.lifecycle.shutdown.clone();
     let spread = state.sync.config.resync_spread;
+    let heartbeat = state.sse_limits.heartbeat;
+    let heartbeat_ms = u64::try_from(heartbeat.as_millis()).unwrap_or(u64::MAX);
 
     let stream = async_stream::stream! {
         // Announce the resolved environment so SDK clients know where to report
         // impressions (POST /api/environments/{environment_id}/impressions).
         // `null` for session-auth (dashboard) connections, which do not report.
+        // `heartbeat_ms` is the longest this stream stays silent while healthy:
+        // SDKs derive their dead-stream deadline from it. SDKs that predate it
+        // ignore the field.
         let connected_payload = serde_json::json!({
             "environment_id": environment_id.clone(),
+            "heartbeat_ms": heartbeat_ms,
         })
         .to_string();
         yield Ok(Event::default().event("connected").data(connected_payload));
@@ -399,11 +426,91 @@ pub async fn sse_handler(
         drop(guard);
     };
 
+    // The keep-alive is a named event, not a comment: `EventSource` (browsers,
+    // the Node `eventsource` package, React Native polyfills) never surfaces
+    // comments, so a comment cannot tell an SDK that the stream is alive. The
+    // timer restarts after every event, so a busy stream sends none. SDKs that
+    // predate it have no `heartbeat` listener and ignore it.
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive-text"),
+            .interval(heartbeat)
+            .event(heartbeat_event()),
     ))
+}
+
+/// The event a quiet stream sends every heartbeat interval. It carries data
+/// because `EventSource` does not dispatch an event whose data is empty.
+fn heartbeat_event() -> Event {
+    Event::default().event("heartbeat").data("{}")
+}
+
+/// Whether a `GET /flags/snapshot` query asks for the revisioned format: its
+/// first `v` parameter is a number of at least [`SNAPSHOT_FORMAT`]. Absent,
+/// `1` or anything unparsable means the bare array every SDK before 0.1.31
+/// expects. Parsed by hand rather than with an extractor, so no query string
+/// is ever rejected: servers before 0.1.31 ignored the query entirely.
+fn wants_revisions(query: Option<&str>) -> bool {
+    query
+        .into_iter()
+        .flat_map(|q| q.split('&'))
+        .find_map(|pair| pair.strip_prefix("v="))
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .is_some_and(|v| v >= SNAPSHOT_FORMAT)
+}
+
+/// The revisioned snapshot format, and the `v` it answers with.
+const SNAPSHOT_FORMAT: u32 = 2;
+
+/// `GET /flags/snapshot?v=2`: the flags with the revision of each, and the
+/// environment's tombstones (flags deleted within the retention window, at
+/// the revision of the version deleted). The same versions, in the same
+/// order (`sync::Version`), as the SSE bootstrap and change events, so an SDK
+/// can merge a poll with a stream replay per flag and never go back (R20).
+#[derive(Debug, serde::Serialize)]
+struct RevisionedSnapshot<'a> {
+    v: u32,
+    flags: &'a [checkgate_core::evaluator::Flag],
+    revisions: KeyedRevisions<'a>,
+    tombstones: Tombstones<'a>,
+}
+
+/// `{ "<flag key>": revision }`, from the flags and their revisions held
+/// side by side, so no key is copied to build the response.
+#[derive(Debug)]
+struct KeyedRevisions<'a>(&'a [checkgate_core::evaluator::Flag], &'a [i64]);
+
+impl serde::Serialize for KeyedRevisions<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(
+            self.0
+                .iter()
+                .zip(self.1)
+                .map(|(flag, revision)| (flag.key.as_str(), revision)),
+        )
+    }
+}
+
+/// `{ "<deleted key>": revision }`.
+#[derive(Debug)]
+struct Tombstones<'a>(&'a [(String, i64)]);
+
+impl serde::Serialize for Tombstones<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(
+            self.0
+                .iter()
+                .map(|(key, revision)| (key.as_str(), revision)),
+        )
+    }
+}
+
+/// An environment's flags, expanded with its segments, as of one moment.
+/// `revisions[i]` is the revision of `flags[i]`; both revision lists are
+/// empty unless they were asked for.
+struct Snapshot {
+    flags: Vec<checkgate_core::evaluator::Flag>,
+    revisions: Vec<i64>,
+    tombstones: Vec<(String, i64)>,
 }
 
 /// GET /flags/snapshot — SDK-key-authed, segment-expanding full flag snapshot.
@@ -416,6 +523,11 @@ pub async fn sse_handler(
 /// with segment references already expanded so the response is ready to evaluate
 /// against directly, matching what SSE bootstrap sends.
 ///
+/// Without a query it answers a bare array of flags, as every release did.
+/// With `?v=2` (SDKs from 0.1.31) it answers a [`RevisionedSnapshot`]. Servers
+/// before 0.1.31 ignore the parameter, so an SDK tells the two apart by the
+/// shape of the body.
+///
 /// Returns 400 if called with session-cookie auth (dashboard) rather than an SDK
 /// key — the dashboard isn't scoped to a single environment the way an SDK key is.
 #[allow(
@@ -425,18 +537,13 @@ pub async fn sse_handler(
 pub async fn flags_snapshot_handler(
     State(state): State<AppState>,
     req: axum::http::Request<axum::body::Body>,
-) -> Result<
-    (
-        axum::http::HeaderMap,
-        Json<Vec<checkgate_core::evaluator::Flag>>,
-    ),
-    Response,
-> {
+) -> Result<Response, Response> {
     let env_id = req
         .extensions()
         .get::<SdkKeyEntry>()
         .and_then(|key| key.environment_id.clone())
         .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+    let revisioned = wants_revisions(req.uri().query());
 
     // Polling fallback is what SDKs do when streams fail en masse, so it
     // shares the bootstrap slots rather than adding its own load.
@@ -445,40 +552,22 @@ pub async fn flags_snapshot_handler(
         warn!("flags_snapshot: bootstrap queue full — refusing request");
         return Err(unavailable("Server busy; retry shortly."));
     };
-    let segment_map = crate::api::segments::load_env_segments(&env_id, &state.db)
+    let snapshot = read_snapshot(&state, &env_id, revisioned)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-
-    let rows =
-        sqlx::query("SELECT data FROM flags WHERE environment_id = $1::uuid ORDER BY key ASC")
-            .bind(&env_id)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "flags_snapshot: DB query failed");
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            })?;
+        .map_err(|e| {
+            warn!(error = %e, "flags_snapshot: failed to read a consistent snapshot");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
     drop(permit);
     state
         .metrics
         .snapshot_duration
         .observe(started.elapsed().as_secs_f64());
 
-    let flags: Vec<checkgate_core::evaluator::Flag> = rows
-        .iter()
-        .filter_map(|row| {
-            let v: serde_json::Value = row.try_get("data").ok()?;
-            let flag = serde_json::from_value::<checkgate_core::evaluator::Flag>(v).ok()?;
-            Some(crate::api::segments::expand_flag_with_segments(
-                flag,
-                &segment_map,
-            ))
-        })
-        .collect();
-
     info!(
         env_id = %env_id,
-        flag_count = flags.len(),
+        flag_count = snapshot.flags.len(),
+        revisioned,
         "Flags snapshot served (poll fallback)"
     );
 
@@ -488,7 +577,110 @@ pub async fn flags_snapshot_handler(
         HeaderValue::from_str(&env_id)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?,
     );
-    Ok((headers, Json(flags)))
+    if revisioned {
+        let body = RevisionedSnapshot {
+            v: SNAPSHOT_FORMAT,
+            flags: &snapshot.flags,
+            revisions: KeyedRevisions(&snapshot.flags, &snapshot.revisions),
+            tombstones: Tombstones(&snapshot.tombstones),
+        };
+        Ok((headers, Json(body)).into_response())
+    } else {
+        Ok((headers, Json(snapshot.flags)).into_response())
+    }
+}
+
+/// The pre-0.1.31 snapshot statement, unchanged, for the bare array.
+const SNAPSHOT_SQL: &str = "SELECT 'f' AS kind, key, data FROM flags WHERE environment_id = $1::uuid \
+     UNION ALL \
+     SELECT 's' AS kind, key, rules AS data FROM segments WHERE environment_id = $1::uuid \
+     ORDER BY kind, key";
+
+/// The same, plus each flag's revision and the environment's tombstones.
+const REVISIONED_SNAPSHOT_SQL: &str = "SELECT 'f' AS kind, key, data, revision FROM flags \
+     WHERE environment_id = $1::uuid \
+     UNION ALL \
+     SELECT 's' AS kind, key, rules AS data, NULL::bigint AS revision FROM segments \
+     WHERE environment_id = $1::uuid \
+     UNION ALL \
+     SELECT 't' AS kind, t.key, NULL::jsonb AS data, t.revision FROM flag_tombstones t \
+     WHERE t.environment_id = $1::uuid AND NOT EXISTS ( \
+         SELECT 1 FROM flags f WHERE f.environment_id = t.environment_id AND f.key = t.key) \
+     ORDER BY kind, key";
+
+/// Reads an environment's flags, expanded with its segments, as of one moment.
+///
+/// Segments, flags and (when `revisioned`) their revisions and the
+/// tombstones come from a single statement, so they share one snapshot even
+/// under READ COMMITTED: a segment edit that commits between two separate
+/// reads can no longer pair a flag with segments of a different moment, and a
+/// revision always belongs to the flag version it is served with (a segment
+/// edit re-revisions the flags it expands into, in the same transaction). It
+/// is also one round trip instead of two. The bare array keeps the exact
+/// statement and work of earlier releases.
+///
+/// A flag row that does not decode fails the whole read, as it does for the
+/// SSE bootstrap: leaving it out would make every polling SDK treat the flag
+/// as deleted and fall back to its default. A segment that does not decode is
+/// skipped, as `load_env_segments` does everywhere else.
+async fn read_snapshot(
+    state: &AppState,
+    env_id: &str,
+    revisioned: bool,
+) -> Result<Snapshot, String> {
+    let sql = if revisioned {
+        REVISIONED_SNAPSHOT_SQL
+    } else {
+        SNAPSHOT_SQL
+    };
+    let rows = sqlx::query(sql)
+        .bind(env_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Each `jsonb` value is decoded straight into its type (`sqlx::types::Json<T>`), not
+    // through an intermediate `serde_json::Value` tree: about 3x less CPU per
+    // flag (bench/benches/snapshot_decode.rs).
+    let mut segment_map = std::collections::HashMap::new();
+    let mut flags = Vec::new();
+    let mut revisions = Vec::new();
+    let mut tombstones = Vec::new();
+    for row in &rows {
+        let kind: &str = row.try_get("kind").map_err(|e| e.to_string())?;
+        let key: String = row.try_get("key").map_err(|e| e.to_string())?;
+        match kind {
+            "s" => {
+                if let Ok(DbJson(rules)) = row.try_get::<DbJson<Vec<TargetingRule>>, _>("data") {
+                    segment_map.insert(key, rules);
+                }
+            }
+            "t" => {
+                let revision: i64 = row.try_get("revision").map_err(|e| e.to_string())?;
+                tombstones.push((key, revision));
+            }
+            _ => {
+                let DbJson(flag) = row
+                    .try_get::<DbJson<checkgate_core::evaluator::Flag>, _>("data")
+                    .map_err(|e| format!("flag {key:?} does not decode: {e}"))?;
+                if revisioned {
+                    revisions.push(
+                        row.try_get::<i64, _>("revision")
+                            .map_err(|e| e.to_string())?,
+                    );
+                }
+                flags.push(flag);
+            }
+        }
+    }
+    Ok(Snapshot {
+        flags: flags
+            .into_iter()
+            .map(|flag| crate::api::segments::expand_flag_with_segments(flag, &segment_map))
+            .collect(),
+        revisions,
+        tombstones,
+    })
 }
 
 #[cfg(test)]
@@ -516,6 +708,82 @@ mod tests {
                 .then(|| "0".into()))
             .is_err()
         );
+    }
+
+    #[test]
+    fn heartbeat_interval_defaults_and_bounds() {
+        let at = |v: &str| {
+            let v = v.to_string();
+            SseLimits::from_lookup(10, move |n| {
+                (n == "SSE_HEARTBEAT_INTERVAL_SECS").then(|| v.clone())
+            })
+        };
+        assert_eq!(
+            SseLimits::from_lookup(10, |_| None).unwrap().heartbeat,
+            Duration::from_secs(15)
+        );
+        assert_eq!(at("1").unwrap().heartbeat, Duration::from_secs(1));
+        assert_eq!(at("300").unwrap().heartbeat, Duration::from_secs(300));
+        for bad in ["0", "301", "-1", "fast"] {
+            assert!(at(bad).is_err(), "{bad} must be rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn heartbeat_is_a_named_event_with_data() {
+        // `EventSource` drops comments and events without data, so both the
+        // name and a data line must be on the wire.
+        let events = futures_util::stream::iter([Ok::<_, Infallible>(heartbeat_event())]);
+        let body = Sse::new(events).into_response().into_body();
+        let bytes = axum::body::to_bytes(body, 1024).await.unwrap();
+        assert_eq!(&bytes[..], b"event: heartbeat\ndata: {}\n\n");
+    }
+
+    #[test]
+    fn snapshot_format_is_revisioned_from_v2() {
+        assert!(!wants_revisions(None), "no query: the bare array");
+        for old in [
+            "v=1",
+            "v=0",
+            "v=",
+            "v=two",
+            "v=-2",
+            "v=2.0",
+            "v=99999999999",
+            "sdk_key=x",
+            "vv=2",
+            "",
+            "v=1&v=2",
+            "%zz",
+            "v",
+            "v=%32",
+        ] {
+            assert!(!wants_revisions(Some(old)), "{old:?}");
+        }
+        for new in ["v=2", "v=3", "sdk_key=x&v=2", "v=2&v=1", "v=4294967295"] {
+            assert!(wants_revisions(Some(new)), "{new:?}");
+        }
+    }
+
+    #[test]
+    fn revisioned_snapshot_serializes_as_documented() {
+        let flags: Vec<checkgate_core::evaluator::Flag> =
+            serde_json::from_value(serde_json::json!(
+                [{"key": "a", "is_enabled": true}, {"key": "b", "is_enabled": false}]
+            ))
+            .unwrap();
+        let tombstones = [("gone".to_string(), 5)];
+        let body = RevisionedSnapshot {
+            v: SNAPSHOT_FORMAT,
+            flags: &flags,
+            revisions: KeyedRevisions(&flags, &[7, 9]),
+            tombstones: Tombstones(&tombstones),
+        };
+        let v = serde_json::to_value(&body).unwrap();
+        assert_eq!(v["v"], 2);
+        assert_eq!(v["flags"][0]["key"], "a");
+        assert_eq!(v["revisions"], serde_json::json!({"a": 7, "b": 9}));
+        assert_eq!(v["tombstones"], serde_json::json!({"gone": 5}));
     }
 
     #[test]

@@ -10,8 +10,9 @@ description: Health probes, graceful shutdown, capacity limits and troubleshooti
 **Startup.** Connect to PostgreSQL and apply migrations, connect to Redis,
 subscribe to the change channel, seed the reconciliation index, then listen.
 `/health/ready` turns 200 once the server listens and PostgreSQL answers. A
-missing or unreachable database stops the process with an error (the
-orchestrator restarts it); nothing needs manual repair after an outage.
+missing or unreachable database or Redis stops the process with an error (the
+orchestrator restarts it); nothing needs manual repair after an outage. Once
+running, the server tolerates Redis outages (see below).
 
 **Shutdown** (SIGTERM or SIGINT):
 
@@ -99,8 +100,8 @@ External mode runs fully unprivileged with `--user 10001:10001`.
 
 - **No stickiness needed.** Any instance can serve any client: bootstraps read
   PostgreSQL and every instance relays every change.
-- **Idle timeout ≥ 30 s** on the path to `/stream` (keep-alive comments are
-  sent every 15 s). AWS ALB's default of 60 s is fine.
+- **Idle timeout ≥ 30 s** on the path to `/stream` (a heartbeat event is
+  sent after 15 s of silence, `SSE_HEARTBEAT_INTERVAL_SECS`). AWS ALB's default of 60 s is fine.
 - **Do not buffer** `/stream` (`proxy_buffering off;` in nginx, or honour the
   `text/event-stream` content type).
 - **Health check** `/health/ready`, interval ≤ 10 s.
@@ -116,6 +117,7 @@ External mode runs fully unprivileged with `--user 10001:10001`.
 | `SSE_MAX_CONNECTIONS` | 10 000 per instance (`0` = unlimited) | `503` + `Retry-After` (2–10 s, jittered). SDKs back off; after 3 failures they poll `/flags/snapshot`. |
 | `SSE_BOOTSTRAP_CONCURRENCY` | `DB_MAX_CONNECTIONS / 2` (≥ 1) | Bootstraps and snapshot polls queue for a slot… |
 | `SSE_BOOTSTRAP_QUEUE_TIMEOUT_SECS` | 10 | …and get `503` + `Retry-After` after this long. |
+| `SSE_HEARTBEAT_INTERVAL_SECS` | 15 | Quiet stream → `heartbeat` event. SDKs treat 3 missed intervals as a dead stream (45 s). |
 | Broadcast capacity | 256 events | A stream that far behind is closed; the SDK reconnects and re-bootstraps. |
 | `TCP_USER_TIMEOUT_SECS` | 60 (Linux; `0` disables) | A connection whose sent data stays unacknowledged this long (a client that stopped reading, a vanished network) is aborted by the kernel and its resources freed. |
 | `DB_MAX_CONNECTIONS` | 10 | Requests wait up to 10 s for a pool connection, then fail with 500. |

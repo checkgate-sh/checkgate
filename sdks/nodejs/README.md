@@ -5,7 +5,7 @@
 # @checkgate/node
 
 **Checkgate Node.js SDK (NAPI)** — The official high-performance, native Node.js client for Checkgate.
-This SDK is built on top of the Rust native codebase, powered by NAPI-RS for absolute zero-overhead sub-microsecond feature flag evaluation directly in your server.
+This SDK is built on top of the Rust native codebase, powered by NAPI-RS for in-process feature flag evaluation directly in your server.
 
 ## Installation
 
@@ -26,14 +26,14 @@ import { CheckgateClient } from '@checkgate/node'
 
 const checkgate = new CheckgateClient({
   serverUrl: 'http://localhost:3000', // Your self-hosted Checkgate server URL
-  sdkKey: 'sk_prod_xxxxxxxx',         // Your secure server-side SDK Key
+  sdkKey: 'sk_live_xxxxxxxx',         // Your secure server-side SDK Key
 })
 
 async function run() {
   // Connect via SSE to instantly stream flag rules
   await checkgate.connect()
 
-  // Evaluate features with sub-microsecond latency locally
+  // Evaluate features locally (no network call)
   const showFeature = checkgate.isEnabled('new-dashboard', 'user_123', { 
     email: 'user@example.com' 
   })
@@ -45,6 +45,14 @@ async function run() {
 
 run()
 ```
+
+## Connection health
+
+A stream that goes silent for 3 server heartbeats (45 s by default) is dropped
+and reconnected. A rejected SDK key (HTTP 401/403) is not retried: `connect()`
+rejects with `CheckgateAuthError` and the last known flags keep being served.
+`client.getStatus()` returns `{ state, lastSyncAt, error }` so you can tell how
+fresh the flags are. See the [SDK docs](https://checkgate-sh.github.io/checkgate/sdks/).
 
 ## A/B testing: track conversions
 
@@ -64,8 +72,8 @@ Use the **same `userKey`** you pass to `getVariant()`/`isEnabled()` so conversio
 attribute to the right variant.
 
 ## Why Checkgate?
-* **Sub-Microsecond Evaluation:** Flags are parsed instantly in-memory via Rust native bindings.
-* **Instant Propagation:** Leverages SSE (Server Sent Events) to distribute flag toggles globally in < 50ms without polling.
+* **In-Process Evaluation:** Flags are evaluated in memory via Rust native bindings, in a few microseconds per call.
+* **Instant Propagation:** Leverages SSE (Server Sent Events) to distribute flag toggles, typically within tens of milliseconds, without polling.
 * **Self-Hosted Privacy:** Keep your user data strictly within your own infrastructure bounds.
 
 For more information and detailed architecture designs, check out the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

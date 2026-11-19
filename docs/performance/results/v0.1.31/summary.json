@@ -1,0 +1,997 @@
+{
+  "schema": "checkgate-benchmarks/v1",
+  "version": "0.1.31",
+  "commit": "66cbfec6f25c47992e7210150cdd1c25ee770d00",
+  "measured_source_matches_commit": true,
+  "date": "2026-11-18",
+  "environment": {
+    "host": "Intel(R) Core(TM) i5-8259U CPU @ 2.30GHz, 4 cores / 8 threads, 8 GiB, macOS 15.8.1",
+    "short_host": "Intel Core i5-8259U",
+    "docker": "Docker Desktop 29.7.2, VM 8 vCPU / 3.8 GiB",
+    "server_limits": "1 vCPU, 512 MiB",
+    "postgres": "postgres (PostgreSQL) 16.15 (Debian 16.15-1.pgdg13+2)",
+    "redis": "Redis server v=7.4.11 sha=00000000:0 malloc=jemalloc-5.3.0 bits=64 build=f20da322597b16d7",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+  },
+  "runs": {
+    "evaluation-rust": {
+      "ok": 3,
+      "failed": 0
+    },
+    "evaluation-node": {
+      "ok": 3,
+      "failed": 0
+    },
+    "throughput": {
+      "ok": 3,
+      "failed": 0
+    },
+    "propagation": {
+      "ok": 6,
+      "failed": 0
+    },
+    "cost-sse": {
+      "ok": 4,
+      "failed": 0
+    },
+    "cost-poll": {
+      "ok": 12,
+      "failed": 0
+    }
+  },
+  "repetitions": 3,
+  "failed_run_files": [],
+  "superseded_run_sets": [
+    "superseded-poll-staleness"
+  ],
+  "aggregation": "- Evaluation: per case, the median of the per-run estimates, and the range.\n- Throughput: per concurrency level, the median across runs of successful\n  req/s and of each latency percentile, the range of req/s, and the worst\n  error rate. CPU mean is the median of run means; CPU and RSS peaks are the\n  maximum over all runs.\n- Propagation: percentiles pooled over every (update, client) sample of every\n  run (from 0.1 ms histograms), plus each run's own p99 so spread is visible.\n  Missed updates and reconnects are summed over runs.",
+  "evaluation": {
+    "rust_core": {
+      "harness": "bench/benches/evaluation.rs (Criterion); estimate = Criterion's printed slope estimate",
+      "runs": 3,
+      "store_flags": 1000,
+      "cases": {
+        "boolean": {
+          "criterion_id": "boolean_lookup_eval/1000",
+          "runs_ns": [
+            95.734,
+            83.389,
+            84.468
+          ],
+          "median_ns": 84.468,
+          "range_ns": [
+            83.389,
+            95.734
+          ],
+          "ops_per_s": 11838803,
+          "allocations_per_evaluation": 0.0
+        },
+        "targeting_1_rule": {
+          "criterion_id": "evaluation_1000_flags/targeting_1_rule",
+          "runs_ns": [
+            120.147,
+            113.559,
+            113.212
+          ],
+          "median_ns": 113.559,
+          "range_ns": [
+            113.212,
+            120.147
+          ],
+          "ops_per_s": 8805995,
+          "allocations_per_evaluation": null
+        },
+        "targeting_10_rules": {
+          "criterion_id": "evaluation_1000_flags/targeting_10_rules",
+          "runs_ns": [
+            445.637,
+            424.748,
+            440.504
+          ],
+          "median_ns": 440.504,
+          "range_ns": [
+            424.748,
+            445.637
+          ],
+          "ops_per_s": 2270127,
+          "allocations_per_evaluation": 0.0
+        },
+        "percentage_rollout": {
+          "criterion_id": "evaluation_1000_flags/percentage_rollout",
+          "runs_ns": [
+            329.117,
+            303.429,
+            293.796
+          ],
+          "median_ns": 303.429,
+          "range_ns": [
+            293.796,
+            329.117
+          ],
+          "ops_per_s": 3295664,
+          "allocations_per_evaluation": 0.0
+        },
+        "weighted_multivariate": {
+          "criterion_id": "evaluation_1000_flags/weighted_multivariate",
+          "runs_ns": [
+            455.698,
+            461.677,
+            425.965
+          ],
+          "median_ns": 455.698,
+          "range_ns": [
+            425.965,
+            461.677
+          ],
+          "ops_per_s": 2194436,
+          "allocations_per_evaluation": 1.0
+        },
+        "prerequisite_chain_5": {
+          "criterion_id": "evaluation_1000_flags/prerequisite_chain/5",
+          "runs_ns": [
+            423.557,
+            431.898,
+            407.699
+          ],
+          "median_ns": 423.557,
+          "range_ns": [
+            407.699,
+            431.898
+          ],
+          "ops_per_s": 2360957,
+          "allocations_per_evaluation": 0.0
+        }
+      }
+    },
+    "node_sdk": {
+      "harness": "bench/public/sdk/eval.mjs; per run, median of 100 batch means of 20 000 calls",
+      "runs": 3,
+      "node": "v22.23.4",
+      "store_flags": 1009,
+      "checks": {
+        "boolean": true,
+        "targeting_1_rule": true,
+        "targeting_10_rules": true,
+        "percentage_rollout": true,
+        "weighted_multivariate": "a",
+        "prerequisite_chain_5": true,
+        "rollout_split_of_10000": 4898,
+        "absent_flag": false,
+        "network_calls_during_timing": 0
+      },
+      "cases": {
+        "boolean": {
+          "api": "isEnabled",
+          "runs_median_ns": [
+            812.955,
+            762.271,
+            791.584
+          ],
+          "median_ns": 791.584,
+          "range_ns": [
+            762.271,
+            812.955
+          ],
+          "batch_mean_p95_ns": 869.471,
+          "batch_mean_p99_ns": 933.392,
+          "ops_per_s": 1263290
+        },
+        "targeting_1_rule": {
+          "api": "isEnabled",
+          "runs_median_ns": [
+            2404.262,
+            2231.957,
+            2344.632
+          ],
+          "median_ns": 2344.632,
+          "range_ns": [
+            2231.957,
+            2404.262
+          ],
+          "batch_mean_p95_ns": 3179.483,
+          "batch_mean_p99_ns": 4645.193,
+          "ops_per_s": 426506
+        },
+        "targeting_10_rules": {
+          "api": "isEnabled",
+          "runs_median_ns": [
+            4228.063,
+            3877.582,
+            4004.53
+          ],
+          "median_ns": 4004.53,
+          "range_ns": [
+            3877.582,
+            4228.063
+          ],
+          "batch_mean_p95_ns": 4337.184,
+          "batch_mean_p99_ns": 5050.473,
+          "ops_per_s": 249717
+        },
+        "percentage_rollout": {
+          "api": "isEnabled",
+          "runs_median_ns": [
+            1006.368,
+            1001.439,
+            984.053
+          ],
+          "median_ns": 1001.439,
+          "range_ns": [
+            984.053,
+            1006.368
+          ],
+          "batch_mean_p95_ns": 1028.93,
+          "batch_mean_p99_ns": 1063.313,
+          "ops_per_s": 998563
+        },
+        "weighted_multivariate": {
+          "api": "getValue",
+          "runs_median_ns": [
+            2325.189,
+            2160.004,
+            2176.706
+          ],
+          "median_ns": 2176.706,
+          "range_ns": [
+            2160.004,
+            2325.189
+          ],
+          "batch_mean_p95_ns": 2300.921,
+          "batch_mean_p99_ns": 2364.021,
+          "ops_per_s": 459410
+        },
+        "prerequisite_chain_5": {
+          "api": "isEnabled",
+          "runs_median_ns": [
+            3252.801,
+            3091.406,
+            3178.241
+          ],
+          "median_ns": 3178.241,
+          "range_ns": [
+            3091.406,
+            3252.801
+          ],
+          "batch_mean_p95_ns": 3212.084,
+          "batch_mean_p99_ns": 3232.569,
+          "ops_per_s": 314639
+        }
+      }
+    }
+  },
+  "throughput": {
+    "endpoint": "GET /flags/snapshot",
+    "flags_in_snapshot": 101,
+    "response_bytes": 15271,
+    "server_cpus": 1.0,
+    "server_memory_mib": 512,
+    "warmup_s": 10,
+    "window_s": 60,
+    "runs": 3,
+    "definitions": {
+      "rps_median": "successful requests per second in the measurement window, median of runs",
+      "rps_per_vcpu_limit": "rps_median divided by the server's CPU quota (measured at that quota, not extrapolated)",
+      "requests_per_server_cpu_second": "rps_median divided by the server CPU cores actually used (mean)"
+    },
+    "levels": [
+      {
+        "concurrency": 10,
+        "runs": 3,
+        "runs_rps": [
+          420.733,
+          485.0,
+          650.367
+        ],
+        "rps_median": 485.0,
+        "rps_range": [
+          420.733,
+          650.367
+        ],
+        "latency_ms": {
+          "p50": 17.591,
+          "p95": 36.628,
+          "p99": 73.993,
+          "max": 401.733
+        },
+        "errors_total": 0,
+        "error_rate_max": 0.0,
+        "error_kinds": [],
+        "server_cpu_cores_mean": 0.892,
+        "server_cpu_cores_peak": 0.981,
+        "server_rss_mib_median": 13.094,
+        "server_rss_mib_peak": 13.289,
+        "generator_cpu_cores_mean": 0.13,
+        "generator_cpu_cores_peak": 0.22,
+        "rps_per_vcpu_limit": 485.0,
+        "requests_per_server_cpu_second": 543.722
+      },
+      {
+        "concurrency": 100,
+        "runs": 3,
+        "runs_rps": [
+          473.417,
+          546.017,
+          659.567
+        ],
+        "rps_median": 546.017,
+        "rps_range": [
+          473.417,
+          659.567
+        ],
+        "latency_ms": {
+          "p50": 166.213,
+          "p95": 288.81,
+          "p99": 393.875,
+          "max": 872.382
+        },
+        "errors_total": 0,
+        "error_rate_max": 0.0,
+        "error_kinds": [],
+        "server_cpu_cores_mean": 0.887,
+        "server_cpu_cores_peak": 0.93,
+        "server_rss_mib_median": 17.691,
+        "server_rss_mib_peak": 17.797,
+        "generator_cpu_cores_mean": 0.146,
+        "generator_cpu_cores_peak": 0.221,
+        "rps_per_vcpu_limit": 546.017,
+        "requests_per_server_cpu_second": 615.577
+      },
+      {
+        "concurrency": 500,
+        "runs": 3,
+        "runs_rps": [
+          485.817,
+          547.05,
+          643.217
+        ],
+        "rps_median": 547.05,
+        "rps_range": [
+          485.817,
+          643.217
+        ],
+        "latency_ms": {
+          "p50": 856.974,
+          "p95": 1197.772,
+          "p99": 1560.054,
+          "max": 1818.589
+        },
+        "errors_total": 0,
+        "error_rate_max": 0.0,
+        "error_kinds": [],
+        "server_cpu_cores_mean": 0.892,
+        "server_cpu_cores_peak": 0.94,
+        "server_rss_mib_median": 33.242,
+        "server_rss_mib_peak": 39.363,
+        "generator_cpu_cores_mean": 0.181,
+        "generator_cpu_cores_peak": 0.25,
+        "rps_per_vcpu_limit": 547.05,
+        "requests_per_server_cpu_second": 613.285
+      },
+      {
+        "concurrency": 1000,
+        "runs": 3,
+        "runs_rps": [
+          590.633,
+          542.817,
+          644.633
+        ],
+        "rps_median": 590.633,
+        "rps_range": [
+          542.817,
+          644.633
+        ],
+        "latency_ms": {
+          "p50": 1647.255,
+          "p95": 2060.584,
+          "p99": 2432.856,
+          "max": 2478.077
+        },
+        "errors_total": 0,
+        "error_rate_max": 0.0,
+        "error_kinds": [],
+        "server_cpu_cores_mean": 0.892,
+        "server_cpu_cores_peak": 0.93,
+        "server_rss_mib_median": 56.371,
+        "server_rss_mib_peak": 59.379,
+        "generator_cpu_cores_mean": 0.15,
+        "generator_cpu_cores_peak": 0.229,
+        "rps_per_vcpu_limit": 590.633,
+        "requests_per_server_cpu_second": 662.145
+      }
+    ],
+    "containers": {
+      "cg-gate-pg": {
+        "cpu_pct_max": 39.9,
+        "cpu_pct_p90_max": 4.7,
+        "mem_mib_max": 179.3
+      },
+      "cg-gate-redis": {
+        "cpu_pct_max": 11.9,
+        "cpu_pct_p90_max": 1.9,
+        "mem_mib_max": 11.1
+      },
+      "loadgen": {
+        "cpu_pct_max": 79.0,
+        "cpu_pct_p90_max": 21.8,
+        "mem_mib_max": 87.0
+      },
+      "postgres": {
+        "cpu_pct_max": 165.0,
+        "cpu_pct_p90_max": 115.3,
+        "mem_mib_max": 91.0
+      },
+      "redis": {
+        "cpu_pct_max": 29.6,
+        "cpu_pct_p90_max": 11.5,
+        "mem_mib_max": 22.4
+      },
+      "server": {
+        "cpu_pct_max": 120.7,
+        "cpu_pct_p90_max": 102.0,
+        "mem_mib_max": 70.6
+      }
+    }
+  },
+  "propagation": {
+    "sdk": "@checkgate/node (index.js + N-API core), default options except reportImpressions=false",
+    "primary_metric": "visible_from_request: PATCH request start → new value returned by the SDK getValue()",
+    "runs": 6,
+    "gap_ms": 100,
+    "profiles": [
+      {
+        "clients": 1,
+        "runs": 6,
+        "updates": 1200,
+        "expected_observations": 1200,
+        "missed": 0,
+        "connect_failures": 0,
+        "wrong_initial_value": 0,
+        "reconnects": 0,
+        "clients_polling_at_end": 0,
+        "deadline_ms": 1000,
+        "within_deadline_pct": 100.0,
+        "visible_from_request_ms": {
+          "p50_ms": 11.8,
+          "p95_ms": 18.5,
+          "p99_ms": 59.3,
+          "p999_ms": 161.2,
+          "max_ms": 271.774,
+          "samples": 1200
+        },
+        "runs_p99_ms": [
+          156.88,
+          38.08,
+          18.801,
+          19.894,
+          19.877,
+          19.765
+        ],
+        "runs_patch_response_p99_ms": [
+          158.375,
+          41.176,
+          19.803,
+          21.413,
+          21.092,
+          21.428
+        ],
+        "visible_after_response_p99_ms": 0.255,
+        "patch_response_p50_ms": 12.236,
+        "observed_before_response_pct": 91.0,
+        "time_to_ready_p99_ms": 100.326,
+        "server_rss_mib_held": 12.178,
+        "server_cpu_cores_during_propagation": 0.035,
+        "sdk_workers_cpu_cores_max": 0.021
+      },
+      {
+        "clients": 100,
+        "runs": 6,
+        "updates": 1200,
+        "expected_observations": 120000,
+        "missed": 0,
+        "connect_failures": 0,
+        "wrong_initial_value": 0,
+        "reconnects": 0,
+        "clients_polling_at_end": 0,
+        "deadline_ms": 1000,
+        "within_deadline_pct": 100.0,
+        "visible_from_request_ms": {
+          "p50_ms": 18.8,
+          "p95_ms": 30.0,
+          "p99_ms": 54.7,
+          "p999_ms": 122.0,
+          "max_ms": 317.192,
+          "samples": 120000
+        },
+        "runs_p99_ms": [
+          97.915,
+          71.989,
+          32.628,
+          28.552,
+          34.378,
+          31.18
+        ],
+        "runs_patch_response_p99_ms": [
+          76.204,
+          56.47,
+          21.332,
+          20.539,
+          21.478,
+          20.978
+        ],
+        "visible_after_response_p99_ms": 14.285,
+        "patch_response_p50_ms": 13.091,
+        "observed_before_response_pct": 3.8,
+        "time_to_ready_p99_ms": 515.845,
+        "server_rss_mib_held": 15.544,
+        "server_cpu_cores_during_propagation": 0.051,
+        "sdk_workers_cpu_cores_max": 0.098
+      },
+      {
+        "clients": 500,
+        "runs": 6,
+        "updates": 1200,
+        "expected_observations": 600000,
+        "missed": 0,
+        "connect_failures": 0,
+        "wrong_initial_value": 0,
+        "reconnects": 0,
+        "clients_polling_at_end": 0,
+        "deadline_ms": 1000,
+        "within_deadline_pct": 100.0,
+        "visible_from_request_ms": {
+          "p50_ms": 25.4,
+          "p95_ms": 44.4,
+          "p99_ms": 88.6,
+          "p999_ms": 235.9,
+          "max_ms": 285.97,
+          "samples": 600000
+        },
+        "runs_p99_ms": [
+          200.235,
+          84.645,
+          55.172,
+          48.203,
+          47.642,
+          46.456
+        ],
+        "runs_patch_response_p99_ms": [
+          135.422,
+          28.904,
+          21.557,
+          22.527,
+          21.004,
+          20.633
+        ],
+        "visible_after_response_p99_ms": 35.189,
+        "patch_response_p50_ms": 12.884,
+        "observed_before_response_pct": 2.3,
+        "time_to_ready_p99_ms": 1315.451,
+        "server_rss_mib_held": 26.455,
+        "server_cpu_cores_during_propagation": 0.13,
+        "sdk_workers_cpu_cores_max": 0.663
+      },
+      {
+        "clients": 1000,
+        "runs": 6,
+        "updates": 1200,
+        "expected_observations": 1200000,
+        "missed": 0,
+        "connect_failures": 0,
+        "wrong_initial_value": 0,
+        "reconnects": 0,
+        "clients_polling_at_end": 0,
+        "deadline_ms": 1000,
+        "within_deadline_pct": 99.998,
+        "visible_from_request_ms": {
+          "p50_ms": 39.2,
+          "p95_ms": 81.7,
+          "p99_ms": 198.3,
+          "p999_ms": 550.3,
+          "max_ms": 1006.972,
+          "samples": 1200000
+        },
+        "runs_p99_ms": [
+          428.499,
+          181.813,
+          72.99,
+          78.35,
+          85.817,
+          82.311
+        ],
+        "runs_patch_response_p99_ms": [
+          209.588,
+          31.707,
+          21.706,
+          20.268,
+          27.91,
+          24.913
+        ],
+        "visible_after_response_p99_ms": 68.675,
+        "patch_response_p50_ms": 12.755,
+        "observed_before_response_pct": 0.5,
+        "time_to_ready_p99_ms": 2124.329,
+        "server_rss_mib_held": 41.864,
+        "server_cpu_cores_during_propagation": 0.246,
+        "sdk_workers_cpu_cores_max": 1.283
+      }
+    ],
+    "containers": {
+      "cg-gate-pg": {
+        "cpu_pct_max": 57.5,
+        "cpu_pct_p90_max": 8.5,
+        "mem_mib_max": 179.6
+      },
+      "cg-gate-redis": {
+        "cpu_pct_max": 15.3,
+        "cpu_pct_p90_max": 3.5,
+        "mem_mib_max": 11.1
+      },
+      "postgres": {
+        "cpu_pct_max": 108.4,
+        "cpu_pct_p90_max": 39.2,
+        "mem_mib_max": 65.2
+      },
+      "redis": {
+        "cpu_pct_max": 32.2,
+        "cpu_pct_p90_max": 14.9,
+        "mem_mib_max": 18.1
+      },
+      "sdk": {
+        "cpu_pct_max": 564.2,
+        "cpu_pct_p90_max": 237.7,
+        "mem_mib_max": 549.7
+      },
+      "server": {
+        "cpu_pct_max": 133.9,
+        "cpu_pct_p90_max": 44.1,
+        "mem_mib_max": 37.6
+      }
+    }
+  },
+  "headline": {
+    "evaluation": {
+      "value": 1001.439,
+      "unit": "ns",
+      "scenario": "Node SDK isEnabled(): 50% rollout, 1,000-flag store, no network call",
+      "context": "batch means p95 1.0 µs · p99 1.1 µs · Rust core alone 303 ns",
+      "p95": 1028.93,
+      "p99": 1063.313,
+      "source": "evaluation.node_sdk.cases.percentage_rollout.median_ns",
+      "baseline_value": 7160.526
+    },
+    "throughput": {
+      "value": 590.633,
+      "unit": "req/s",
+      "scenario": "SDK snapshot reads, 1,000 concurrent clients, p99 2433 ms",
+      "context": "one server limited to 1 vCPU · 512 MiB",
+      "source": "throughput.levels[concurrency=1000].rps_median",
+      "baseline_value": 488.667
+    },
+    "efficiency": {
+      "value": 1510.243,
+      "unit": "µs",
+      "scenario": "server CPU per snapshot request (101 flags, 15 KB)",
+      "context": "peak RSS 59 MiB under that load",
+      "rss_peak_mib": 59.379,
+      "source": "1e6 / throughput.levels[concurrency=1000].requests_per_server_cpu_second",
+      "baseline_value": 1915.415
+    },
+    "propagation": {
+      "value": 198.3,
+      "unit": "ms",
+      "scenario": "p99 update → visible in SDK, 1,000 connected SDK clients",
+      "context": "p50 39.2 ms · 0 of 1,200,000 missed · pooled over 6 runs; median run p99 84 ms",
+      "source": "propagation.profiles[clients=1000].visible_from_request_ms.p99_ms",
+      "runs_p99_median_ms": 84.064,
+      "baseline_value": 75.4,
+      "baseline_runs_p99_median_ms": 75.529
+    }
+  },
+  "baseline": {
+    "version": "0.1.30",
+    "commit": "8ef6452196ae313f103af9d812e635467348763f",
+    "measured_source_matches_commit": true,
+    "runs": {
+      "evaluation-rust": {
+        "ok": 3,
+        "failed": 0
+      },
+      "evaluation-node": {
+        "ok": 3,
+        "failed": 0
+      },
+      "throughput": {
+        "ok": 3,
+        "failed": 0
+      },
+      "propagation": {
+        "ok": 6,
+        "failed": 0
+      }
+    },
+    "failed_run_files": [],
+    "method": "bench/public/compare.sh: this harness run against the baseline's source in a worktree, same host and limits, repetitions alternated between the two versions"
+  },
+  "comparison": {
+    "node_sdk": {
+      "boolean": {
+        "baseline_ns": 6955.504,
+        "candidate_ns": 791.584,
+        "speedup": 8.79
+      },
+      "targeting_1_rule": {
+        "baseline_ns": 7114.028,
+        "candidate_ns": 2344.632,
+        "speedup": 3.03
+      },
+      "targeting_10_rules": {
+        "baseline_ns": 7511.269,
+        "candidate_ns": 4004.53,
+        "speedup": 1.88
+      },
+      "percentage_rollout": {
+        "baseline_ns": 7160.526,
+        "candidate_ns": 1001.439,
+        "speedup": 7.15
+      },
+      "weighted_multivariate": {
+        "baseline_ns": 8730.65,
+        "candidate_ns": 2176.706,
+        "speedup": 4.01
+      },
+      "prerequisite_chain_5": {
+        "baseline_ns": 7390.777,
+        "candidate_ns": 3178.241,
+        "speedup": 2.33
+      }
+    },
+    "rust_core": {
+      "boolean": {
+        "baseline_ns": 79.912,
+        "candidate_ns": 84.468,
+        "speedup": 0.95
+      },
+      "targeting_1_rule": {
+        "baseline_ns": 110.834,
+        "candidate_ns": 113.559,
+        "speedup": 0.98
+      },
+      "targeting_10_rules": {
+        "baseline_ns": 441.202,
+        "candidate_ns": 440.504,
+        "speedup": 1.0
+      },
+      "percentage_rollout": {
+        "baseline_ns": 300.188,
+        "candidate_ns": 303.429,
+        "speedup": 0.99
+      },
+      "weighted_multivariate": {
+        "baseline_ns": 430.23,
+        "candidate_ns": 455.698,
+        "speedup": 0.94
+      },
+      "prerequisite_chain_5": {
+        "baseline_ns": 403.02,
+        "candidate_ns": 423.557,
+        "speedup": 0.95
+      }
+    },
+    "throughput": [
+      {
+        "concurrency": 10,
+        "baseline_rps": 506.817,
+        "candidate_rps": 485.0,
+        "rps_ratio": 0.96,
+        "baseline_cpu_us_per_request": 1840.902,
+        "candidate_cpu_us_per_request": 1839.175,
+        "baseline_errors": 0,
+        "candidate_errors": 0,
+        "baseline_rss_mib_peak": 13.789,
+        "candidate_rss_mib_peak": 13.289
+      },
+      {
+        "concurrency": 100,
+        "baseline_rps": 511.8,
+        "candidate_rps": 546.017,
+        "rps_ratio": 1.07,
+        "baseline_cpu_us_per_request": 1828.839,
+        "candidate_cpu_us_per_request": 1624.492,
+        "baseline_errors": 0,
+        "candidate_errors": 0,
+        "baseline_rss_mib_peak": 18.336,
+        "candidate_rss_mib_peak": 17.797
+      },
+      {
+        "concurrency": 500,
+        "baseline_rps": 452.767,
+        "candidate_rps": 547.05,
+        "rps_ratio": 1.21,
+        "baseline_cpu_us_per_request": 2069.498,
+        "candidate_cpu_us_per_request": 1630.563,
+        "baseline_errors": 0,
+        "candidate_errors": 0,
+        "baseline_rss_mib_peak": 38.648,
+        "candidate_rss_mib_peak": 39.363
+      },
+      {
+        "concurrency": 1000,
+        "baseline_rps": 488.667,
+        "candidate_rps": 590.633,
+        "rps_ratio": 1.21,
+        "baseline_cpu_us_per_request": 1915.415,
+        "candidate_cpu_us_per_request": 1510.243,
+        "baseline_errors": 0,
+        "candidate_errors": 0,
+        "baseline_rss_mib_peak": 59.602,
+        "candidate_rss_mib_peak": 59.379
+      }
+    ],
+    "propagation": [
+      {
+        "clients": 1,
+        "baseline_p50_ms": 12.6,
+        "candidate_p50_ms": 11.8,
+        "baseline_p99_ms": 21.3,
+        "candidate_p99_ms": 59.3,
+        "baseline_runs_p99_ms": [
+          133.59,
+          20.195,
+          20.083,
+          19.497,
+          21.308,
+          19.331
+        ],
+        "candidate_runs_p99_ms": [
+          156.88,
+          38.08,
+          18.801,
+          19.894,
+          19.877,
+          19.765
+        ],
+        "baseline_runs_patch_response_p99_ms": [
+          138.496,
+          21.292,
+          20.108,
+          19.63,
+          22.13,
+          20.295
+        ],
+        "candidate_runs_patch_response_p99_ms": [
+          158.375,
+          41.176,
+          19.803,
+          21.413,
+          21.092,
+          21.428
+        ],
+        "baseline_missed": 0,
+        "candidate_missed": 0
+      },
+      {
+        "clients": 100,
+        "baseline_p50_ms": 18.5,
+        "candidate_p50_ms": 18.8,
+        "baseline_p99_ms": 32.8,
+        "candidate_p99_ms": 54.7,
+        "baseline_runs_p99_ms": [
+          33.769,
+          34.526,
+          33.182,
+          30.221,
+          28.706,
+          33.406
+        ],
+        "candidate_runs_p99_ms": [
+          97.915,
+          71.989,
+          32.628,
+          28.552,
+          34.378,
+          31.18
+        ],
+        "baseline_runs_patch_response_p99_ms": [
+          22.016,
+          22.175,
+          21.199,
+          20.472,
+          20.422,
+          22.339
+        ],
+        "candidate_runs_patch_response_p99_ms": [
+          76.204,
+          56.47,
+          21.332,
+          20.539,
+          21.478,
+          20.978
+        ],
+        "baseline_missed": 0,
+        "candidate_missed": 0
+      },
+      {
+        "clients": 500,
+        "baseline_p50_ms": 25.2,
+        "candidate_p50_ms": 25.4,
+        "baseline_p99_ms": 49.4,
+        "candidate_p99_ms": 88.6,
+        "baseline_runs_p99_ms": [
+          43.733,
+          47.545,
+          46.521,
+          50.688,
+          51.893,
+          57.528
+        ],
+        "candidate_runs_p99_ms": [
+          200.235,
+          84.645,
+          55.172,
+          48.203,
+          47.642,
+          46.456
+        ],
+        "baseline_runs_patch_response_p99_ms": [
+          23.296,
+          21.379,
+          23.563,
+          20.776,
+          19.346,
+          18.254
+        ],
+        "candidate_runs_patch_response_p99_ms": [
+          135.422,
+          28.904,
+          21.557,
+          22.527,
+          21.004,
+          20.633
+        ],
+        "baseline_missed": 0,
+        "candidate_missed": 0
+      },
+      {
+        "clients": 1000,
+        "baseline_p50_ms": 37.3,
+        "candidate_p50_ms": 39.2,
+        "baseline_p99_ms": 75.4,
+        "candidate_p99_ms": 198.3,
+        "baseline_runs_p99_ms": [
+          79.499,
+          67.618,
+          74.149,
+          76.908,
+          74.112,
+          78.146
+        ],
+        "candidate_runs_p99_ms": [
+          428.499,
+          181.813,
+          72.99,
+          78.35,
+          85.817,
+          82.311
+        ],
+        "baseline_runs_patch_response_p99_ms": [
+          22.724,
+          21.309,
+          19.555,
+          22.737,
+          21.076,
+          23.268
+        ],
+        "candidate_runs_patch_response_p99_ms": [
+          209.588,
+          31.707,
+          21.706,
+          20.268,
+          27.91,
+          24.913
+        ],
+        "baseline_missed": 0,
+        "candidate_missed": 0
+      }
+    ]
+  }
+}

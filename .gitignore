@@ -5,6 +5,7 @@ target/
 # `npm install` / `bun install`; never commit them.
 node_modules/
 docs/.vitepress/dist/
+docs/.vitepress/cache/
 server/public/
 coverage/
 
@@ -19,9 +20,11 @@ sdks/flutter/dart/build/
 # tracking it churns the diff on each commit.
 *.tsbuildinfo
 
-# The docs site is a pnpm project (docs/pnpm-lock.yaml); a stray bun.lock here
-# means two competing lockfiles.
+# The docs site is a pnpm project (docs/pnpm-lock.yaml, installed with
+# --frozen-lockfile in CI); a stray bun.lock or package-lock.json here means
+# two competing lockfiles.
 docs/bun.lock
+docs/package-lock.json
 
 # macOS
 .DS_Store
@@ -35,9 +38,31 @@ docs/bun.lock
 checkgate-setup-token
 
 # Internal engineering reports and working notes — kept locally, never
-# committed.
+# committed. Release records (assessments, reviews, readiness reports, A/B
+# outputs) go in internal_docs/releases/<version>/. docs/ is the public
+# VitePress site; releases that were tracked under docs/releases/ up to
+# v0.1.31 RC3 remain in Git history.
 internal_docs/
+docs/releases/
+
+# Profiling output.
+*.profraw
+*.profdata
+*.cpuprofile
+*.heapprofile
 
 # Benchmark scratch: session credentials and docker stats captures written
 # while bench/public/run.sh runs.
 bench/public/.work/
+# Output of the local A/B scripts (bench/ab/); results worth keeping are
+# copied into internal_docs/releases/<version>/results/.
+bench/ab/out/
+
+# Test output that CI and the reliability workflow write at the repository
+# root (CHECKGATE_TEST_ARTIFACTS server logs and recovery traces,
+# CONFORMANCE_TRACE_DIR fault traces), so a local run with the same settings
+# leaves nothing to commit. The fault seeds and scenarios themselves are
+# source (sdks/conformance/, server/tests/) and stay tracked.
+/reliability-artifacts/
+/conformance-traces/
+/artifacts/

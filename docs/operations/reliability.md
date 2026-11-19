@@ -48,6 +48,8 @@ Redis Pub/Sub delivers at most once. Each loss has a recovery path:
 | SSE client > 256 events behind | Stream closed; client reconnects and re-bootstraps | SDK reconnect delay |
 | SSE client stopped reading entirely | Kernel aborts the connection after `TCP_USER_TIMEOUT_SECS` (Linux), freeing it | `TCP_USER_TIMEOUT_SECS` |
 | Network between SDK and server drops | SDK reconnects with backoff; after 3 failures it also polls `/flags/snapshot` | SDK backoff (3–30 s) / poll interval |
+| **SDK stream silently dead** (half-open TCP, lost NAT mapping, stalled proxy) | The server sends a `heartbeat` after `SSE_HEARTBEAT_INTERVAL_SECS` of silence; an SDK that receives nothing for 3 intervals drops the stream and reconnects (0.1.31+) | 3 × heartbeat (45 s) + SDK reconnect |
+| SDK key revoked or invalid | Not recovered: a 401/403 stops the SDK (it keeps its last flags and reports `auth_failed`); `connect()` retries | — |
 
 ### Reconciliation
 
@@ -95,8 +97,11 @@ client connected to that instance by
 
 — about 51 s with the defaults — whatever happened to the change event; in
 normal operation it arrives in milliseconds (see
-[performance baseline](../performance/baseline.md)). Clients that cannot reach
-any instance keep their last complete flag set and converge after reconnecting.
+[performance baseline](../performance/baseline.md)). If the client's own
+connection died silently, add the time to notice: 3 × `SSE_HEARTBEAT_INTERVAL_SECS`
+(45 s by default, 0.1.31+ servers and SDKs). Clients that cannot reach any
+instance keep their last complete flag set, report it through `getStatus()`
+(`lastSyncAt`), and converge after reconnecting.
 
 Not guaranteed:
 

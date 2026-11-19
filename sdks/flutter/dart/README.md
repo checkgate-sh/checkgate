@@ -2,14 +2,17 @@
 
 Flutter SDK for [Checkgate](https://github.com/checkgate-sh/checkgate) — local feature-flag evaluation via Rust FFI.
 
-Flags are evaluated **in-process** (sub-microsecond, no network round-trip). The SDK opens a persistent SSE stream to your Checkgate server and keeps the local flag store up to date in real time.
+Flags are evaluated **in-process** (no network round-trip). The SDK opens a persistent SSE stream to your Checkgate server and keeps the local flag store up to date in real time.
 
 ## Installation
 
 ```yaml
 dependencies:
-  checkgate_flutter: ^0.1.0
+  checkgate_flutter: ^0.1.31
 ```
+
+The package does not bundle a compiled engine: build it and link it into your
+app as described in [Linking the native engine](https://checkgate-sh.github.io/checkgate/sdks/flutter#linking-the-native-engine).
 
 ## Usage
 

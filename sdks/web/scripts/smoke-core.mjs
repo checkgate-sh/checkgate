@@ -28,7 +28,24 @@ core.upsertFlag(
   }),
 )
 
+// A user excluded by `not_equals` must stay excluded when another attribute
+// is not a string. The engine used to drop *all* attributes in that case, and
+// a missing attribute satisfies `not_equals`.
+core.upsertFlag(
+  JSON.stringify({
+    key: 'smoke-paid-only',
+    is_enabled: true,
+    rollout_percentage: 0,
+    flag_type: 'boolean',
+    rules: [{ attribute: 'plan', operator: 'not_equals', values: ['free'] }],
+  }),
+)
+
 const checks = [
+  ['not_equals with a non-string sibling attribute',
+    core.isEnabled('smoke-paid-only', 'user-1', { plan: 'free', age: 30 }), false],
+  ['not_equals admits other plans',
+    core.isEnabled('smoke-paid-only', 'user-1', { plan: 'pro', age: 30 }), true],
   ['isEnabled', core.isEnabled('smoke-bool', 'user-1'), true],
   ['getValue', core.getValue('smoke-string', 'user-1', {}, 'fallback'), 'blue'],
   ['getValue default for unknown flag', core.getValue('nope', 'user-1', {}, 'fallback'), 'fallback'],

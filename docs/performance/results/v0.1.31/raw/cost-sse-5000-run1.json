@@ -1,0 +1,85 @@
+{
+  "schema": "checkgate-cost/v1",
+  "mode": "sse",
+  "clients": 5000,
+  "workers": 4,
+  "interval_s": null,
+  "windows": {
+    "ramp": {
+      "secs": 19.94,
+      "server_cpu_pct": 80.09,
+      "server_rss_mib": 200.012,
+      "server_rss_peak_mib": 200.012,
+      "net_rx_bytes": 106560825,
+      "net_tx_bytes": 149296007,
+      "ready": 5000,
+      "all_ready": true,
+      "refused_attempts": 1129,
+      "bootstrap_bytes": 131490000,
+      "server_reported_connections": 5000
+    },
+    "idle": {
+      "secs": 60.06,
+      "server_cpu_pct": 6.893,
+      "server_rss_mib": 206.035,
+      "server_rss_peak_mib": 206.035,
+      "net_rx_bytes": 1340013,
+      "net_tx_bytes": 1986370,
+      "client_bytes": {
+        "bootstrap": 0,
+        "heartbeat": 540648,
+        "update": 0,
+        "other": 0,
+        "poll": 0
+      },
+      "ready": 5000,
+      "heartbeat_bytes_per_client_per_hour": 6481.247
+    },
+    "updates": {
+      "secs": 63.621,
+      "server_cpu_pct": 17.541,
+      "server_rss_mib": 222.18,
+      "server_rss_peak_mib": 222.18,
+      "net_rx_bytes": 10037985,
+      "net_tx_bytes": 48124600,
+      "client_bytes": {
+        "bootstrap": 0,
+        "heartbeat": 351,
+        "update": 37150000,
+        "other": 0,
+        "poll": 0
+      },
+      "updates": 30,
+      "deliveries": 150000,
+      "expected_deliveries": 150000,
+      "missed": 0,
+      "delivery_ms": {
+        "samples": 150000,
+        "p50_ms": 202.814,
+        "p90_ms": 351.431,
+        "p95_ms": 377.599,
+        "p99_ms": 703.093,
+        "p999_ms": 801.511,
+        "max_ms": 812.876,
+        "min_ms": 10.493,
+        "mean_ms": 210.538
+      },
+      "update_bytes_per_client_per_update": 247.667
+    },
+    "reconnect": {
+      "secs": 22.763,
+      "server_cpu_pct": 72.047,
+      "server_rss_mib": 245.508,
+      "server_rss_peak_mib": 245.508,
+      "net_rx_bytes": 107346273,
+      "net_tx_bytes": 149908980,
+      "ready": 5000,
+      "all_ready": true,
+      "refused_attempts": 1163,
+      "rebootstrap_bytes": 131535000,
+      "rebootstrap_bytes_per_client": 26307,
+      "note": "includes the 3.0-3.9 s each client waits before reconnecting, as an SDK does"
+    }
+  },
+  "notes": []
+}

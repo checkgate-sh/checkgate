@@ -46,8 +46,10 @@ https://outlook.office.com/webhook/...
 In the dashboard, open **Chat Alerts** (under the Environment section of the sidebar), pick the
 provider, paste the URL, and choose which events to receive. Admin role required.
 
-Then hit **Send test message** on the row — it fires a sample event through the *real* delivery
-path, so a message landing in the channel confirms the whole chain, not just that the URL parses.
+Then hit **Send test message** on the row. Checkgate posts a sample message to that channel only,
+through the same client and formatting as real events, and shows what the channel answered: the
+HTTP status, or why it could not be reached. It works on a disabled integration too, so you can
+check the wiring before turning it on.
 
 ## Events
 
@@ -87,8 +89,10 @@ the connector) — that invalidates it immediately, whether or not the Checkgate
 
 ## Delivery & troubleshooting
 
-Delivery is **fire-and-forget** — it never blocks the API response that triggered it. A failed POST
-is retried with 1s / 5s / 15s backoff, and every attempt is recorded:
+Delivery is **fire-and-forget** — it never blocks the API response that triggered it. A POST that
+fails to complete (connection or timeout error) is tried up to 3 times, 1 s and then 5 s apart; an
+HTTP error response is recorded and not retried. Redirects are not followed. Every attempt is
+recorded:
 
 ```bash
 curl -H "Authorization: Bearer $CHECKGATE_TOKEN" \
@@ -110,7 +114,7 @@ most recent 200 deliveries per integration.
 
 ## API
 
-Full reference in the [REST API docs](/api-reference). All routes are environment-scoped:
+Full reference: [REST API → Integrations](/api-reference#integrations-slack-microsoft-teams). All routes are environment-scoped:
 
 | Method | Path | Purpose |
 | --- | --- | --- |

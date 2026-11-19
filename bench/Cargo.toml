@@ -19,5 +19,9 @@ serde_json = "1.0.149"
 name = "evaluation"
 harness = false
 
+[[bench]]
+name = "snapshot_decode"
+harness = false
+
 [lints]
 workspace = true

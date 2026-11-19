@@ -12,7 +12,7 @@ Checkgate has three main layers: the **control plane** (server), the **evaluatio
 <FlowDiagram />
 
 A flag change is written once to the server, which persists it and pushes the delta to every
-connected SDK over SSE in under 50 ms. From then on, each `isEnabled()` is a local, in-process
+connected SDK over SSE, typically within tens of milliseconds. From then on, each `isEnabled()` is a local, in-process
 lookup — no network on the evaluation path. The detailed view:
 
 ```
@@ -23,9 +23,9 @@ lookup — no network on the evaluation path. The detailed view:
 │                                                                  │
 │  ┌──────────────────────────┐         ┌────────────────────────┐ │
 │  │  REST API                │         │  SSE Stream  /stream   │ │
-│  │  /api/projects/{id}/     │         │  per environment,      │ │
-│  │    environments/{id}/    │         │  scoped by SDK key     │ │
-│  │      flags               │         └────────────────────────┘ │
+│  │  /api/environments/      │         │  per environment,      │ │
+│  │    {env_id}/flags        │         │  scoped by SDK key     │ │
+│  │                          │         └────────────────────────┘ │
 │  └──────────────────────────┘          ▲ bootstrap    ▲ deltas   │
 │           │                            │              │          │
 │           ▼                            │              │          │
@@ -45,7 +45,7 @@ lookup — no network on the evaluation path. The detailed view:
 │  SDK   │   │   WASM   │   │   FFI   │   │  C FFI/JSI   │
 │(NAPI)  │   │   SDK    │   │   SDK   │   │     SDK      │
 └────────┘   └──────────┘   └─────────┘   └──────────────┘
- isEnabled()  in-process, sub-microsecond
+ isEnabled()  in-process, no network call
 ```
 
 ## Data Model
@@ -73,7 +73,9 @@ The server is a single Rust binary built with **Axum**. It is responsible for:
   per environment (the server keeps no flag cache of its own)
 - Exposing a **REST API** for CRUD operations (project- and environment-scoped)
 - Broadcasting flag changes to connected SDKs via **SSE** (`/stream`), scoped per environment
-- Publishing change events to **Redis** pub/sub for multi-instance deployments
+- Publishing change events to **Redis** pub/sub, which every instance (including the one that
+  made the change) subscribes to before pushing to its own SSE clients. Redis is required: the
+  server does not start without it
 - Tracking flag evaluation events (**impressions**) from SDK clients
 
 ### Write Path
@@ -119,8 +121,9 @@ DELETE  /api/projects/{project_id}/members/{user_id}
 # Environments (project-scoped)
 GET     /api/projects/{project_id}/environments
 POST    /api/projects/{project_id}/environments
-PATCH   /api/projects/{project_id}/environments/{env_id}
 DELETE  /api/projects/{project_id}/environments/{env_id}
+POST    /api/projects/{project_id}/environments/{env_id}/default
+POST    /api/projects/{project_id}/environments/{env_id}/require-approval
 
 # SDK Keys (project-scoped, environment-targeted)
 GET     /api/projects/{project_id}/keys
@@ -143,7 +146,7 @@ POST /api/environments/{env_id}/impressions
 The core is a Rust library (`core/`) compiled into each SDK:
 
 - **`FlagStore`** — thread-safe `DashMap` holding an SDK's in-memory flags (one environment per SDK instance)
-- **`evaluate(flag, user_context)`** — pure function, no I/O, no allocations on the hot path
+- **`evaluate(flag, user_context)`** — pure function, no I/O; boolean evaluation does not allocate, while string and JSON variant values are cloned into the result
 
 ### Evaluation Logic
 
@@ -152,6 +155,9 @@ isEnabled(flag_key, user_key, attributes)
     │
     ├── Flag not found → false
     ├── flag.is_enabled == false → false
+    ├── Any prerequisite unsatisfied → false
+    │     (evaluated recursively; a missing prerequisite, a chain deeper than 10,
+    │      or more than 1,000 prerequisite evaluations counts as unsatisfied)
     │
     ├── Targeting rules (first match wins)
     │   └── rule.attribute ∈ attributes AND operator matches → true
@@ -189,21 +195,21 @@ This means a single Checkgate installation can serve multiple projects with mult
 
 1. SDK connects to `GET /stream` with `Authorization: Bearer sk_live_...`
 2. Server looks up the key → resolves `environment_id`
-3. Server sends `connected` event — SDK clears its local store
+3. Server sends `connected` (with `heartbeat_ms`) — the SDK starts staging a replay; it keeps serving the flags it holds
 4. Server bootstraps the SDK by replaying all current flags for that environment
-5. Server sends `ready` — SDK resolves its `connect()` promise
-6. Server sends `keep-alive` pings every 15 seconds
+5. Server sends `ready` — the SDK applies the staged replay in one step (per-flag revisions decide against anything newer it learned meanwhile) and resolves `connect()`
+6. Server sends a `heartbeat` event after 15 seconds of silence (`SSE_HEARTBEAT_INTERVAL_SECS`); SDKs reconnect a stream silent for 3 intervals
 7. On flag change, only clients in the matching environment receive the update
-8. On reconnect, the SDK clears its local store and re-bootstraps from scratch, then receives `ready` again
+8. On reconnect, the same replay is staged and applied on `ready`; the SDK never serves an empty or partial store in between (see [Configuration consistency](/operations/configuration-consistency))
 
 ### Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `connected` | `{"environment_id": "<uuid>" \| null}` | Connection established; SDK resets its store |
+| `connected` | `{"environment_id": "<uuid>" \| null, "heartbeat_ms": 15000}` | Connection established; the SDK stages the replay that follows |
 | `update` | JSON string | A flag was upserted or deleted in this environment |
 | `ready` | flag count (string) | Bootstrap replay complete; SDK resolves `connect()` |
-| (keep-alive) | `keep-alive-text` | Heartbeat every 15 seconds |
+| `heartbeat` | `{}` | After 15 s of silence; SDKs treat 3 missed intervals as a dead stream |
 
 ### Poll Fallback
 
@@ -212,7 +218,9 @@ segment-expanded flag set as an SSE bootstrap, as a plain JSON array, for SDK cl
 network cannot sustain a long-lived SSE connection at all (e.g. a corporate proxy). Official SDKs
 poll this endpoint on a timer after a configurable number of consecutive failed `/stream`
 reconnects, and stop polling as soon as `/stream` reconnects successfully — SSE retries continue
-in the background the whole time. See [API Reference → Flags Snapshot](../api-reference.md#flags-snapshot-poll-fallback).
+in the background the whole time. SDKs from 0.1.31 ask for `?v=2`, which adds each flag's
+revision and the recent deletions, so a poll and a delayed stream replay are merged per flag and
+the newer version always wins. See [API Reference → Flags Snapshot](../api-reference.md#flags-snapshot-poll-fallback).
 
 ## Authentication
 
@@ -232,7 +240,7 @@ SDK keys are stored in PostgreSQL, managed per-project from the **Project Settin
 |---|---|
 | Read flags, impressions | Any authenticated user with project access |
 | Write flags | `editor` or `admin` (project member) |
-| Manage environments, SDK keys, project members | `admin` (project member) |
+| Manage environments, SDK keys, project members | Workspace `admin` |
 | Manage workspace users, create/delete projects | Workspace `admin` |
 
 Workspace admins bypass all per-project membership checks.

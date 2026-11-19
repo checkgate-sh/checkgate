@@ -251,7 +251,7 @@ fn rate_key(ip: IpAddr) -> IpAddr {
     }
 }
 
-fn too_many_requests(wait: Duration) -> Response {
+pub(crate) fn too_many_requests(wait: Duration) -> Response {
     let retry_after = wait.as_secs().saturating_add(1);
     let mut response = (
         StatusCode::TOO_MANY_REQUESTS,

@@ -1,10 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import '../checkgate_flutter.dart';
+import 'package:checkgate_flutter/checkgate_flutter.dart';
 
 /// Records every request a MockClient receives. The SDK reports impressions and
 /// events fire-and-forget, and MockClient invokes its handler asynchronously —
@@ -127,6 +129,43 @@ void main() {
     bool? enabled(CheckgateClient c, String key) =>
         c.debugFlags[key]?['is_enabled'] as bool?;
 
+    test('a poll response that lands after the stream took over is dropped',
+        () async {
+      final release = Completer<void>();
+      var requests = 0;
+      final c = CheckgateClient(
+        serverUrl: 'http://localhost:9999',
+        sdkKey: 'sk_test',
+        httpClient: MockClient((req) async {
+          requests++;
+          await release.future; // a slow server
+          return http.Response(
+              jsonEncode([
+                {'key': 'checkout', 'is_enabled': false}
+              ]),
+              200);
+        }),
+      );
+      final first = c.debugPollSnapshot();
+      final second = c.debugPollSnapshot();
+      await pumpEventQueue();
+      expect(requests, 1, reason: 'ticks share the request in flight');
+
+      // The stream reconnects and delivers a newer state meanwhile.
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 7);
+      send(c, 'ready', 1);
+      expect(enabled(c, 'checkout'), isTrue);
+
+      release.complete();
+      await Future.wait([first, second]);
+      expect(enabled(c, 'checkout'), isTrue,
+          reason: 'the stale poll must not roll the flag back');
+      upsert(c, 'checkout', false, 6);
+      expect(enabled(c, 'checkout'), isTrue,
+          reason: 'revisions survive, so an older event is still ignored');
+    });
+
     test('a reconnect keeps serving the last snapshot until "ready"', () {
       final c = client();
       send(c, 'connected', {'environment_id': 'env-1'});
@@ -135,6 +174,7 @@ void main() {
       send(c, 'ready', 2);
       expect(c.isReady, isTrue);
 
+      c.debugStreamOpened(); // the stream drops and reconnects
       send(c, 'connected', {'environment_id': 'env-1'});
       upsert(c, 'checkout', false, 3);
       expect(c.isReady, isTrue);
@@ -220,5 +260,272 @@ void main() {
     final at = DateTime.parse(c.debugEvents.single['occurred_at'] as String);
     expect(at.isBefore(before), isFalse);
     expect(at.isAfter(DateTime.now().toUtc()), isFalse);
+  });
+
+  group('SSE framing', () {
+    // One frame per event the server sends during a bootstrap, plus a
+    // keep-alive comment, a multi-byte character and a trailing `ready`.
+    const frames = 'event: connected\ndata: {"environment_id":"env-1"}\n\n'
+        ': keep-alive-text\n\n'
+        'event: update\ndata: {"type":"UPSERT","flag":{"key":"caf\u00e9-\u{1F680}"}}\n\n'
+        'event: ready\ndata: 1\n\n';
+    const expected = [
+      MapEntry('connected', '{"environment_id":"env-1"}'),
+      MapEntry('update', '{"type":"UPSERT","flag":{"key":"caf\u00e9-\u{1F680}"}}'),
+      MapEntry('ready', '1'),
+    ];
+
+    Future<List<MapEntry<String, String>>> parse(List<List<int>> chunks) =>
+        parseSseEvents(Stream.fromIterable(chunks)).toList();
+
+    String show(List<MapEntry<String, String>> events) =>
+        events.map((e) => '${e.key}=${e.value}').join(' | ');
+
+    test('parses whole frames', () async {
+      expect(show(await parse([utf8.encode(frames)])), show(expected));
+    });
+
+    test('reassembles lines split at every byte offset', () async {
+      // Socket reads end anywhere: inside `event:`, inside a JSON payload,
+      // inside a UTF-8 sequence, or between the two newlines of a frame.
+      final bytes = utf8.encode(frames);
+      for (var cut = 1; cut < bytes.length; cut++) {
+        final events =
+            await parse([bytes.sublist(0, cut), bytes.sublist(cut)]);
+        expect(show(events), show(expected), reason: 'cut at byte $cut');
+      }
+    });
+
+    test('reassembles a stream delivered one byte at a time', () async {
+      final bytes = utf8.encode(frames);
+      final events = await parse([for (final b in bytes) [b]]);
+      expect(show(events), show(expected));
+    });
+  });
+
+  group('connection lifecycle (v0.1.31 RC2)', () {
+    test('a 401 ends retries and fails connect() with the status', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var requests = 0;
+      server.listen((req) {
+        requests++;
+        req.response.statusCode = 401;
+        req.response.close();
+      });
+      final client = CheckgateClient(
+        serverUrl: 'http://127.0.0.1:${server.port}',
+        sdkKey: 'sk_secret_value',
+        reportImpressions: false,
+        reconnectBaseDelay: const Duration(milliseconds: 10),
+      );
+      expect(client.status.state, CheckgateConnectionState.idle);
+      Object? error;
+      try {
+        await client.debugConnectWithoutEngine();
+      } catch (e) {
+        error = e;
+      }
+      expect(error, isA<CheckgateAuthException>());
+      expect((error as CheckgateAuthException).statusCode, 401);
+      expect(error.toString(), isNot(contains('sk_secret_value')));
+      expect(client.status.state, CheckgateConnectionState.authFailed);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(requests, 1, reason: 'no retry after the key was rejected');
+      client.close();
+      await server.close(force: true);
+    });
+
+    test('close() settles a pending connect()', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      // Accept the stream but never answer: connect() stays pending.
+      server.listen((req) {});
+      final client = CheckgateClient(
+        serverUrl: 'http://127.0.0.1:${server.port}',
+        sdkKey: 'sk',
+        reportImpressions: false,
+      );
+      final pending = client.debugConnectWithoutEngine();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      client.close();
+      await expectLater(pending, throwsA(isA<StateError>()));
+      expect(client.status.state, CheckgateConnectionState.closed);
+      await server.close(force: true);
+    });
+  });
+
+  group('monotonic configuration (RC3, R20)', () {
+    void send(CheckgateClient c, String event, Object data) =>
+        c.debugHandleSseEvent(event, jsonEncode(data));
+    void upsert(CheckgateClient c, String key, bool enabled, int revision) =>
+        send(c, 'update', {
+          'type': 'UPSERT',
+          'flag': {'key': key, 'is_enabled': enabled},
+          'revision': revision,
+        });
+    void delete(CheckgateClient c, String key, int revision) =>
+        send(c, 'update', {'type': 'DELETE', 'key': key, 'revision': revision});
+    bool? enabled(CheckgateClient c, String key) =>
+        c.debugFlags[key]?['is_enabled'] as bool?;
+    CheckgateClient polling(Object Function() body, [List<Uri>? urls]) =>
+        CheckgateClient(
+          serverUrl: 'http://localhost:9999',
+          sdkKey: 'sk_test',
+          httpClient: MockClient((req) async {
+            urls?.add(req.url);
+            return http.Response(jsonEncode(body()), 200);
+          }),
+        );
+
+    test('a delayed replay cannot roll back or resurrect a newer poll',
+        () async {
+      Object body = {};
+      final c = polling(() => body);
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 1);
+      upsert(c, 'search', true, 2);
+      send(c, 'ready', 2);
+
+      c.debugStreamOpened(); // its replay is read now
+      body = {
+        'v': 2,
+        'flags': [
+          {'key': 'checkout', 'is_enabled': false}
+        ],
+        'revisions': {'checkout': 5},
+        'tombstones': {'search': 4},
+      };
+      await c.debugPollSnapshot();
+      expect(enabled(c, 'checkout'), isFalse);
+      expect(c.debugFlags.containsKey('search'), isFalse);
+
+      final changed = <String>[];
+      c.onChange(changed.add);
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 1);
+      upsert(c, 'search', true, 2);
+      send(c, 'ready', 2);
+      expect(enabled(c, 'checkout'), isFalse, reason: 'rev 5 over 1');
+      expect(c.debugFlags.containsKey('search'), isFalse,
+          reason: 'delete at 4 over 2');
+      expect(changed, isEmpty);
+
+      upsert(c, 'checkout', false, 5); // duplicate
+      delete(c, 'search', 4); // duplicate
+      expect(changed, isEmpty);
+      upsert(c, 'search', true, 6);
+      expect(enabled(c, 'search'), isTrue);
+      expect(changed, ['search']);
+    });
+
+    test('a later set requested after a poll replaces what it lacks', () async {
+      Object body = {};
+      final c = polling(() => body);
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 1);
+      send(c, 'ready', 1);
+      c.debugStreamOpened();
+      body = {
+        'v': 2,
+        'flags': [
+          {'key': 'checkout', 'is_enabled': true},
+          {'key': 'legacy', 'is_enabled': true},
+        ],
+        'revisions': {'checkout': 1, 'legacy': 2},
+        'tombstones': {},
+      };
+      await c.debugPollSnapshot();
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 7);
+      send(c, 'ready', 1);
+      expect(c.debugFlags.containsKey('legacy'), isTrue,
+          reason: 'learned after the stream request, absent from its replay');
+
+      c.debugStreamOpened();
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 7);
+      send(c, 'ready', 1);
+      expect(c.debugFlags.containsKey('legacy'), isFalse);
+    });
+
+    test('a duplicate or never-held delete notifies nobody', () {
+      final c = polling(() => []);
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 3);
+      send(c, 'ready', 1);
+      final changed = <String>[];
+      c.onChange(changed.add);
+      upsert(c, 'checkout', true, 3);
+      delete(c, 'never-held', 9);
+      expect(changed, isEmpty);
+      delete(c, 'checkout', 3);
+      delete(c, 'checkout', 3);
+      expect(changed, ['checkout']);
+    });
+
+    test('an older staged event cannot replace a newer staged one', () {
+      final c = polling(() => []);
+      send(c, 'connected', {'environment_id': 'env-1'});
+      upsert(c, 'checkout', true, 8);
+      upsert(c, 'checkout', false, 7);
+      send(c, 'ready', 1);
+      expect(enabled(c, 'checkout'), isTrue);
+    });
+
+    test('a malformed revisioned snapshot leaves the flags as they were',
+        () async {
+      for (final bad in <Object>[
+        {
+          'v': 2,
+          'flags': [
+            {'key': 'checkout', 'is_enabled': false}
+          ],
+          'revisions': {},
+        },
+        {
+          'v': 2,
+          'flags': [
+            {'key': 'checkout', 'is_enabled': false}
+          ],
+          'revisions': {'checkout': '5'},
+        },
+        {
+          'v': 2,
+          'flags': [
+            {'key': 'checkout', 'is_enabled': false}
+          ],
+          'revisions': {'checkout': 5},
+          'tombstones': {'x': null},
+        },
+        {'v': 2, 'flags': 'nope'},
+        'nope',
+      ]) {
+        Object body = {
+          'v': 2,
+          'flags': [
+            {'key': 'checkout', 'is_enabled': true}
+          ],
+          'revisions': {'checkout': 1},
+          'tombstones': {},
+        };
+        final c = polling(() => body);
+        await c.debugPollSnapshot();
+        body = bad;
+        await c.debugPollSnapshot();
+        expect(enabled(c, 'checkout'), isTrue, reason: jsonEncode(bad));
+      }
+    });
+
+    test('polls ask for ?v=2; a server without revisions works as before',
+        () async {
+      final urls = <Uri>[];
+      final c = polling(
+          () => [
+                {'key': 'checkout', 'is_enabled': true}
+              ],
+          urls);
+      await c.debugPollSnapshot();
+      expect(urls.single.query, 'v=2');
+      expect(enabled(c, 'checkout'), isTrue);
+    });
   });
 }

@@ -1,13 +1,16 @@
 {
   "name": "@checkgate/web",
-  "version": "0.1.30",
-  "description": "Checkgate feature-flag SDK for the web \u2014 local evaluation via WebAssembly.",
+  "version": "0.1.31",
+  "description": "Checkgate feature-flag SDK for the web — local evaluation via WebAssembly.",
   "type": "module",
   "main": "index.js",
   "module": "index.js",
-  "types": "dist/checkgate.d.ts",
+  "types": "index.d.ts",
   "exports": {
-    ".": "./index.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
     "./core": "./core.js",
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
@@ -29,6 +32,7 @@
   },
   "files": [
     "index.js",
+    "index.d.ts",
     "cache-key.js",
     "core.js",
     "dist/",
@@ -36,6 +40,7 @@
     "Cargo.toml"
   ],
   "devDependencies": {
+    "eventsource": "^4.1.1",
     "vitest": "^4.1.12"
   }
 }

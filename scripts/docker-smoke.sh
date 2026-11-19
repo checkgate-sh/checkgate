@@ -5,7 +5,8 @@
 #
 # all-in-one: first boot, generated setup token (file only, never logged),
 #   setup + login, data surviving a container restart and a container
-#   re-create on the same volume.
+#   re-create on the same volume, and a clean shutdown of the bundled
+#   PostgreSQL and Redis when the container stops.
 # external:   connects to a separate PostgreSQL and Redis, starts neither
 #   bundled service, writes to the external database, survives a restart.
 # misconfiguration: every half-specified or conflicting configuration stops
@@ -28,8 +29,8 @@ fail() {
 }
 
 cleanup() {
-  for c in "${CONTAINERS[@]}"; do docker rm -f "$c" >/dev/null 2>&1 || true; done
-  for v in "${VOLUMES[@]}"; do docker volume rm -f "$v" >/dev/null 2>&1 || true; done
+  for c in ${CONTAINERS[@]+"${CONTAINERS[@]}"}; do docker rm -f "$c" >/dev/null 2>&1 || true; done
+  for v in ${VOLUMES[@]+"${VOLUMES[@]}"}; do docker volume rm -f "$v" >/dev/null 2>&1 || true; done
   docker network rm "$NET" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -64,13 +65,15 @@ wait_healthy() {
 api() {
   local name="$1" method="$2" path="$3" body="$4"
   shift 4
+  # `${data[@]+"${data[@]}"}` rather than `"${data[@]}"`: bash before 4.4
+  # (macOS ships 3.2) treats an empty array as unbound under `set -u`.
   local port data=()
   port="$(port_of "$name")"
   [ -z "$body" ] || data=(--data "$body")
   curl -s -o "$WORK/body" -w '%{http_code}' -X "$method" \
     -H 'Content-Type: application/json' -H 'X-Checkgate-Request: true' \
     -b "$WORK/cookies-$name" -c "$WORK/cookies-$name" \
-    "${data[@]}" "$@" "http://127.0.0.1:$port$path"
+    ${data[@]+"${data[@]}"} "$@" "http://127.0.0.1:$port$path"
 }
 
 expect() {
@@ -138,6 +141,12 @@ expect_uid "$AIO" checkgate-serve checkgate
 expect_uid "$AIO" postgres postgres
 expect_uid "$AIO" redis-server redis
 
+log "all-in-one: the PID 1 supervisor keeps only KILL, SETUID and SETGID"
+STATUS1="$(docker exec "$AIO" cat /proc/1/status)"
+grep -qE '^CapEff:[[:space:]]+00000000000000e0$' <<<"$STATUS1" || fail "PID 1 effective capabilities: $(grep '^CapEff' <<<"$STATUS1")"
+grep -qE '^CapBnd:[[:space:]]+00000000000000e0$' <<<"$STATUS1" || fail "PID 1 bounding set: $(grep '^CapBnd' <<<"$STATUS1")"
+grep -qE '^NoNewPrivs:[[:space:]]+1$' <<<"$STATUS1" || fail "PID 1 can regain privileges (no_new_privs unset)"
+
 log "all-in-one: health endpoints and dashboard headers"
 expect 200 "$(status_of "$AIO" /health/live)" "liveness"
 expect 200 "$(status_of "$AIO" /health/ready)" "readiness"
@@ -168,6 +177,16 @@ rm -f "$WORK/cookies-$AIO"
 expect 200 "$(api "$AIO" POST /api/auth/login "$LOGIN")" "login after restart"
 expect 200 "$(api "$AIO" GET "/api/environments/$ENV_ID/flags/smoke-flag" '')" "flag after restart"
 expect 404 "$(api "$AIO" POST /api/setup/complete "$SETUP" -H "X-Checkgate-Setup-Token: $TOKEN")" "setup is one-time"
+# `docker restart` stops the container like `docker stop` does. The bundled
+# PostgreSQL must have been shut down cleanly, not killed with the container:
+# a killed one reports crash recovery on the next start.
+PGLOG="$(docker exec "$AIO" cat /var/log/postgresql.log)"
+grep -q "received fast shutdown request" <<<"$PGLOG" || fail "all-in-one: PostgreSQL was not asked to shut down on container stop"
+if grep -q "not properly shut down" <<<"$PGLOG"; then
+  fail "all-in-one: PostgreSQL was killed on container stop and ran crash recovery"
+fi
+LOGS="$(docker logs "$AIO" 2>&1)"
+grep -q "Bundled services stopped" <<<"$LOGS" || fail "all-in-one: shutdown did not stop the bundled services"
 
 log "all-in-one: re-created container on the same volume keeps data"
 docker rm -f "$AIO" >/dev/null

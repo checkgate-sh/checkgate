@@ -32,6 +32,18 @@ export interface CheckgateClientOptions {
   pollFallbackThreshold?: number;
   /** Poll interval in milliseconds while in fallback mode. Default: 30000. */
   pollIntervalMs?: number;
+  /**
+   * A stream attempt that has not received the server's `connected` event
+   * within this many milliseconds is abandoned and retried. Default: 30000.
+   */
+  connectTimeoutMs?: number;
+  /**
+   * A connected stream with no event (heartbeats included) for this many
+   * milliseconds is treated as dead and reconnected. Default: 3 × the heartbeat
+   * interval the server announces (45 s with the default 15 s); no idle
+   * timeout against servers older than 0.1.31. `0` disables it.
+   */
+  streamIdleTimeoutMs?: number;
   /** Report evaluation events to the server for analytics. Default: true. */
   reportImpressions?: boolean;
   /** Flush buffered impressions once this many have accumulated. Default: 50. */
@@ -50,11 +62,43 @@ export interface CheckgateClientOptions {
   storage?: CheckgateStorage;
 }
 
+/** Connection states reported by {@link CheckgateClient.getStatus}. */
+export type CheckgateConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'streaming'
+  | 'reconnecting'
+  | 'polling'
+  | 'auth_failed'
+  | 'closed';
+
+export interface CheckgateStatus {
+  state: CheckgateConnectionState;
+  /**
+   * When the client last confirmed its flags are current (a completed
+   * bootstrap or poll, or any event on a live stream, heartbeats included), in
+   * ms since the epoch; `null` before the first.
+   */
+  lastSyncAt: number | null;
+  /** The error behind `'auth_failed'`, otherwise `null`. */
+  error: Error | null;
+}
+
+/**
+ * The server rejected the SDK key (HTTP 401 or 403). The client stops
+ * retrying and keeps serving the flags it already has; call `connect()` again
+ * to retry.
+ */
+export declare class CheckgateAuthError extends Error {
+  readonly name: 'CheckgateAuthError';
+  readonly status: number;
+}
+
 /**
  * Checkgate Node.js SDK client.
  *
  * Connects once to the server via SSE, downloads all flags, and evaluates
- * them locally in <1 µs with zero network IO on every isEnabled() call.
+ * them locally, with no network IO, on every isEnabled() call.
  */
 export declare class CheckgateClient {
   constructor(options: CheckgateClientOptions);
@@ -63,8 +107,15 @@ export declare class CheckgateClient {
    * Connects to the server's SSE stream and downloads the current flag set.
    * Resolves once the server has replayed the full flag set and sent the
    * "ready" event. Sets up automatic reconnection on connection loss.
+   *
+   * Rejects with {@link CheckgateAuthError} if the server rejects the SDK key,
+   * and with an `Error` if `disconnect()` is called first. While the server is
+   * unreachable it keeps retrying.
    */
   connect(): Promise<void>;
+
+  /** Connection health, for detecting stale flags. */
+  getStatus(): CheckgateStatus;
 
   /** Whether the initial bootstrap has completed and flags are ready to evaluate. */
   isReady(): boolean;

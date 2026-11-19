@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 574" width="1200" height="574" role="img" aria-labelledby="t d" font-family="system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<title id="t">Checkgate v0.1.31: infrastructure cost and savings</title>
+<desc id="d">100 streaming clients: 0.15 % of one CPU idle, 16 MiB RSS, 6.48 KB of heartbeats per client per hour; 1,000 streaming clients: 1.5 % of one CPU idle, 47 MiB RSS, 6.48 KB of heartbeats per client per hour; 5,000 streaming clients: 6.89 % of one CPU idle, 206 MiB RSS, 6.48 KB of heartbeats per client per hour; 10,000 streaming clients: 14.7 % of one CPU idle, 448 MiB RSS, 6.48 KB of heartbeats per client per hour; SSE at 1,000 clients: 8.69 GB a month, 121,680 requests a month, freshness p50 33 ms; Poll 60 s at 1,000 clients: 669 GB a month, 43,804,800 requests a month, freshness p50 30 s; Poll 30 s at 1,000 clients: 1,340 GB a month, 87,609,600 requests a month, freshness p50 15 s; Poll 10 s at 1,000 clients: 4,020 GB a month, 262,828,800 requests a month, freshness p50 5 s; projected $38.56 a month for 100–10,000 clients streaming; projected $89.80 a month for 1,000 clients polling every 60 s; projected $150.08 a month for 1,000 clients polling every 30 s; projected $390.94 a month for 1,000 clients polling every 10 s. Prices accessed 2026-11-19, AWS us-east-1 (N. Virginia), on-demand, Linux, single-AZ. Measured under documented workloads and hardware. Results may vary by deployment.</desc>
+<rect x="0.5" y="0.5" width="1199" height="573" rx="16" fill="#0d1117" stroke="#30363d"/>
+<text x="40" y="60" font-size="24" font-weight="600" fill="#f0f6fc" text-anchor="start">Infrastructure Cost &amp; Savings</text>
+<text x="1160" y="60" font-size="14" font-weight="400" fill="#9198a1" text-anchor="end">v0.1.31 · prices accessed 2026-11-19</text>
+<text x="40" y="86" font-size="15" font-weight="400" fill="#c9d1d9" text-anchor="start">Understand the infrastructure required to run your own feature flags.</text>
+<line x1="40" y1="104" x2="1160" y2="104" stroke="#30363d"/>
+<rect x="40" y="124" width="28" height="4" rx="2" fill="#818cf8"/>
+<text x="40" y="154" font-size="15" font-weight="600" fill="#c9d1d9" text-anchor="start">Streaming clients on one server</text>
+<text x="40" y="174" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">measured · 1 vCPU / 512 MiB limit · idle, heartbeats only</text>
+<text x="40" y="204" font-size="12" font-weight="600" fill="#9198a1" text-anchor="start">Clients</text>
+<text x="160" y="204" font-size="12" font-weight="600" fill="#9198a1" text-anchor="start">CPU</text>
+<text x="240" y="204" font-size="12" font-weight="600" fill="#9198a1" text-anchor="start">RSS</text>
+<text x="310" y="204" font-size="12" font-weight="600" fill="#9198a1" text-anchor="start">Heartbeats</text>
+<text x="40" y="228" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">100</text>
+<text x="160" y="228" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">0.15 %</text>
+<text x="240" y="228" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">16 MiB</text>
+<text x="310" y="228" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">6.48 KB/h</text>
+<text x="40" y="254" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">1,000</text>
+<text x="160" y="254" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">1.5 %</text>
+<text x="240" y="254" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">47 MiB</text>
+<text x="310" y="254" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">6.48 KB/h</text>
+<text x="40" y="280" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">5,000</text>
+<text x="160" y="280" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">6.89 %</text>
+<text x="240" y="280" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">206 MiB</text>
+<text x="310" y="280" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">6.48 KB/h</text>
+<text x="40" y="306" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">10,000</text>
+<text x="160" y="306" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">14.7 %</text>
+<text x="240" y="306" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">448 MiB</text>
+<text x="310" y="306" font-size="14" font-weight="400" fill="#f0f6fc" text-anchor="start">6.48 KB/h</text>
+<text x="40" y="336" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">CPU: % of one core. Per-client heartbeat bytes, not counting TCP/TLS.</text>
+<line x1="420" y1="124" x2="420" y2="420" stroke="#30363d"/>
+<rect x="440" y="124" width="28" height="4" rx="2" fill="#818cf8"/>
+<text x="440" y="154" font-size="15" font-weight="600" fill="#c9d1d9" text-anchor="start">1,000 clients: streaming vs polling</text>
+<text x="440" y="174" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">traffic per month (calculated) · freshness (measured)</text>
+<text x="440" y="204" font-size="12" font-weight="600" fill="#9198a1" text-anchor="start"></text>
+<text x="532" y="204" font-size="12" font-weight="600" fill="#9198a1" text-anchor="start">Traffic / month</text>
+<text x="740" y="204" font-size="12" font-weight="600" fill="#9198a1" text-anchor="start">Freshness p50</text>
+<text x="440" y="230" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">SSE</text>
+<rect x="532" y="218" width="2" height="14" rx="3" fill="#818cf8"/>
+<text x="542" y="230" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">8.69 GB</text>
+<text x="740" y="230" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">33 ms</text>
+<text x="440" y="258" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">Poll 60 s</text>
+<rect x="532" y="246" width="20" height="14" rx="3" fill="#3b3f73"/>
+<text x="560" y="258" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">669 GB</text>
+<text x="740" y="258" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">30 s</text>
+<text x="440" y="286" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">Poll 30 s</text>
+<rect x="532" y="274" width="40" height="14" rx="3" fill="#3b3f73"/>
+<text x="580" y="286" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">1,340 GB</text>
+<text x="740" y="286" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">15 s</text>
+<text x="440" y="314" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="start">Poll 10 s</text>
+<rect x="532" y="302" width="120" height="14" rx="3" fill="#3b3f73"/>
+<text x="660" y="314" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">4,020 GB</text>
+<text x="740" y="314" font-size="13" font-weight="400" fill="#f0f6fc" text-anchor="start">5 s</text>
+<text x="440" y="344" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">Assumes 100 flag changes/day, 4 reconnects/client/day.</text>
+<text x="440" y="362" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">Each poll returns the whole flag set (no conditional requests).</text>
+<line x1="840" y1="124" x2="840" y2="420" stroke="#30363d"/>
+<rect x="860" y="124" width="28" height="4" rx="2" fill="#818cf8"/>
+<text x="860" y="154" font-size="15" font-weight="600" fill="#c9d1d9" text-anchor="start">Projected monthly cost</text>
+<text x="860" y="174" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">AWS us-east-1 on-demand list prices</text>
+<text x="860" y="210" font-size="14" font-weight="400" fill="#c9d1d9" text-anchor="start">Streaming, 100–10,000 clients</text>
+<text x="1160" y="210" font-size="18" font-weight="600" fill="#f0f6fc" text-anchor="end">$38.56</text>
+<text x="860" y="232" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">same infrastructure; not deployed on AWS</text>
+<text x="860" y="258" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">1,000 clients, polling instead:</text>
+<text x="860" y="280" font-size="14" font-weight="400" fill="#c9d1d9" text-anchor="start">every 60 s</text>
+<text x="1160" y="280" font-size="16" font-weight="600" fill="#f0f6fc" text-anchor="end">$89.80</text>
+<text x="860" y="304" font-size="14" font-weight="400" fill="#c9d1d9" text-anchor="start">every 30 s</text>
+<text x="1160" y="304" font-size="16" font-weight="600" fill="#f0f6fc" text-anchor="end">$150.08</text>
+<text x="860" y="328" font-size="14" font-weight="400" fill="#c9d1d9" text-anchor="start">every 10 s</text>
+<text x="1160" y="328" font-size="16" font-weight="600" fill="#f0f6fc" text-anchor="end">$390.94</text>
+<text x="860" y="358" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">1 server + PostgreSQL + Redis + storage</text>
+<text x="860" y="376" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">+ egress. A projection, not a quote.</text>
+<line x1="40" y1="440" x2="1160" y2="440" stroke="#30363d"/>
+<text x="40" y="466" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">Measured: CPU, memory, bytes and freshness of one server at 1 vCPU / 512 MiB, with PostgreSQL and Redis in containers.</text>
+<text x="40" y="486" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">Calculated: monthly traffic from measured bytes per heartbeat, change and reconnect at the stated rates. Projected: priced with</text>
+<text x="40" y="506" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">dated third-party list prices. Polling is Checkgate's own snapshot endpoint on the same infrastructure, not another product.</text>
+<text x="40" y="526" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">Measured under documented workloads and hardware. Results may vary by deployment.</text>
+<text x="40" y="554" font-size="12" font-weight="400" fill="#9198a1" text-anchor="start">Method, assumptions, prices and raw data: docs/performance/cost-efficiency.md</text>
+</svg>

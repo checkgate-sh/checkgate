@@ -13,6 +13,9 @@ Built fundamentally on top of Dart FFI (Foreign Function Interface), this SDK by
 flutter pub add checkgate_flutter
 ```
 
+The package does not bundle a compiled engine: build it and link it into
+your app as described in [Linking the native engine](https://checkgate-sh.github.io/checkgate/sdks/flutter#linking-the-native-engine).
+
 ## Quick Start
 
 Initialize the `CheckgateClient` instance inside your main Dart entrypoint:
@@ -25,8 +28,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final checkgate = CheckgateClient(
-    url: 'https://checkgate.your-company.com',
-    clientKey: 'pk_mobile_xxxxxx',
+    serverUrl: 'https://checkgate.your-company.com',
+    sdkKey: 'sk_live_xxxxxx',
   );
 
   // Bind to the Checkgate SSE stream to subscribe to global flag updates
@@ -43,8 +46,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Synchronously evaluate flag targeting parameters locally!
-    final showMaterial3 = checkgate.isEnabled('material-3-design', {
-      'userId': '12345'
+    final showMaterial3 = checkgate.isEnabled('material-3-design', 'user-12345', {
+      'plan': 'pro',
     });
 
     return MaterialApp(
@@ -73,7 +76,10 @@ Use the **same `userKey`** you pass to `getVariant()`/`isEnabled()` so conversio
 attribute to the right variant.
 
 ## Why Checkgate FFI?
-* **Synchronous FFI Evaluation:** You do not need to `await` flag resolution ever. The evaluation runs in Rust natively in sub-microseconds avoiding Dart async blocking limits.
-* **Instant Propagation (0 to <50ms):** Leverages server-side SSE channels natively within the Rust binary so flag adjustments happen seamlessly within your app flow.
+* **Synchronous FFI Evaluation:** You do not need to `await` flag resolution ever. The evaluation runs in Rust natively, avoiding Dart async blocking limits.
+* **Real-Time Propagation:** the client keeps an SSE stream open (in Dart) and applies flag changes as they arrive, falling back to polling if the stream cannot be established.
+
+The package bundles no compiled engine: build and link the Rust engine as described in
+[`dart/README.md`](dart/README.md) and the [Flutter SDK docs](https://checkgate-sh.github.io/checkgate/sdks/flutter).
 
 Review advanced patterns inside the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).

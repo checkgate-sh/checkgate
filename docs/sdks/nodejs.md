@@ -17,11 +17,12 @@ yarn add @checkgate/node
 pnpm add @checkgate/node
 ```
 
+Requires Node.js 20 or later.
+
 Pre-built binaries are included for:
 - Linux x64 (glibc)
 - Linux x64 (musl / Alpine)
 - Linux arm64 (glibc)
-- Linux arm64 (musl)
 - macOS x64
 - macOS arm64 (Apple Silicon)
 - Windows x64
@@ -39,7 +40,7 @@ const client = new CheckgateClient({
 // Connect and download flags (call once at startup)
 await client.connect()
 
-// Evaluate flags — no await, no network, sub-microsecond
+// Evaluate flags — no await, no network call
 const enabled = client.isEnabled('new-checkout-flow', userId, {
   email: user.email,
   plan: user.plan,
@@ -58,17 +59,44 @@ const enabled = client.isEnabled('new-checkout-flow', userId, {
 | `maxReconnectDelayMs` | `number` | `30000` | Maximum backoff delay between reconnects |
 | `pollFallbackThreshold` | `number` | `3` | Consecutive failed SSE reconnects before falling back to polling `/flags/snapshot`. `Infinity` disables |
 | `pollIntervalMs` | `number` | `30000` | Poll interval while in fallback mode |
+| `connectTimeoutMs` | `number` | `30000` | A stream attempt without the server's `connected` event by then is retried |
+| `streamIdleTimeoutMs` | `number` | 3 × announced heartbeat | A connected stream silent this long is reconnected. No idle timeout against servers before 0.1.31; `0` disables |
 | `reportImpressions` | `boolean` | `true` | Report evaluation events for analytics |
 | `impressionBatchSize` | `number` | `50` | Flush after this many buffered events |
 | `impressionFlushIntervalMs` | `number` | `10000` | Periodic flush interval |
 | `sendEvaluationContext` | `boolean` | `false` | Include user attributes in reported impressions. Off by default so attributes never leave the process |
-| `storage` | `StorageAdapter` | — | Pluggable persistence for offline hydrate-on-start (see [Resilience](#resilience-offline)) |
+| `storage` | `CheckgateStorage` | — | Pluggable persistence for offline hydrate-on-start (see [Resilience](#resilience-offline)) |
 
 ### `client.connect(): Promise<void>`
 
 Connects to the server's SSE stream and downloads the current flag set. Resolves when the initial bootstrap is complete. Call this once at application startup.
 
 Sets up automatic reconnection with exponential backoff on connection loss.
+
+### Connection health
+
+`client.getStatus()` returns `{ state, lastSyncAt, error }`:
+
+| `state` | Meaning |
+|---|---|
+| `'idle'` | Created; `connect()` not called yet |
+| `'connecting'` | First connection attempt in progress |
+| `'streaming'` | Live stream; flags are current |
+| `'reconnecting'` | Stream lost; retrying with backoff (flags: last known) |
+| `'polling'` | Stream keeps failing; polling `/flags/snapshot` |
+| `'auth_failed'` | The server rejected the SDK key (401/403); not retrying |
+| `'closed'` | After `disconnect()` |
+
+`lastSyncAt` is when the client last confirmed its flags are current (a bootstrap, a poll, or any
+event on a live stream, the server's heartbeats included), in ms since the epoch. Flags are always
+served from the last known state; `Date.now() - lastSyncAt` is how old they may be. A stream that
+receives nothing for 3 × the server's heartbeat interval (45 s by default) is dropped and
+reconnected, so a silently dead connection (lost NAT mapping, half-open TCP) no longer looks healthy.
+
+A rejected key is not retried: `connect()` rejects with a `CheckgateAuthError` (`err.status` is 401 or 403; the
+key is never in the message), the last known flags keep being served, and calling `connect()` again
+retries. `connect()` also rejects if `disconnect()` is called before it completes. While the server is
+unreachable it keeps retrying; race it with a timeout if startup cannot wait.
 
 ### `client.isEnabled(flagKey, userKey, attributes): boolean`
 
@@ -127,27 +155,35 @@ every Checkgate SDK:
 - **Offline persistence** — pass a `storage` adapter (anything with `getItem`/`setItem`, e.g.
   `localStorage` or an async KV) and the SDK persists the flag set and re-hydrates it on cold
   start, so flags evaluate before — or entirely without — a connection.
-- **SSR bootstrap** — pass a `bootstrap` snapshot (from [`@checkgate/ssr`](/ecosystem/ssr)) to seed
-  the store synchronously on connect, for zero-flicker server-rendered apps.
 
 Persisted snapshots are namespaced by server URL and a SHA-256 digest of the SDK key, so clients for different environments can share a storage adapter. The previous cache format is ignored on upgrade.
 
 ## Change listeners
 
-Subscribe to live flag changes to re-render or invalidate caches when a flag actually changes
-(bootstrap and reconnect resyncs are suppressed, so only genuine deltas fire):
+Subscribe to flag changes to re-render or invalidate caches. The callback receives the key of
+each flag that actually changed: the initial bootstrap does not fire it, a duplicate event does
+not fire it, and after a reconnect it fires only for flags that changed while disconnected.
 
 ```typescript
-const unsubscribe = client.onChange((change) => {
-  // change describes the upserted/deleted flag
-  console.log('flag changed:', change)
+const unsubscribe = client.onChange((flagKey) => {
+  console.log('flag changed:', flagKey)
 })
 ```
 
 ::: tip Every SDK shares this surface
-`getVariant`, `getValue`, `track`, the resilience options, and `bootstrap` are available in the
-[Web](/sdks/web), [React Native](/sdks/react-native), and [Flutter](/sdks/flutter) SDKs too —
-because all four wrap the same Rust evaluation core, flag decisions are identical across them.
+`getVariant`, `getValue`, `track`, `getStatus()` and the reconnect / poll-fallback behaviour are
+available in the [Web](/sdks/web), [React Native](/sdks/react-native), and [Flutter](/sdks/flutter)
+SDKs too — because all four wrap the same Rust evaluation core, flag decisions are identical across
+them. Option names differ slightly per SDK (Flutter uses `Duration`s), and the `bootstrap` option
+for server-rendered apps is Web-only; see each SDK's page.
+:::
+
+::: info Server compatibility
+With a 0.1.31 server, the SDK polls `/flags/snapshot?v=2` and applies polls and stream replays in
+revision order per flag, so a late replay cannot roll a flag back. This is per flag, not atomic
+across flags. Against an older server polls replace the whole flag set as before, and there is no
+stream idle timeout (older servers announce no heartbeat). See
+[Configuration consistency](/operations/configuration-consistency).
 :::
 
 ## Usage with Express
@@ -185,19 +221,33 @@ process.on('SIGTERM', () => flags.disconnect())
 import { CheckgateClient } from '@checkgate/node'
 
 declare global {
-  var checkgate: CheckgateClient | undefined
+  var checkgate: Promise<CheckgateClient> | undefined
 }
 
-export async function getFlags(): Promise<CheckgateClient> {
+// One client per server process. The connect promise is shared, so concurrent
+// requests during a cold start wait for the same bootstrap. connect() keeps
+// retrying while the server is unreachable, so cap how long a request waits;
+// until the first bootstrap the client serves `false` (or stored flags).
+export function getFlags(timeoutMs = 3000): Promise<CheckgateClient> {
   if (!global.checkgate) {
-    global.checkgate = new CheckgateClient({
+    const client = new CheckgateClient({
       serverUrl: process.env.CHECKGATE_URL!,
       sdkKey: process.env.CHECKGATE_SDK_KEY,
     })
-    await global.checkgate.connect()
+    const ready = client.connect().then(() => client)
+    const timeout = new Promise<CheckgateClient>((resolve) =>
+      setTimeout(() => resolve(client), timeoutMs).unref())
+    global.checkgate = Promise.race([ready, timeout])
   }
   return global.checkgate
 }
+```
+
+`@checkgate/node` is a native addon, so keep it out of Next.js's server bundle:
+
+```typescript
+// next.config.ts
+export default { serverExternalPackages: ['@checkgate/node'] }
 ```
 
 ```typescript

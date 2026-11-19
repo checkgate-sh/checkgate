@@ -278,6 +278,16 @@ async fn metrics_endpoint_is_valid_bounded_and_private() {
         ("checkgate_db_pool_max_connections", "gauge"),
         ("checkgate_database_up", "gauge"),
         ("checkgate_ready", "gauge"),
+        ("checkgate_analytics_rows", "counter"),
+        ("checkgate_ingest_quota_rejections", "counter"),
+        ("checkgate_ingest_quota_local_decisions", "counter"),
+        ("checkgate_analytics_cleanup_runs", "counter"),
+        ("checkgate_analytics_cleanup_deleted_rows", "counter"),
+        ("checkgate_analytics_cleanup_duration_seconds", "histogram"),
+        (
+            "checkgate_analytics_cleanup_last_success_timestamp_seconds",
+            "gauge",
+        ),
         ("checkgate_build", "info"),
     ] {
         assert!(

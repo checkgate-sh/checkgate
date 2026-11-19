@@ -1,11 +1,11 @@
 ---
 layout: home
 title: "Checkgate — Feature Flags Without the Round-Trip."
-description: "Open-source, self-hosted feature flag engine that evaluates flags locally in sub-microseconds — no network call per evaluation. Native SDKs for Node.js, Web, React Native, and Flutter."
+description: "Open-source, self-hosted feature flag engine that evaluates flags locally — no network call per evaluation. Native SDKs for Node.js, Web, React Native, and Flutter."
 hero:
   name: "Checkgate"
   text: "Feature Flags Without the Round-Trip."
-  tagline: "Flags evaluated in-process. Updates pushed in under 50 ms. No vendor, no round-trips, no latency tax."
+  tagline: "Flags evaluated in-process. Updates pushed in tens of milliseconds. No vendor, no round-trips, no latency tax."
   image:
     src: /logo.svg
     alt: Checkgate Logo
@@ -19,16 +19,16 @@ hero:
 
 features:
   - icon: ⚡
-    title: Sub-Microsecond Evaluation
-    details: Flags are evaluated entirely in-process from an in-memory store. Zero network latency on every isEnabled() call — no HTTP round-trips, no polling.
+    title: In-Process Evaluation
+    details: Flags are evaluated in-process from an in-memory store — well under a microsecond in the Rust core, about 1–4 µs through the Node.js SDK. No HTTP request per isEnabled() call.
 
   - icon: 🏠
     title: Fully Self-Hosted
-    details: Deploy on your own infrastructure with Docker. Your flag data never leaves your servers. Single binary, PostgreSQL, and Redis are all you need.
+    details: Deploy on your own infrastructure with Docker — no third-party service sees your flags or users. Single binary, PostgreSQL, and Redis are all you need. (Client-side SDKs download their environment's flag rules, as with any local-evaluation SDK.)
 
   - icon: 🔄
     title: Real-Time Updates via SSE
-    details: Flag changes propagate instantly to all connected SDK clients through Server-Sent Events. No polling interval — changes land in milliseconds.
+    details: Flag changes are pushed to connected SDK clients over one persistent Server-Sent Events connection each, typically within tens of milliseconds. SDKs fall back to polling only when the stream cannot be established.
 
   - icon: 🎯
     title: Advanced Targeting Rules

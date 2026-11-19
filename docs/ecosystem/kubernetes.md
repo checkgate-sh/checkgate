@@ -51,25 +51,25 @@ spec:
 kubectl apply -f config/crd/bases/flags.checkgate.io_featureflags.yaml
 
 # 2. Create the token Secret (never commit it).
-kubectl create secret generic checkgate-token --from-literal=token=cg_pat_xxx
+kubectl create secret generic checkgate-token --from-literal=token=pat_xxx
 
-# 3. Run the controller (in-cluster it uses its ServiceAccount; the generated
-#    RBAC role is in config/rbac/role.yaml).
+# 3. Run the controller. No prebuilt image or Deployment manifest is published
+#    yet; run it against your kubeconfig (from integrations/kubernetes-operator):
+go run .
+
+# 4. Declare flags (see the example manifest below).
 kubectl apply -f config/samples/featureflag.yaml
 ```
 
-Build the manager image from `main.go` (a standard controller-runtime manager), or run it out-of-cluster against your kubeconfig for development:
-
-```bash
-go run .
-```
+To run it in-cluster, build an image from `main.go` (a standard controller-runtime manager),
+deploy it with a ServiceAccount, and bind the generated RBAC role in `config/rbac/role.yaml`.
 
 ## Example manifest
 
 Reference a `read_write` token stored in a Secret, then declare one or more flags. Create the Secret out of band — never commit a real token:
 
 ```bash
-kubectl create secret generic checkgate-token --from-literal=token=cg_pat_xxx
+kubectl create secret generic checkgate-token --from-literal=token=pat_xxx
 ```
 
 ```yaml
