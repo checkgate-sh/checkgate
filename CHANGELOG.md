@@ -203,6 +203,10 @@ first:
 - Internal release-engineering reports are no longer kept in the repository's
   `docs/` tree (they remain in Git history); the docs build fails if internal
   files would be published.
+- The API reference covers the Slack/Teams integration routes, flag
+  archive/unarchive and `GET /api/projects/{id}`. The docs site now installs
+  from its pnpm lockfile (`--frozen-lockfile`), so every build uses the same
+  dependency versions.
 
 ## [0.1.30] - 2026-11-11
 
