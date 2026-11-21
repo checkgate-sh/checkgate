@@ -3,17 +3,28 @@
 // @checkgate/node-integrations: the framework-independent core. The adapters
 // are at the subpaths ./express, ./fastify and ./nestjs.
 
-const core = require('./core.js')
+const {
+    RequestFlags,
+    CheckgateStartupTimeoutError,
+    createRequestFlags,
+    defaultContext,
+    normalizeAttributes,
+    normalizeContext,
+    startCheckgate,
+    stopCheckgate,
+} = require('./core.js')
 const { createTestClient } = require('./testing.js')
 
+// Plain identifiers in an object literal, so Node's CommonJS export detection
+// gives ESM importers every name (`import { startCheckgate } from ...`).
 module.exports = {
-    RequestFlags: core.RequestFlags,
-    CheckgateStartupTimeoutError: core.CheckgateStartupTimeoutError,
-    createRequestFlags: core.createRequestFlags,
-    defaultContext: core.defaultContext,
-    normalizeAttributes: core.normalizeAttributes,
-    normalizeContext: core.normalizeContext,
-    startCheckgate: core.startCheckgate,
-    stopCheckgate: core.stopCheckgate,
+    RequestFlags,
+    CheckgateStartupTimeoutError,
+    createRequestFlags,
+    defaultContext,
+    normalizeAttributes,
+    normalizeContext,
+    startCheckgate,
+    stopCheckgate,
     createTestClient,
 }

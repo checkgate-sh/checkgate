@@ -87,7 +87,7 @@ export declare function normalizeAttributes(input: unknown): Record<string, stri
 export declare function normalizeContext(raw: unknown, defaultKey?: string): EvaluationContext
 
 export interface StartOptions {
-  /** How long startup waits for the first flag set. Default 5000. */
+  /** How long startup waits for the first flag set, 0 to 2^31 - 1 ms. Default 5000. */
   readyTimeoutMs?: number
   /**
    * After the timeout: `'continue'` (default) starts with cached or default

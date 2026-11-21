@@ -9,6 +9,7 @@
 // flag store.
 
 const DEFAULT_KEY = 'anonymous'
+const MAX_TIMEOUT_MS = 2 ** 31 - 1
 
 /**
  * Converts one attribute value to the string the evaluation core expects, or
@@ -276,8 +277,9 @@ async function startCheckgate(client, { readyTimeoutMs = 5000, onTimeout = 'cont
     if (onTimeout !== 'continue' && onTimeout !== 'fail') {
         throw new TypeError(`[Checkgate] onTimeout must be 'continue' or 'fail', got ${String(onTimeout)}.`)
     }
-    if (typeof readyTimeoutMs !== 'number' || !(readyTimeoutMs >= 0)) {
-        throw new TypeError('[Checkgate] readyTimeoutMs must be a number >= 0.')
+    // setTimeout() treats anything above 2^31 - 1 ms (and Infinity) as 1 ms.
+    if (!Number.isFinite(readyTimeoutMs) || readyTimeoutMs < 0 || readyTimeoutMs > MAX_TIMEOUT_MS) {
+        throw new TypeError(`[Checkgate] readyTimeoutMs must be a number from 0 to ${MAX_TIMEOUT_MS}.`)
     }
     stopped.delete(client)
 

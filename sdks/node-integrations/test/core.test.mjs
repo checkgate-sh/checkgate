@@ -97,6 +97,7 @@ test('startCheckgate validates its options', async () => {
     const client = createTestClient()
     await assert.rejects(startCheckgate(client, { onTimeout: 'maybe' }), /onTimeout must be/)
     await assert.rejects(startCheckgate(client, { readyTimeoutMs: -1 }), /readyTimeoutMs/)
+    await assert.rejects(startCheckgate(client, { readyTimeoutMs: Infinity }), /readyTimeoutMs/)
     await assert.rejects(startCheckgate({}), /needs a CheckgateClient/)
     assert.deepEqual(await startCheckgate(client), { ready: true, timedOut: false })
 })
@@ -179,5 +180,21 @@ test('shared evaluation vectors', { skip: vectors ? false : 'sdks/conformance/ve
     } finally {
         client.disconnect()
         await fake.stop()
+    }
+})
+
+test('ESM importers see every named export of every entry point', async () => {
+    const expected = {
+        '@checkgate/node-integrations': ['CheckgateStartupTimeoutError', 'RequestFlags', 'createRequestFlags', 'createTestClient',
+            'defaultContext', 'normalizeAttributes', 'normalizeContext', 'startCheckgate', 'stopCheckgate'],
+        '@checkgate/node-integrations/express': ['checkgateMiddleware', 'listenWithCheckgate', 'startCheckgate', 'stopCheckgate'],
+        '@checkgate/node-integrations/fastify': ['checkgatePlugin', 'default', 'startCheckgate', 'stopCheckgate'],
+        '@checkgate/node-integrations/nestjs': ['CHECKGATE_CLIENT', 'CHECKGATE_OPTIONS', 'Checkgate', 'CheckgateFlagGuard',
+            'CheckgateModule', 'CheckgateRequestPipe', 'CheckgateService', 'REQUIRE_FLAG_METADATA', 'RequireFlag',
+            'createTestClient', 'startCheckgate', 'stopCheckgate'],
+    }
+    for (const [specifier, names] of Object.entries(expected)) {
+        const ns = await import(specifier)
+        for (const name of names) assert.notEqual(ns[name], undefined, `${specifier} exports ${name}`)
     }
 })
