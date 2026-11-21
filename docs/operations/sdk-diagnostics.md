@@ -22,7 +22,8 @@ cache). Use the local state for decisions about a process.
 
 ## Local state: `getHealth()`
 
-Every SDK exposes the same fields (schema 1): Node.js `client.getHealth()` with camelCase
+The Node.js and Python SDKs expose the same fields (schema 1; web, React Native and Flutter do
+not have it yet): Node.js `client.getHealth()` with camelCase
 keys, Python `client.get_health()` with snake_case keys and `_ms` suffixes on timestamps.
 It reads local state only, makes no network call, and never contains the SDK key, user keys or
 attributes, so it is safe to return from a health endpoint.

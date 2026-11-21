@@ -120,6 +120,7 @@ export default defineConfig({
             text: "Configuration Consistency",
             link: "/operations/configuration-consistency",
           },
+          { text: "Upgrading to 0.2.0", link: "/operations/upgrading-to-0-2-0" },
           { text: "Upgrading to 0.1.31", link: "/operations/upgrading" },
           { text: "AWS & Cloud", link: "/self-hosting#aws" },
           {

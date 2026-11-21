@@ -20,6 +20,19 @@ platform). See [Platform support](#platform-support) for what is tested.
 
 ## Installation
 
+The package (`checkgate`, Python 3.11+) is **not on PyPI yet**: until the release announces it,
+do not install a `checkgate` package from PyPI. Build it from a checkout of the repository (needs
+Rust; the release will ship prebuilt wheels):
+
+```bash
+cd sdks/python
+python3 -m venv .venv
+.venv/bin/pip install "maturin>=1.9.4,<2"
+VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release   # installs checkgate into .venv
+```
+
+Once published:
+
 ```bash
 pip install checkgate
 ```

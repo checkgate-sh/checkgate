@@ -106,7 +106,7 @@ The full walkthrough (first flag, SDK keys, production settings): [Getting Start
 - [Python SDK](docs/sdks/python.md) — PyO3 bindings to the same Rust engine; FastAPI, Django and Flask examples
 - [Express, Fastify and NestJS integrations](docs/sdks/node-frameworks.md) — one shared client, per-request context
 - [Evaluation playground](docs/guide/playground.md) — see what an SDK would answer for a user, and why
-- [SDK diagnostics](docs/operations/sdk-diagnostics.md) — `getHealth()` in every SDK, convergence on the SDK Health page
+- [SDK diagnostics](docs/operations/sdk-diagnostics.md) — `getHealth()` in the Node.js and Python SDKs, convergence on the SDK Health page
 - [MCP server for AI agents](docs/ecosystem/mcp.md) — read flags, propose changes through the normal approval flow (`propose` tokens cannot create, apply or approve)
 
 **SDK status (v0.1.31):** Node.js and Web run unit, fault-injection and live end-to-end tests in CI. React Native's Android native build is verified in CI; its iOS build is not certified for this release. Flutter bundles no compiled engine yet: you build and link the Rust engine yourself ([how](docs/sdks/flutter.md#linking-the-native-engine)); verified on the iOS simulator.

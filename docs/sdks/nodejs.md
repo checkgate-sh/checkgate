@@ -102,7 +102,8 @@ unreachable it keeps retrying; race it with a timeout if startup cannot wait.
 
 Detailed diagnostics for health checks, readiness probes and dashboards. Local state only (no
 network call), and it never contains the SDK key, user keys or attributes. The same fields
-exist in every Checkgate SDK ([SDK diagnostics](../operations/sdk-diagnostics)).
+exist in the Python SDK's `get_health()` ([SDK diagnostics](../operations/sdk-diagnostics));
+the web, React Native and Flutter SDKs do not have it yet.
 
 ```typescript
 app.get('/healthz/flags', (_req, res) => {

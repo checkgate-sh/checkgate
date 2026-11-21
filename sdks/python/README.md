@@ -19,6 +19,8 @@ current over Server-Sent Events, with a polling fallback.
 ## Install
 
 ```bash
+# Not on PyPI yet — do not install a `checkgate` package from PyPI until the
+# project announces it. Build from a checkout instead (see Development below).
 pip install checkgate
 ```
 

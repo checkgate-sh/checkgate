@@ -8,7 +8,9 @@
 // - Errors carry a stable `kind` and a message built only from the status
 //   code — never from the response body, which may hold user content.
 
-export const USER_AGENT = 'checkgate-mcp/0.2.0'
+import { VERSION } from './version.js'
+
+export const USER_AGENT = `checkgate-mcp/${VERSION}`
 
 /** Stable error kinds a tool result reports. */
 export const ERROR_KINDS = Object.freeze([
