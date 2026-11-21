@@ -5,6 +5,69 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - Unreleased
+
+Developer adoption: OpenFeature, Python, framework integrations, a local
+quickstart, an evaluation playground, SDK diagnostics and an MCP server for AI
+agents. Every new SDK surface evaluates with the same Rust engine; no feature
+adds a network request per evaluation.
+
+### Upgrading from 0.1.31
+
+- **One database migration** (`20261121000029_pat_propose_scope`): it widens
+  the personal-access-token scope check to allow `propose`. It is additive and
+  applies on start. **A 0.1.31 binary will not start against a database that
+  has it** (the migrator reports an applied migration it does not know). To
+  roll back the binary, restore the database from before the upgrade, or
+  delete that version's row from `_sqlx_migrations` after revoking every
+  `propose` token.
+- No configuration change is required. The SDK protocol (`/stream`,
+  `/flags/snapshot`) is unchanged, so 0.1.31 SDKs work with a 0.2.0 server and
+  0.2.0 SDKs with a 0.1.31 server; the new server endpoints are additive.
+- Building the Rust workspace now needs Python 3.11+ for the PyO3 crate
+  (`PYO3_PYTHON` selects the interpreter).
+
+### Added
+
+- **Core:** `explain()` — the same evaluation as `evaluate_variant`, plus the
+  reason (`DISABLED`, `PREREQUISITE_FAILED`, `TARGETING_MATCH`,
+  `ROLLOUT_EXCLUDED`, `SPLIT`, `DEFAULT`, `STATIC`), matched rule, rollout
+  bucket, weighted variant and prerequisite outcomes. Shared evaluation vectors
+  (`sdks/conformance/vectors/evaluation.json`) that every SDK checks.
+- **Node.js SDK:** `getDetails()`, `onStatusChange()`, and `getHealth()`
+  (diagnostics schema 1, shared with Python).
+- **`@checkgate/openfeature-provider`:** OpenFeature server-SDK provider over
+  `@checkgate/node`, with reason/variant mapping and READY/STALE/ERROR/FATAL
+  lifecycle.
+- **Python SDK (`checkgate`):** PyO3 bindings to the engine; SSE, poll
+  fallback, revision ordering, offline cache, `get_details()`, `get_health()`;
+  FastAPI, Flask and Django examples. Runs the shared fault-injection suite.
+- **`@checkgate/node-integrations`:** Express middleware, Fastify plugin and
+  NestJS module over one shared client, with request-scoped context and a
+  startup timeout policy.
+- **Evaluation playground:** `POST /api/environments/{env}/flags/{key}/evaluate`
+  and a dashboard page — what an SDK would answer for a user, and why. Read-only.
+- **SDK diagnostics on the server:** `last_delivered_revision` per stream,
+  `GET /api/health/environments` (convergence per environment), metrics
+  `checkgate_snapshot_requests_total` and `checkgate_playground_evaluations_total`.
+- **`propose` personal access tokens:** read access plus proposing flag
+  changes (always a change request) and creating disabled draft flags; they
+  can never apply, approve or reject. For automation and AI agents.
+- **`@checkgate/mcp-server`:** stdio MCP server for AI agents — read-only by
+  default; with `CHECKGATE_MCP_WRITE=1`, draft flags and change proposals
+  through the normal approval workflow.
+- **Quickstart:** `quickstart/start.sh --seed` (local, development only) with
+  Node.js and Python examples; first-run snippets in the setup wizard and an
+  empty-environment checklist on the dashboard.
+
+### Changed
+
+- Node.js SDK: on a stream's `ready` the client now marks itself ready before
+  switching to `streaming`, so status listeners see `isReady()` on a first
+  connection.
+- CI tests Node.js 22, 24 and 26 for the new packages (Node.js 20 reached end
+  of life on 2026-04-30).
+
 ## [0.1.31] - 2026-11-21
 
 ### Upgrading from 0.1.30

@@ -39,7 +39,9 @@ The server and the shared evaluation core are written in Rust, with SDKs for Nod
 
 ## Quick start
 
-Run the all-in-one image (PostgreSQL, Redis, the server and the dashboard in one container). Save as `compose.yml`:
+From a clone, one script starts Checkgate locally, seeds a sample flag and prints an SDK key
+(development only): `./quickstart/start.sh --seed` — see the
+[five-minute quickstart](docs/guide/quickstart.md). Or, without a clone, run the all-in-one image (PostgreSQL, Redis, the server and the dashboard in one container). Save as `compose.yml`:
 
 ```yaml
 services:
@@ -97,6 +99,15 @@ The full walkthrough (first flag, SDK keys, production settings): [Getting Start
 - **Consistent updates** — with a v0.1.31 server and SDK, polls and stream replays are applied in revision order per flag (not atomically across flags); see [configuration consistency](docs/operations/configuration-consistency.md)
 - **Observability** — Prometheus metrics, health and readiness endpoints
 - **Self-hosted** — single binary + PostgreSQL + Redis; no third-party service sees your flags or users
+
+**New in 0.2.0** (unreleased; verified locally on macOS, CI pending — see each page for its tested platforms):
+
+- [OpenFeature provider](docs/sdks/openfeature.md) for Node.js — standard OpenFeature API, same local engine
+- [Python SDK](docs/sdks/python.md) — PyO3 bindings to the same Rust engine; FastAPI, Django and Flask examples
+- [Express, Fastify and NestJS integrations](docs/sdks/node-frameworks.md) — one shared client, per-request context
+- [Evaluation playground](docs/guide/playground.md) — see what an SDK would answer for a user, and why
+- [SDK diagnostics](docs/operations/sdk-diagnostics.md) — `getHealth()` in every SDK, convergence on the SDK Health page
+- [MCP server for AI agents](docs/ecosystem/mcp.md) — read flags, propose changes through the normal approval flow (`propose` tokens cannot apply or approve)
 
 **SDK status (v0.1.31):** Node.js and Web run unit, fault-injection and live end-to-end tests in CI. React Native's Android native build is verified in CI; its iOS build is not certified for this release. Flutter bundles no compiled engine yet: you build and link the Rust engine yourself ([how](docs/sdks/flutter.md#linking-the-native-engine)); verified on the iOS simulator.
 
@@ -180,6 +191,7 @@ Method, assumptions and sources: [Infrastructure cost and efficiency](docs/perfo
 | System architecture | [Architecture](docs/guide/architecture.md) |
 | Flags, rules, rollout concepts | [Core Concepts](docs/guide/concepts.md) |
 | Dashboard tour | [Dashboard](docs/guide/dashboard.md) |
+| Five-minute local quickstart | [Quickstart](docs/guide/quickstart.md) |
 | Step-by-step setup | [Getting Started](docs/guide/getting-started.md) |
 | REST API + SSE stream reference | [API Reference](docs/api-reference.md) |
 | Node.js SDK | [SDK: Node.js](docs/sdks/nodejs.md) |
@@ -192,6 +204,7 @@ Method, assumptions and sources: [Infrastructure cost and efficiency](docs/perfo
 | SSR / bootstrap (Next.js, Remix, …) | [`@checkgate/ssr`](ssr/README.md) |
 | Terraform / OpenTofu provider | [terraform-provider-checkgate](integrations/terraform-provider-checkgate/README.md) |
 | Kubernetes operator | [checkgate-operator](integrations/kubernetes-operator/README.md) |
+| AI agents (MCP) | [MCP server](docs/ecosystem/mcp.md) |
 | Docker, AWS, env vars | [Self-Hosting](docs/self-hosting.md) |
 | Enterprise Setup & Migration | [Enterprise Setup & Migration](docs/enterprise-setup.md) |
 

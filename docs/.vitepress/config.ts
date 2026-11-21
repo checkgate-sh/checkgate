@@ -65,6 +65,7 @@ export default defineConfig({
         text: "Introduction",
         items: [
           { text: "What is Checkgate?", link: "/guide/what-is-checkgate" },
+          { text: "Five-minute quickstart", link: "/guide/quickstart" },
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Dashboard", link: "/guide/dashboard" },
           { text: "Evaluation playground", link: "/guide/playground" },

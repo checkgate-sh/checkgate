@@ -22,7 +22,7 @@ Find your stack below — each section lists what's **required**, what's
 | **SPA** — Vite, Vue, React, Svelte, Angular | `@checkgate/web` | `@checkgate/cli` |
 | **React Native** | `@checkgate/react-native` | `@checkgate/cli` |
 | **Flutter** | `checkgate_flutter` | `@checkgate/cli` |
-| **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/cli` |
+| **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/node-integrations`, `@checkgate/cli` |
 | **Python server** — FastAPI, Django, Flask | `checkgate` (PyPI) | — |
 | **Edge** — Cloudflare Workers, Vercel Edge, middleware | `@checkgate/edge` + `@checkgate/web` | `@checkgate/cli` |
 
