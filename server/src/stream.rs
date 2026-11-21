@@ -628,6 +628,37 @@ async fn read_snapshot(
     env_id: &str,
     revisioned: bool,
 ) -> Result<Snapshot, String> {
+    let raw = read_raw_snapshot(state, env_id, revisioned).await?;
+    Ok(Snapshot {
+        flags: raw
+            .flags
+            .into_iter()
+            .map(|flag| crate::api::segments::expand_flag_with_segments(flag, &raw.segment_map))
+            .collect(),
+        revisions: raw.revisions,
+        tombstones: raw.tombstones,
+    })
+}
+
+/// One snapshot statement's rows, decoded but not yet segment-expanded.
+pub(crate) struct RawSnapshot {
+    pub(crate) segment_map: std::collections::HashMap<String, Vec<TargetingRule>>,
+    /// Flags as stored, in key order.
+    pub(crate) flags: Vec<checkgate_core::evaluator::Flag>,
+    /// Each flag's revision (same order as `flags`); empty unless revisioned.
+    pub(crate) revisions: Vec<i64>,
+    pub(crate) tombstones: Vec<(String, i64)>,
+}
+
+/// Reads and decodes an environment's snapshot rows with one statement (see
+/// [`read_snapshot`] for why one). Shared by the SDK snapshot and the
+/// evaluation playground, so the playground evaluates exactly what SDKs are
+/// served.
+pub(crate) async fn read_raw_snapshot(
+    state: &AppState,
+    env_id: &str,
+    revisioned: bool,
+) -> Result<RawSnapshot, String> {
     let sql = if revisioned {
         REVISIONED_SNAPSHOT_SQL
     } else {
@@ -673,11 +704,9 @@ async fn read_snapshot(
             }
         }
     }
-    Ok(Snapshot {
-        flags: flags
-            .into_iter()
-            .map(|flag| crate::api::segments::expand_flag_with_segments(flag, &segment_map))
-            .collect(),
+    Ok(RawSnapshot {
+        segment_map,
+        flags,
         revisions,
         tombstones,
     })
