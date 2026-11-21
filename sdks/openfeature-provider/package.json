@@ -31,7 +31,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "bench": "node bench/overhead.mjs"
   },
   "peerDependencies": {
     "@checkgate/node": ">=0.2.0 <1",

@@ -1,6 +1,6 @@
 // Provider overhead: the same evaluation through OpenFeature vs. the Checkgate
 // client directly, same process, same flags. Not part of `npm test`.
-//   node test/bench.mjs [iterations]
+//   node bench/overhead.mjs [iterations]
 import { createRequire } from 'node:module';
 import { FaultServer } from '../../conformance/fault-server.mjs';
 const require = createRequire(import.meta.url);
