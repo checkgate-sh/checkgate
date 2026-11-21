@@ -86,6 +86,7 @@ export default defineConfig({
         items: [
           { text: "Which SDK do I need?", link: "/sdks/" },
           { text: "Node.js (NAPI)", link: "/sdks/nodejs" },
+          { text: "Express, Fastify, NestJS", link: "/sdks/node-frameworks" },
           { text: "Web (WebAssembly)", link: "/sdks/web" },
           { text: "React Native (JSI)", link: "/sdks/react-native" },
           { text: "Flutter (FFI)", link: "/sdks/flutter" },

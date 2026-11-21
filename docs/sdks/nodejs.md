@@ -245,6 +245,9 @@ stream idle timeout (older servers announce no heartbeat). See
 
 ## Usage with Express
 
+For Express, Fastify and NestJS, [`@checkgate/node-integrations`](/sdks/node-frameworks) binds
+flags to each request's user and handles startup timeouts and shutdown. Without it:
+
 ```typescript
 import express from 'express'
 import { CheckgateClient } from '@checkgate/node'

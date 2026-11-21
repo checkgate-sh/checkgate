@@ -179,6 +179,12 @@ app.get('/', (req, res) => {
 
 See the [Node.js SDK reference](/sdks/nodejs).
 
+**Optional: `@checkgate/node-integrations`** — middleware for Express, a plugin
+for Fastify and a module for NestJS. Each request gets flags bound to its own
+user (`req.checkgate.isEnabled('new-homepage')`), startup waits for flags with
+a timeout instead of hanging, and shutdown disconnects the client. See
+[Express, Fastify and NestJS](/sdks/node-frameworks).
+
 ---
 
 ## Edge runtimes (Cloudflare Workers, Vercel Edge, middleware)

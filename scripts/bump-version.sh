@@ -29,7 +29,7 @@ SED_INPLACE "s/^version = \".*\"$/version = \"$VERSION\"/" "$ROOT/Cargo.toml"
 echo "  updated Cargo.toml [workspace.package]"
 
 # --- JS SDKs ---
-for pkg in nodejs web react-native; do
+for pkg in nodejs node-integrations web react-native; do
   FILE="$ROOT/sdks/$pkg/package.json"
   SED_INPLACE "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$FILE"
   echo "  updated sdks/$pkg/package.json"

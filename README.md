@@ -183,6 +183,7 @@ Method, assumptions and sources: [Infrastructure cost and efficiency](docs/perfo
 | Step-by-step setup | [Getting Started](docs/guide/getting-started.md) |
 | REST API + SSE stream reference | [API Reference](docs/api-reference.md) |
 | Node.js SDK | [SDK: Node.js](docs/sdks/nodejs.md) |
+| Express, Fastify, NestJS | [SDK: Node.js frameworks](docs/sdks/node-frameworks.md) |
 | Web (WASM) SDK | [SDK: Web](docs/sdks/web.md) |
 | React Native (JSI) SDK | [SDK: React Native](docs/sdks/react-native.md) |
 | Flutter (FFI) SDK | [SDK: Flutter](docs/sdks/flutter.md) |
