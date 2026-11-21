@@ -88,6 +88,7 @@ export default defineConfig({
           { text: "Web (WebAssembly)", link: "/sdks/web" },
           { text: "React Native (JSI)", link: "/sdks/react-native" },
           { text: "Flutter (FFI)", link: "/sdks/flutter" },
+          { text: "Python (PyO3)", link: "/sdks/python" },
         ],
       },
       {
