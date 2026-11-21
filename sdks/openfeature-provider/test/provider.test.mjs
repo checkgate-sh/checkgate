@@ -260,6 +260,26 @@ test('initTimeoutMs: ERROR while unreachable, READY once the server answers', op
     }
 });
 
+test('initTimeoutMs with an offline cache: STALE on cached flags, READY once connected', opts, async () => {
+    const cache = JSON.stringify({ cached: { key: 'cached', is_enabled: true, rollout_percentage: null, rules: [] } });
+    const env = await setUp({
+        flags: [{ key: 'live', is_enabled: true, rollout_percentage: null, rules: [] }],
+        start: false,
+        providerOptions: { initTimeoutMs: 300, storage: { getItem: () => cache, setItem: () => {} } },
+    });
+    try {
+        env.server.mode = 'refuse';
+        await OpenFeature.setProviderAndWait(env.domain, env.provider);
+        await until(() => env.client.providerStatus === ProviderStatus.STALE);
+        assert.equal(await env.client.getBooleanValue('cached', false, { targetingKey: 'u' }), true);
+        env.server.mode = 'pass';
+        await until(() => env.client.providerStatus === ProviderStatus.READY);
+        assert.equal(await env.client.getBooleanValue('live', false, { targetingKey: 'u' }), true);
+    } finally {
+        await tearDown(env);
+    }
+});
+
 test('close disconnects an owned client but never a shared one', opts, async () => {
     const owned = await setUp({ flags: vectors.flags });
     await until(() => owned.server.streams.size === 1);
