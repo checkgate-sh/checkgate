@@ -51,11 +51,11 @@ adds a network request per evaluation.
   `GET /api/health/environments` (convergence per environment), metrics
   `checkgate_snapshot_requests_total` and `checkgate_playground_evaluations_total`.
 - **`propose` personal access tokens:** read access plus proposing flag
-  changes (always a change request) and creating disabled draft flags; they
-  can never apply, approve or reject. For automation and AI agents.
+  changes (always a change request) and withdrawing their own requests; they
+  can never create a flag, apply, approve or reject. For automation and AI agents.
 - **`@checkgate/mcp-server`:** stdio MCP server for AI agents — read-only by
-  default; with `CHECKGATE_MCP_WRITE=1`, draft flags and change proposals
-  through the normal approval workflow.
+  default; with `CHECKGATE_MCP_WRITE=1`, change proposals through the normal
+  approval workflow (no tool creates, approves or applies anything).
 - **Quickstart:** `quickstart/start.sh --seed` (local, development only) with
   Node.js and Python examples; first-run snippets in the setup wizard and an
   empty-environment checklist on the dashboard.

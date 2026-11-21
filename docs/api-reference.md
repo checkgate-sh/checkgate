@@ -552,7 +552,7 @@ Content-Type: application/json
 
 Creates a flag. If the key already exists in this environment, replaces it entirely unless the environment requires approval. In that case replacement returns `409 Conflict`; use PATCH to submit a change request.
 
-With a [`propose`-scoped token](#token-scopes) (since 0.2.0) this only ever creates a **new, disabled** flag: an existing key is `409 Conflict` in every environment, and a body with `"is_enabled": true` or a `disabled_value` is `422 Unprocessable Entity` (rejected rather than rewritten, so the caller knows exactly what was stored). Turning the flag on later is a PATCH, which becomes a change request.
+A [`propose`-scoped token](#token-scopes) (since 0.2.0) gets `403 Forbidden`: a new flag is served to SDKs at once, and even a disabled one makes code that already reads the key get `false` instead of its own default, so creating flags is left to people.
 
 **Request Body**
 
@@ -570,7 +570,7 @@ With a [`propose`-scoped token](#token-scopes) (since 0.2.0) this only ever crea
 
 **Response** `409 Conflict` — the key exists and the environment requires approval, or the caller uses a `propose` token.
 
-**Response** `422 Unprocessable Entity` — invalid flag key or `rollout_percentage` out of range; or a `propose` token tried to create an enabled flag or set `disabled_value`.
+**Response** `422 Unprocessable Entity` — invalid flag key or `rollout_percentage` out of range.
 
 ---
 
@@ -1462,7 +1462,7 @@ A token acts as its owning user — same workspace role, same project membership
 | Scope | Reads | Writes |
 |---|---|---|
 | `read_only` | everything the owner can read | none |
-| `propose` | everything the owner can read | only: `PATCH` a flag → always a pending change request (`202`), in every environment; `POST` a **new, disabled** flag; `DELETE` the owner's own pending change request. Everything else (approve, reject, delete, promote, archive, segments, environments, keys, users, webhooks, revoking tokens, analytics ingest) is `403`. |
+| `propose` | everything the owner can read | only: `PATCH` a flag → always a pending change request (`202`), in every environment; `DELETE` the owner's own pending change request. Everything else (creating a flag, approve, reject, delete, promote, archive, segments, environments, keys, users, webhooks, revoking tokens, analytics ingest) is `403`. |
 | `read_write` | everything the owner can read | everything the owner can do |
 
 `propose` is meant for AI agents and other automation that should suggest changes but never apply,

@@ -13,11 +13,10 @@
 //!
 //! - `PATCH` a flag, which always becomes a pending change request (`202`),
 //!   whether or not the environment requires approval;
-//! - create a *new*, disabled flag (`409` over an existing key, `422` when the
-//!   body enables it or sets a `disabled_value`);
 //! - withdraw its owner's own pending change requests.
 //!
-//! Every other write is `403` — including approve and reject, so even raw
+//! Every other write is `403` — including creating a flag (a new flag is
+//! served to SDKs at once), approve and reject, so even raw
 //! HTTP with the token cannot apply a change. Project RBAC still applies, the
 //! owner cannot approve their own request through a session either, and
 //! `read_only` / `read_write` behave exactly as before.
@@ -417,28 +416,36 @@ async fn propose_cancel_is_own_requests_only_even_for_an_admin_owner() {
 }
 
 #[tokio::test]
-async fn propose_create_is_new_and_disabled_only() {
+async fn propose_cannot_create_flags() {
     let Some(f) = fixture("cg_propose_create").await else {
         return;
     };
-    // A new key, disabled: created, in either kind of environment.
+    // A created flag is served to SDKs at once — even a disabled one makes
+    // code that already reads the key get `false` instead of its own default
+    // (review finding F-01) — so a propose token creates nothing: not a new
+    // disabled flag, not an enabled one, not over an existing key, in an
+    // environment with or without approval.
+    let before = f.get_flag(&f.staging, "checkout").await;
     for env in [&f.staging, &f.prod] {
-        let created = request(
-            &f.agent,
-            "POST",
-            &f.flags_url(env),
-            Some(
-                json!({ "key": "agent-draft", "is_enabled": false, "rollout_percentage": null,
-                         "description": "Drafted by an agent", "rules": [], "tags": ["agent"] }),
-            ),
-            200,
-        )
-        .await;
-        assert_eq!(created["is_enabled"], false);
-        let stored = f.get_flag(env, "agent-draft").await;
-        assert_eq!(stored["is_enabled"], false);
-        assert_eq!(stored["tags"], json!(["agent"]));
+        for body in [
+            json!({ "key": "agent-draft", "is_enabled": false, "rollout_percentage": null,
+                    "description": "Drafted by an agent", "rules": [], "tags": ["agent"] }),
+            json!({ "key": "agent-live", "is_enabled": true, "rollout_percentage": 100,
+                    "description": null, "rules": [] }),
+            json!({ "key": "checkout", "is_enabled": false, "rollout_percentage": 0,
+                    "description": "overwritten", "rules": [] }),
+        ] {
+            let s = f
+                .status(&f.agent, "POST", &f.flags_url(env), Some(body.clone()))
+                .await;
+            assert_eq!(s, 403, "{env}: {body}");
+        }
+        for key in ["agent-draft", "agent-live"] {
+            let s = f.status(&f.admin, "GET", &f.flag_url(env, key), None).await;
+            assert_eq!(s, 404, "{env}: {key} must not exist");
+        }
     }
+    assert_eq!(f.get_flag(&f.staging, "checkout").await, before);
     let audit = request(
         &f.admin,
         "GET",
@@ -447,54 +454,26 @@ async fn propose_create_is_new_and_disabled_only() {
         200,
     )
     .await;
-    let create = audit
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["action"] == "CREATE" && e["flag_key"] == "agent-draft")
-        .unwrap_or_else(|| panic!("no CREATE audit event: {audit}"));
-    assert_eq!(create["actor_email"], OWNER);
-    assert_eq!(create["metadata"]["via"], "propose_token", "{create}");
-
-    // Over an existing key: 409 in both environments, and nothing changes —
-    // including where a read_write token would overwrite (unprotected staging).
-    let before = f.get_flag(&f.staging, "checkout").await;
-    for env in [&f.staging, &f.prod] {
-        let s = f
-            .status(
-                &f.agent,
-                "POST",
-                &f.flags_url(env),
-                Some(
-                    json!({ "key": "checkout", "is_enabled": false, "rollout_percentage": 0,
-                             "description": "overwritten", "rules": [] }),
-                ),
-            )
-            .await;
-        assert_eq!(s, 409, "{env}");
-    }
-    assert_eq!(f.get_flag(&f.staging, "checkout").await, before);
-
-    // Enabled, or serving a value while disabled: rejected, nothing stored.
-    for body in [
-        json!({ "key": "agent-live", "is_enabled": true, "rollout_percentage": 100, "description": null, "rules": [] }),
-        json!({ "key": "agent-live", "is_enabled": false, "rollout_percentage": null, "description": null,
-                "rules": [], "flag_type": "string", "disabled_value": "https://elsewhere.example" }),
-    ] {
-        let s = f
-            .status(
-                &f.agent,
-                "POST",
-                &f.flags_url(&f.staging),
-                Some(body.clone()),
-            )
-            .await;
-        assert_eq!(s, 422, "{body}");
-    }
-    let s = f
-        .status(&f.admin, "GET", &f.flag_url(&f.staging, "agent-live"), None)
-        .await;
-    assert_eq!(s, 404);
+    assert!(
+        !audit
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["action"] == "CREATE" && e["actor_email"] == OWNER),
+        "no CREATE by the token owner: {audit}"
+    );
+    // The owner's own session still creates flags as before.
+    request(
+        &f.owner,
+        "POST",
+        &f.flags_url(&f.staging),
+        Some(
+            json!({ "key": "owner-flag", "is_enabled": false, "rollout_percentage": null,
+                     "description": null, "rules": [] }),
+        ),
+        200,
+    )
+    .await;
 
     // Cross-project: the owner is not a member of the foreign project.
     let s = f

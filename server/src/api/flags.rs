@@ -342,15 +342,14 @@ async fn create_flag(
 ) -> Result<Json<FlagWithMetadata>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
     let payload = req.flag;
-    // A `propose` token may only add a new flag that serves nothing until a
-    // reviewed change turns it on: never enabled, and no `disabled_value`
-    // (code that already reads this key would otherwise start receiving that
-    // value the moment the flag exists). Rejected rather than silently
-    // rewritten, so the caller knows exactly what was stored.
-    let propose = crate::auth::is_propose_token(&jar);
-    if propose && (payload.is_enabled || payload.disabled_value.is_some()) {
-        warn!(key = %payload.key, "Rejected create_flag: a propose token may only create a disabled flag");
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    // A `propose` token never creates flags (`require_editor` already refuses
+    // the route; this is defence in depth). A created flag is served to SDKs at
+    // once, and even a disabled one changes what code that already reads the
+    // key gets (`false` instead of its own default) — with no review. Creating
+    // flags goes through a person.
+    if crate::auth::is_propose_token(&jar) {
+        warn!(key = %payload.key, "Rejected create_flag: propose tokens cannot create flags");
+        return Err(StatusCode::FORBIDDEN);
     }
     if !is_valid_flag_key(&payload.key) {
         warn!(key = %payload.key, "Rejected create_flag: invalid key");
@@ -381,8 +380,8 @@ async fn create_flag(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let protected = lock_environment(&mut tx, &env_id).await?;
     // An existing key is never overwritten in a protected environment (that
-    // would bypass approval) nor by a `propose` token (only new flags).
-    let no_overwrite = protected || propose;
+    // would bypass approval).
+    let no_overwrite = protected;
     let written = sqlx::query(
         "INSERT INTO flags (key, environment_id, data, tags, owner_email) \
          VALUES ($1, $2::uuid, $3, $4, $5) \
@@ -412,7 +411,6 @@ async fn create_flag(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let actor_email = get_session_claims(&jar).map(|c| c.email);
-    let create_meta = propose.then(|| json!({ "via": "propose_token" }));
     super::audit::log_audit_event(
         &state.db,
         &env_id,
@@ -421,7 +419,7 @@ async fn create_flag(
         "CREATE",
         None,
         Some(&data),
-        create_meta.as_ref(),
+        None,
     )
     .await;
 

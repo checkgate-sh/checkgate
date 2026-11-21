@@ -200,13 +200,9 @@ test('e2e: agent proposes → 202 CR → unchanged → another person approves �
     const explained = await call(p, 'explain_flag', { environment_id: env, key: 'checkout' })
     assert.ok(explained.structuredContent.data.steps.some((s) => s.includes('Rollout 40 %')))
 
-    // A draft flag: created disabled; an existing key is refused.
-    const draft = await call(p, 'create_draft_flag', { environment_id: env, key: 'agent-draft', description: 'from the agent' })
-    assert.equal(draft.structuredContent.data.outcome, 'created_disabled', draft.content[0].text)
-    const stored = (await admin('GET', `/api/environments/${env}/flags/agent-draft`)).data
-    assert.equal(stored.is_enabled, false)
-    const dup = await call(p, 'create_draft_flag', { environment_id: env, key: 'checkout' })
-    assert.equal(dup.structuredContent.error.kind, 'conflict')
+    // No tool creates flags, and the propose token itself cannot (server-side).
+    const tools = (await p.send('tools/list', {})).result.tools.map((t) => t.name)
+    assert.ok(!tools.includes('create_draft_flag'))
 
     // Withdraw a second proposal.
     const second = await call(p, 'propose_rollout_change', { environment_id: env, key: 'checkout', rollout_percentage: 100 })

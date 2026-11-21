@@ -85,8 +85,8 @@ only reach the SDK endpoints (stream, snapshot, reading flags, impressions and e
 
 - A token acts as its owning user (same role, same project memberships) and can be capped to
   **`read_only`**, or to **`propose`**: reads, plus proposing flag changes that someone else must
-  approve — every edit becomes a pending change request, new flags are created disabled, and the
-  token can never approve, reject or apply anything. Use it for AI agents
+  approve — every edit becomes a pending change request, and the token can never create a flag
+  or approve, reject or apply anything. Use it for AI agents
   ([MCP server](/ecosystem/mcp)).
 - Tokens are **SHA-256 hashed at rest**, support optional expiry, and are strictly self-service —
   you can only list, create, and revoke your own.

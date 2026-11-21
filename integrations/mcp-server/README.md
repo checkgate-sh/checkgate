@@ -7,10 +7,10 @@ read Checkgate feature flags and **propose** changes that a person approves.
   (paginated), one flag's configuration, targeting explained in plain language, flag dependencies,
   recent audit events, a flag compared across two environments, change requests, SDK connection
   counts per environment.
-- **Proposal tools** (only with `CHECKGATE_MCP_WRITE=1`): `create_draft_flag` (always disabled,
-  never overwrites), `propose_flag_change`, `propose_rollout_change`, `cancel_change_request`
-  (own pending requests).
-- **No** approve, reject, delete, promote, archive or raw-HTTP tool, in any configuration.
+- **Proposal tools** (only with `CHECKGATE_MCP_WRITE=1`): `propose_flag_change`,
+  `propose_rollout_change`, `cancel_change_request` (own pending requests).
+- **No** create, approve, reject, delete, promote, archive or raw-HTTP tool, in any
+  configuration. (A new flag is served to SDKs at once, so people create flags.)
 
 Full guide and security model: [docs/ecosystem/mcp.md](../../docs/ecosystem/mcp.md).
 
@@ -21,9 +21,8 @@ Create the agent's personal access token with scope **`propose`** (Settings → 
 with that token — through this server or raw HTTP:
 
 - a flag `PATCH` always becomes a pending change request (`202`), in every environment;
-- a flag `POST` only creates a new, disabled flag (`409` if the key exists, `422` if enabled);
 - `DELETE` of a change request works only on the owner's own pending ones;
-- everything else that writes is `403`, approve and reject included.
+- everything else that writes is `403`, creating flags, approve and reject included.
 
 A different person must approve each change request (self-approval is blocked server-side).
 

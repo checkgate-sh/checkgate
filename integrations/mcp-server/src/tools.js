@@ -384,51 +384,11 @@ export function toolDefinitions() {
     },
 
     // -----------------------------------------------------------------------
-    // Write tools (CHECKGATE_MCP_WRITE=1)
+    // Write tools (CHECKGATE_MCP_WRITE=1). There is deliberately no tool that
+    // creates a flag: a new flag is served to SDKs at once — even a disabled
+    // one changes what code already reading the key gets — so creating flags
+    // is left to people (and propose tokens cannot, server-side).
     // -----------------------------------------------------------------------
-    {
-      name: 'create_draft_flag',
-      write: true,
-      config: {
-        title: 'Create a draft flag (disabled)',
-        description:
-          'Create a NEW flag that is always disabled (serves false until a reviewed change enables it). Never overwrites: fails if the key exists. ' +
-          'Enabling it or changing its targeting later goes through propose_flag_change, which a person approves.',
-        inputSchema: z
-          .object({
-            environment_id: ID,
-            key: FLAG_KEY,
-            description: z.string().max(1000).optional(),
-            flag_type: z.enum(['boolean', 'string', 'integer', 'json']).default('boolean'),
-            default_value: FLAG_VALUE.optional(),
-            tags: TAGS.optional(),
-            owner_email: EMAIL.optional(),
-          })
-          .strict(),
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-      },
-      async run(args, ctx) {
-        const { scope } = await guardQueued(ctx, args.environment_id, 'Creating a flag')
-        // Without the server-side guarantee of a propose token (409 on an
-        // existing key), check first so a read_write token cannot overwrite.
-        if (scope !== 'propose' && (await getFlagOrNull(ctx.api, args.environment_id, args.key)) !== null) {
-          throw new ApiError('conflict', `Flag ${args.key} already exists in this environment; create_draft_flag never overwrites. Use propose_flag_change.`)
-        }
-        const body = {
-          key: args.key,
-          is_enabled: false,
-          rollout_percentage: null,
-          description: args.description ?? null,
-          flag_type: args.flag_type,
-          rules: [],
-          tags: args.tags ?? [],
-        }
-        if (args.default_value !== undefined) body.default_value = args.default_value
-        if (args.owner_email !== undefined) body.owner_email = args.owner_email
-        const { data } = await ctx.api.request('POST', `/api/environments/${seg(args.environment_id)}/flags`, { body })
-        return dataResult(`Created flag ${args.key}, DISABLED. It serves false to everyone until a reviewed change enables it.`, { outcome: 'created_disabled', flag: data })
-      },
-    },
     {
       name: 'propose_flag_change',
       write: true,
