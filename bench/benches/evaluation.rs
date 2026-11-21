@@ -20,7 +20,7 @@
 //! evaluation, retained bytes per stored flag) is printed as JSON lines,
 //! measured with a counting global allocator.
 
-use checkgate_core::evaluator::{Flag, UserContext, evaluate, evaluate_variant};
+use checkgate_core::evaluator::{Flag, UserContext, evaluate, evaluate_variant, explain};
 use checkgate_core::store::FlagStore;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
 use serde_json::json;
@@ -283,6 +283,15 @@ fn rules(c: &mut Criterion) {
     });
     g.bench_function("weighted_multivariate", |b| {
         b.iter(|| evaluate_variant(&store.get_flag(black_box("mv")).unwrap(), &ctx, &store))
+    });
+    // The detailed path (OpenFeature details, the playground): same
+    // evaluator with a recorder, so its cost over the plain call is the
+    // price of the explanation alone.
+    g.bench_function("explain_targeting_10_rules", |b| {
+        b.iter(|| explain(&store.get_flag(black_box("t10")).unwrap(), &ctx, &store))
+    });
+    g.bench_function("explain_percentage_rollout", |b| {
+        b.iter(|| explain(&store.get_flag(black_box("rollout")).unwrap(), &ctx, &store))
     });
     // Depth counts flags in the chain: 2 = a flag with one prerequisite.
     for depth in [2usize, 3, 5] {
