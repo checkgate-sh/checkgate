@@ -22,7 +22,7 @@ Find your stack below — each section lists what's **required**, what's
 | **SPA** — Vite, Vue, React, Svelte, Angular | `@checkgate/web` | `@checkgate/cli` |
 | **React Native** | `@checkgate/react-native` | `@checkgate/cli` |
 | **Flutter** | `checkgate_flutter` | `@checkgate/cli` |
-| **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/cli` |
+| **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/node-integrations`, `@checkgate/cli` |
 | **Edge** — Cloudflare Workers, Vercel Edge, middleware | `@checkgate/edge` + `@checkgate/web` | `@checkgate/cli` |
 
 `@checkgate/cli` is optional everywhere — it's a dev-time tool that generates
@@ -164,6 +164,12 @@ app.get('/', (req, res) => {
 ```
 
 See the [Node.js SDK reference](/sdks/nodejs).
+
+**Optional: `@checkgate/node-integrations`** — middleware for Express, a plugin
+for Fastify and a module for NestJS. Each request gets flags bound to its own
+user (`req.checkgate.isEnabled('new-homepage')`), startup waits for flags with
+a timeout instead of hanging, and shutdown disconnects the client. See
+[Express, Fastify and NestJS](/sdks/node-frameworks).
 
 ---
 
