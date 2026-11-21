@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Flag, ArrowRight, CheckCircle2, Shield, Zap, Globe, Copy, Check, AlertCircle, Eye, EyeOff, Building2, KeyRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import QuickstartSnippets from '../components/QuickstartSnippets'
 
 const STEPS = ['Welcome', 'Workspace', 'Your account', 'SDK key', 'Done'] as const
 
@@ -36,6 +37,7 @@ export default function Setup() {
 
   // Step 3: SDK key
   const [sdkKey, setSdkKey] = useState('')
+  const [keyEnvironment, setKeyEnvironment] = useState('')
   const [keyLoading, setKeyLoading] = useState(false)
   const [keyError, setKeyError] = useState('')
   const [copied, setCopied] = useState(false)
@@ -72,8 +74,9 @@ export default function Setup() {
         setTokenError(`Server returned ${res.status}.`)
         return
       }
-      const data = await res.json() as { key: string }
+      const data = await res.json() as { key: string; environment_name?: string }
       setSdkKey(data.key)
+      setKeyEnvironment(data.environment_name ?? '')
       setStep(1)
     } catch {
       setTokenError('Could not reach the server.')
@@ -90,8 +93,9 @@ export default function Setup() {
     fetchSetupKey(setupToken.trim())
       .then(async res => {
         if (!res.ok) throw new Error(`Server returned ${res.status}`)
-        const data = await res.json() as { key: string }
+        const data = await res.json() as { key: string; environment_name?: string }
         setSdkKey(data.key)
+        setKeyEnvironment(data.environment_name ?? '')
       })
       .catch(() => setKeyError('Could not load the SDK key. Is the server running?'))
       .finally(() => setKeyLoading(false))
@@ -375,7 +379,9 @@ export default function Setup() {
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-1">Your SDK key</h2>
               <p className="text-gray-500 mb-6 text-sm">
-                This key authenticates SDK clients (mobile, web, server).
+                This key connects SDKs to the{' '}
+                <strong className="text-gray-700">{keyEnvironment || 'Development'}</strong> environment of your
+                first project. Create keys for other environments later in project settings.
                 <strong className="text-gray-700"> Save it now — it won't be shown again.</strong>
               </p>
 
@@ -412,6 +418,15 @@ export default function Setup() {
                   </button>
                 </div>
               </div>
+
+              {sdkKey && (
+                <div className="mb-5">
+                  <p className="text-sm font-medium text-gray-700 mb-1.5">
+                    Try it: create a flag called <code className="font-mono">new-checkout</code> after setup, then run
+                  </p>
+                  <QuickstartSnippets sdkKey={sdkKey} />
+                </div>
+              )}
 
               <label className="flex items-start gap-3 cursor-pointer select-none mb-6">
                 <input

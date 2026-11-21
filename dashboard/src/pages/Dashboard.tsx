@@ -4,6 +4,7 @@ import { ToggleLeft, ToggleRight, ListFilter, CalendarClock, Plus, ArrowRight } 
 import { api, scheduledApi } from '../api'
 import type { Flag, ScheduledChange } from '../types'
 import { useEnvironment } from '../context/EnvironmentContext'
+import QuickstartSnippets from '../components/QuickstartSnippets'
 
 interface StatCardProps {
   label: string
@@ -91,14 +92,27 @@ export default function Dashboard() {
         ) : error ? (
           <div className="flex items-center justify-center h-32 text-red-500 text-sm">{error}</div>
         ) : flags.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 gap-3">
-            <p className="text-gray-400 text-sm">No flags yet.</p>
-            <Link
-              to="/flags?new=1"
-              className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" /> Create your first flag
-            </Link>
+          <div className="px-8 py-6 space-y-4" data-testid="get-started">
+            <p className="text-gray-900 font-semibold">Get started in {activeEnv?.name ?? 'this environment'}</p>
+            <ol className="space-y-3 text-sm text-gray-600 list-decimal list-inside">
+              <li>
+                <Link to="/flags?new=1" className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium">
+                  <Plus className="w-3.5 h-3.5" /> Create your first flag
+                </Link>{' '}
+                — call it <code className="font-mono">new-checkout</code> to match the snippet below.
+              </li>
+              <li>
+                Install an SDK and evaluate it. Set <code className="font-mono">CHECKGATE_SDK_KEY</code> to the key
+                from setup (or create one in project settings).
+                <div className="mt-2">
+                  <QuickstartSnippets />
+                </div>
+              </li>
+              <li>
+                Toggle the flag here: connected SDKs pick it up within a second. Check who gets what in the{' '}
+                <Link to="/playground" className="text-brand-600 hover:text-brand-700 font-medium">Playground</Link>.
+              </li>
+            </ol>
           </div>
         ) : (
           <div className="overflow-x-auto">
