@@ -15,6 +15,39 @@ export interface FlagEvaluation {
   value: FlagValue;
 }
 
+/** Why an evaluation resolved as it did (see {@link CheckgateClient.getDetails}). */
+export type EvaluationReason =
+  | 'DISABLED'
+  | 'PREREQUISITE_FAILED'
+  | 'TARGETING_MATCH'
+  | 'ROLLOUT_EXCLUDED'
+  | 'SPLIT'
+  | 'DEFAULT'
+  | 'STATIC';
+
+/** One prerequisite of the evaluated flag, in the order they were checked. */
+export interface PrerequisiteCheck {
+  flagKey: string;
+  outcome: 'satisfied' | 'unsatisfied' | 'not_found' | 'limit_exceeded';
+  /** The value the prerequisite must resolve to; absent means "enabled". */
+  requiredValue?: FlagValue;
+  /** What the prerequisite resolved to; absent when it was not evaluated. */
+  result?: FlagEvaluation;
+}
+
+/** An evaluation plus the path that produced it. */
+export interface EvaluationDetails extends FlagEvaluation {
+  reason: EvaluationReason;
+  /** Index into the flag's `rules` of the rule that matched. */
+  ruleIndex?: number;
+  /** The user's rollout bucket (0–99), when a partial rollout was checked. */
+  rolloutBucket?: number;
+  /** Index into the flag's `variants` of the weighted variant assigned. */
+  variantIndex?: number;
+  /** The flag's own prerequisites as checked (stops at the first failure). */
+  prerequisites?: PrerequisiteCheck[];
+}
+
 export interface CheckgateClientOptions {
   /** Base URL of your Checkgate server. */
   serverUrl: string;
@@ -117,6 +150,14 @@ export declare class CheckgateClient {
   /** Connection health, for detecting stale flags. */
   getStatus(): CheckgateStatus;
 
+  /**
+   * Registers a listener called with {@link getStatus} whenever the connection
+   * state changes, and after each successful poll while in poll fallback.
+   *
+   * @returns an unsubscribe function.
+   */
+  onStatusChange(callback: (status: CheckgateStatus) => void): () => void;
+
   /** Whether the initial bootstrap has completed and flags are ready to evaluate. */
   isReady(): boolean;
 
@@ -175,6 +216,19 @@ export declare class CheckgateClient {
     userAttributes?: Record<string, string>,
     defaultValue?: FlagValue
   ): FlagValue;
+
+  /**
+   * Evaluates a flag and explains the result (reason, matched rule, rollout
+   * bucket, weighted variant, prerequisites). Same local evaluation as
+   * {@link getVariant}; no network IO.
+   *
+   * @returns The details, or `null` if the flag does not exist.
+   */
+  getDetails(
+    flagKey: string,
+    userKey: string,
+    userAttributes?: Record<string, string>
+  ): EvaluationDetails | null;
 
   /**
    * Records a goal/conversion event for A/B testing (e.g. "checkout_complete").

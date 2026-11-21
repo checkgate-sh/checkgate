@@ -125,6 +125,36 @@ missing.
 const color = client.getValue('checkout-button-color', userId, {}, 'blue') // string
 ```
 
+### `client.getDetails(flagKey, userKey, attributes): EvaluationDetails | null`
+
+The same local evaluation as `getVariant()`, plus why it resolved that way. Use it for
+debugging and logging; `isEnabled()` stays the fastest call.
+
+```typescript
+const d = client.getDetails('new-checkout', userId, { plan: 'pro' })
+// { enabled: true, value: true, reason: 'TARGETING_MATCH', ruleIndex: 0 }
+```
+
+| `reason` | Meaning | Extra fields |
+|---|---|---|
+| `DISABLED` | The flag is switched off. | |
+| `PREREQUISITE_FAILED` | A prerequisite flag was not satisfied. | `prerequisites` |
+| `TARGETING_MATCH` | A targeting rule matched. | `ruleIndex` |
+| `ROLLOUT_EXCLUDED` | The user is outside the percentage rollout. | `rolloutBucket` (0–99) when hashed |
+| `SPLIT` | Hashing decided: inside a partial rollout, or a weighted variant. | `rolloutBucket`, `variantIndex` |
+| `DEFAULT` | The flag has rules; none matched. | |
+| `STATIC` | No rules, partial rollout or variants: same value for everyone. | |
+
+`prerequisites` lists the flag's own prerequisites in the order they were checked, each with an
+`outcome` (`satisfied`, `unsatisfied`, `not_found`, `limit_exceeded`) and, when evaluated, its
+`result`. Checking stops at the first failure. Returns `null` if the flag does not exist.
+
+### `client.onStatusChange(callback): () => void`
+
+Calls `callback(client.getStatus())` whenever the connection state changes, and after each
+successful poll while in poll fallback. Returns an unsubscribe function. The
+[OpenFeature provider](./openfeature) uses it to report `STALE` and `READY`.
+
 ### `client.track(eventKey, userKey, opts?): void`
 
 Records a goal/conversion event for [A/B testing](/guide/experimentation#a-b-testing). Buffered
