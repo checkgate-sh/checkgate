@@ -47,6 +47,10 @@ def main() -> None:
     else:
         logging.getLogger("checkgate").setLevel(logging.CRITICAL + 1)
     client: Optional[CheckgateClient] = None
+    # The suite writes UTF-8; Python would otherwise decode the pipe with the
+    # locale encoding (cp1252 on Windows) and garble non-ASCII keys.
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
     for line in sys.stdin:
         if not line.strip():
             continue
