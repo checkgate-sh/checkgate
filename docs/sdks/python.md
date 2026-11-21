@@ -171,10 +171,10 @@ share the directory.
 
 ## Platform support
 
-| Platform | Built | Tested |
+| Platform | Wheel | Test suite runs on it |
 |---|---|---|
-| Linux x86_64 | Yes | Yes (CI, Python 3.11 and 3.13) |
-| Linux aarch64 | Yes | No |
-| macOS arm64 | Yes | Release workflow |
-| macOS x86_64 | Yes | Locally |
-| Windows x86_64 | Yes | Release workflow |
+| Linux x86_64 | Yes | Yes (Python 3.11 and 3.13) |
+| Linux aarch64 | Yes (cross-compiled) | No |
+| macOS arm64 | Yes | Yes |
+| macOS x86_64 | Yes (cross-compiled) | Verified by hand for 0.2.0 |
+| Windows x86_64 | Yes | Yes (fork tests do not apply) |

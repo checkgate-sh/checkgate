@@ -170,13 +170,16 @@ the last known flags instead of defaults (`get_health()["source"] ==
 
 ## Platform support
 
-| Platform | Wheel built in CI | Tests run on it |
+| Platform | Wheel built by | Test suite run by |
 |---|---|---|
-| Linux x86_64 (manylinux) | yes | yes (CI, Python 3.11 and 3.13) |
-| Linux aarch64 (manylinux) | yes (cross) | no |
-| macOS arm64 | yes | yes (release workflow) |
-| macOS x86_64 | yes (cross) | locally only |
-| Windows x86_64 | yes | release workflow; fork tests skipped |
+| Linux x86_64 (manylinux) | release workflow, CI | CI `sdk-python` (Python 3.11 and 3.13), release workflow |
+| Linux aarch64 (manylinux) | release workflow (cross) | nothing yet |
+| macOS arm64 | release workflow | release workflow |
+| macOS x86_64 | release workflow (cross) | by hand (Python 3.11 and 3.13) |
+| Windows x86_64 | release workflow | release workflow (fork tests skip) |
+
+The workflows are new with this SDK: until they have run, only the macOS
+x86_64 wheel has been built and tested.
 
 ## Development
 
