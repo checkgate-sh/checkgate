@@ -6,6 +6,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
 import AuditLog from './pages/AuditLog'
+import Playground from './pages/Playground'
 import Dashboard from './pages/Dashboard'
 import FlagList from './pages/FlagList'
 import Scheduled from './pages/Scheduled'
@@ -106,6 +107,7 @@ export default function App() {
                     <Route path="/exposure" element={<Exposure />} />
                     <Route path="/experiments" element={<Experiments />} />
                     <Route path="/audit" element={<AuditLog />} />
+                    <Route path="/playground" element={<Playground />} />
                     <Route path="/sdk-health" element={<SdkHealth />} />
                     <Route path="/webhooks" element={<Webhooks />} />
                     <Route path="/integrations" element={<Integrations />} />
