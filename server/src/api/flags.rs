@@ -342,6 +342,16 @@ async fn create_flag(
 ) -> Result<Json<FlagWithMetadata>, StatusCode> {
     check_env_access(&state.db, &jar, &env_id).await?;
     let payload = req.flag;
+    // A `propose` token may only add a new flag that serves nothing until a
+    // reviewed change turns it on: never enabled, and no `disabled_value`
+    // (code that already reads this key would otherwise start receiving that
+    // value the moment the flag exists). Rejected rather than silently
+    // rewritten, so the caller knows exactly what was stored.
+    let propose = crate::auth::is_propose_token(&jar);
+    if propose && (payload.is_enabled || payload.disabled_value.is_some()) {
+        warn!(key = %payload.key, "Rejected create_flag: a propose token may only create a disabled flag");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     if !is_valid_flag_key(&payload.key) {
         warn!(key = %payload.key, "Rejected create_flag: invalid key");
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
@@ -370,6 +380,9 @@ async fn create_flag(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let protected = lock_environment(&mut tx, &env_id).await?;
+    // An existing key is never overwritten in a protected environment (that
+    // would bypass approval) nor by a `propose` token (only new flags).
+    let no_overwrite = protected || propose;
     let written = sqlx::query(
         "INSERT INTO flags (key, environment_id, data, tags, owner_email) \
          VALUES ($1, $2::uuid, $3, $4, $5) \
@@ -382,7 +395,7 @@ async fn create_flag(
     .bind(&data)
     .bind(&req.tags)
     .bind(&req.owner_email)
-    .bind(protected)
+    .bind(no_overwrite)
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
@@ -399,6 +412,7 @@ async fn create_flag(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let actor_email = get_session_claims(&jar).map(|c| c.email);
+    let create_meta = propose.then(|| json!({ "via": "propose_token" }));
     super::audit::log_audit_event(
         &state.db,
         &env_id,
@@ -407,7 +421,7 @@ async fn create_flag(
         "CREATE",
         None,
         Some(&data),
-        None,
+        create_meta.as_ref(),
     )
     .await;
 
@@ -752,6 +766,9 @@ pub(crate) async fn emit_patch(
 /// and `202 Accepted` is returned instead of `200 OK`. The patch is validated
 /// (would it produce a valid flag?) before being queued, so approval doesn't
 /// surface a validation error later on someone else's click.
+///
+/// A `propose` token's patch is always queued this way, approval required or
+/// not: such a token never applies a change itself.
 #[instrument(skip(state, jar, patch), fields(flag_key = %path.key))]
 async fn patch_flag(
     State(state): State<AppState>,
@@ -770,7 +787,7 @@ async fn patch_flag(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let require_approval = lock_environment(&mut tx, &path.env_id).await?;
     let actor_email = get_session_claims(&jar).map(|c| c.email);
-    if !require_approval {
+    if !require_approval && !crate::auth::is_propose_token(&jar) {
         let applied = apply_patch_in_tx(&mut tx, &path.env_id, &path.key, patch).await?;
         tx.commit()
             .await

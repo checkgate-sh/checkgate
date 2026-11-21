@@ -407,7 +407,12 @@ export const keysApi = {
   },
 }
 
-export type TokenScope = 'read_only' | 'read_write'
+/**
+ * `propose` (for AI agents and other automation): reads, plus proposing flag
+ * changes that someone else must approve — it can never apply, approve or
+ * reject a change itself.
+ */
+export type TokenScope = 'read_only' | 'propose' | 'read_write'
 
 export interface TokenInfo {
   id: number
