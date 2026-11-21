@@ -1,0 +1,68 @@
+name: Python wheels (native platforms)
+
+# Builds the Python SDK wheel ON each supported platform and runs the test
+# suite against the installed wheel there — native testing, not
+# cross-compilation. The release workflow builds the publishable wheels
+# (manylinux, cross-built where needed) but only on a version tag; this is
+# the evidence that each platform actually works before a release.
+# Runs when the engine or the Python SDK changes, or by hand.
+
+on:
+  pull_request:
+    branches: [main, dev, "feat/**"]
+    paths:
+      - "core/**"
+      - "sdks/python/**"
+      - "sdks/conformance/vectors/**"
+      - ".github/workflows/python-wheels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.platform }} (Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, os: ubuntu-latest, python: "3.11" }
+          - { platform: linux-x86_64, os: ubuntu-latest, python: "3.13" }
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm, python: "3.11" }
+          - { platform: macos-x86_64, os: macos-15-intel, python: "3.11" }
+          - { platform: macos-arm64, os: macos-latest, python: "3.11" }
+          - { platform: macos-arm64, os: macos-latest, python: "3.13" }
+          - { platform: windows-x86_64, os: windows-latest, python: "3.11" }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build the wheel on this platform
+        run: |
+          python -m venv .venv-build
+          if [ -d .venv-build/Scripts ]; then BIN=.venv-build/Scripts; else BIN=.venv-build/bin; fi
+          "$BIN/pip" install "maturin>=1.9.4,<2"
+          "$BIN/maturin" build --release --manifest-path sdks/python/Cargo.toml --out dist-python
+          ls -l dist-python
+
+      - name: Install the wheel in a clean environment and test it
+        run: |
+          python -m venv .venv-test
+          if [ -d .venv-test/Scripts ]; then BIN=.venv-test/Scripts; else BIN=.venv-test/bin; fi
+          "$BIN/pip" install pytest dist-python/*.whl
+          # Run from outside the source tree so the installed wheel is imported.
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/$BIN/python" -c "import checkgate, sys; print(checkgate.__file__, sys.version)"
+          "$GITHUB_WORKSPACE/$BIN/python" -m pytest "$GITHUB_WORKSPACE/sdks/python/tests" -q
