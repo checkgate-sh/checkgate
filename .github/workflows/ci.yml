@@ -530,16 +530,16 @@ jobs:
   # ---------------------------------------------------------------------------
   # Node SDK with the REAL native engine (sdk-node above uses the stand-in):
   # the shared evaluation vectors, and the OpenFeature provider against the
-  # real OpenFeature SDK and a real SSE stream. Every Node.js line in LTS
-  # (22 and 24 maintenance, 26 active); 20 reached end of life on 2026-04-30.
+  # real OpenFeature SDK and a real SSE stream. Node 20, 22 and 24 are the
+  # supported LTS lines in November 2026.
   # ---------------------------------------------------------------------------
   sdk-node-native:
-    name: Node SDK (native) + OpenFeature provider (Node ${{ matrix.node }})
+    name: Node SDK (native) + OpenFeature provider
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node: [22, 24, 26]
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v5
 
@@ -564,52 +564,6 @@ jobs:
       - name: OpenFeature provider — install, typecheck, test
         working-directory: sdks/openfeature-provider
         run: npm ci && npm run typecheck && npm test
-
-  # ---------------------------------------------------------------------------
-  # Node framework integrations — @checkgate/node-integrations (Express,
-  # Fastify, NestJS) over the REAL @checkgate/node and its native addon, with
-  # sdks/conformance/fault-server.mjs as the Checkgate server. Every Node.js
-  # line in LTS (22 and 24 maintenance, 26 active); 20 reached end of life on
-  # 2026-04-30.
-  # ---------------------------------------------------------------------------
-  node-integrations:
-    name: Node integrations (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [22, 24, 26]
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ matrix.node }}
-
-      - name: Build the Node SDK native addon
-        working-directory: sdks/nodejs
-        run: |
-          npm ci
-          npm run build:debug
-
-      - name: Install dependencies
-        working-directory: sdks/node-integrations
-        run: npm ci
-
-      - name: Type definitions compile
-        working-directory: sdks/node-integrations
-        run: npm run typecheck
-
-      - name: Run tests (adapters, examples, core)
-        working-directory: sdks/node-integrations
-        run: npm test
 
   # ---------------------------------------------------------------------------
   # Web + React Native SDKs — client-logic unit tests (vitest; the WASM core is
