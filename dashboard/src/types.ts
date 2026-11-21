@@ -217,6 +217,18 @@ export interface ConnectedClient {
   sdk_key_name: string | null
   client_ip: string
   connected_at: number
+  /** Highest revision this instance has written to the stream (delivered, not necessarily applied). */
+  last_delivered_revision: number | null
+}
+
+/** Server-observed convergence of one environment's streams on this instance. */
+export interface EnvironmentHealth {
+  environment_id: string
+  connections: number
+  latest_revision: number | null
+  /** Streams not yet sent `latest_revision`. */
+  connections_behind: number
+  oldest_connected_at: number | null
 }
 
 export type UserRole = 'admin' | 'editor' | 'viewer'

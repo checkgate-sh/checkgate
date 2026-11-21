@@ -1,6 +1,7 @@
 import type {
   AuditEntry,
   ConnectedClient,
+  EnvironmentHealth,
   EventKeyInfo,
   Experiment,
   ExperimentResults,
@@ -369,6 +370,9 @@ export const scheduledApi = {
 export const healthApi = {
   connections(): Promise<ConnectedClient[]> {
     return request('/api/health/connections')
+  },
+  environments(): Promise<EnvironmentHealth[]> {
+    return request('/api/health/environments')
   },
 }
 

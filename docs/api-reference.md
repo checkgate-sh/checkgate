@@ -2281,7 +2281,34 @@ Visibility follows project membership:
     "environment_id": "a1b2c3d4-…",
     "sdk_key_name": "Production",
     "client_ip": "203.0.113.0/24",
-    "connected_at": 1767225600
+    "connected_at": 1767225600,
+    "last_delivered_revision": 1042
   }
 ]
 ```
+
+`last_delivered_revision` is the highest flag revision this instance has written to the
+stream (`null` until the bootstrap replay was sent). It shows delivery as the server sees it,
+not what the SDK applied; an SDK reports that itself with `getHealth()`.
+
+```http
+GET /api/health/environments
+```
+
+Per environment with open streams on this instance (same visibility rules, counts only):
+
+```json
+[
+  {
+    "environment_id": "a1b2c3d4-…",
+    "connections": 12,
+    "latest_revision": 1042,
+    "connections_behind": 0,
+    "oldest_connected_at": 1767225600
+  }
+]
+```
+
+`latest_revision` is the environment's highest committed flag revision (deletions included).
+`connections_behind` counts streams not yet sent it: briefly non-zero while a change is in
+flight; persistently non-zero means notifications are being lost (see `sync_divergences_total`).
