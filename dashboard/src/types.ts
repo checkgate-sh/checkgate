@@ -217,6 +217,18 @@ export interface ConnectedClient {
   sdk_key_name: string | null
   client_ip: string
   connected_at: number
+  /** Highest revision this instance has written to the stream (delivered, not necessarily applied). */
+  last_delivered_revision: number | null
+}
+
+/** Server-observed convergence of one environment's streams on this instance. */
+export interface EnvironmentHealth {
+  environment_id: string
+  connections: number
+  latest_revision: number | null
+  /** Streams not yet sent `latest_revision`. */
+  connections_behind: number
+  oldest_connected_at: number | null
 }
 
 export type UserRole = 'admin' | 'editor' | 'viewer'
@@ -302,4 +314,51 @@ export interface IntegrationDelivery {
   response_body: string | null
   error: string | null
   delivered_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation playground (POST /api/environments/{env}/flags/{key}/evaluate)
+// ---------------------------------------------------------------------------
+
+export type EvaluationReason =
+  | 'DISABLED'
+  | 'PREREQUISITE_FAILED'
+  | 'TARGETING_MATCH'
+  | 'ROLLOUT_EXCLUDED'
+  | 'SPLIT'
+  | 'DEFAULT'
+  | 'STATIC'
+
+export interface EvaluationResult {
+  enabled: boolean
+  value: FlagValue
+}
+
+export interface PlaygroundPrerequisite {
+  flag_key: string
+  outcome: 'satisfied' | 'unsatisfied' | 'not_found' | 'limit_exceeded'
+  required_value?: FlagValue
+  result?: EvaluationResult
+  revision?: number
+}
+
+export interface PlaygroundEvaluation extends EvaluationResult {
+  environment_id: string
+  flag_key: string
+  flag_type: FlagType
+  /** Revision of the flag configuration evaluated (what SDKs track). */
+  revision: number
+  reason: EvaluationReason
+  matched_rule?: {
+    rule: TargetingRule
+    /** Index of the rule as stored (as the flag editor shows it). */
+    source_index: number
+    segment_key?: string
+    segment_rule_index?: number
+  }
+  rollout?: { percentage: number; bucket: number }
+  variant?: { index: number; weight: number; total_weight: number; value: FlagValue }
+  prerequisites: PlaygroundPrerequisite[]
+  referenced_attributes: string[]
+  missing_attributes: string[]
 }

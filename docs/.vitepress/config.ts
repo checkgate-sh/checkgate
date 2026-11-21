@@ -67,6 +67,7 @@ export default defineConfig({
           { text: "What is Checkgate?", link: "/guide/what-is-checkgate" },
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Dashboard", link: "/guide/dashboard" },
+          { text: "Evaluation playground", link: "/guide/playground" },
           { text: "Architecture", link: "/guide/architecture" },
           { text: "Roadmap", link: "/roadmap" },
         ],
@@ -89,6 +90,7 @@ export default defineConfig({
           { text: "Web (WebAssembly)", link: "/sdks/web" },
           { text: "React Native (JSI)", link: "/sdks/react-native" },
           { text: "Flutter (FFI)", link: "/sdks/flutter" },
+          { text: "OpenFeature (Node.js)", link: "/sdks/openfeature" },
         ],
       },
       {
@@ -110,6 +112,7 @@ export default defineConfig({
           { text: "Deployment & Recovery", link: "/operations/failure-recovery" },
           { text: "Reliability & Sync", link: "/operations/reliability" },
           { text: "Observability", link: "/operations/observability" },
+          { text: "SDK diagnostics", link: "/operations/sdk-diagnostics" },
           {
             text: "Configuration Consistency",
             link: "/operations/configuration-consistency",

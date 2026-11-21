@@ -653,6 +653,55 @@ while the flag is archived.
 
 ---
 
+### Evaluate a Flag (Playground)
+
+```http
+POST /api/environments/{env_id}/flags/{key}/evaluate
+```
+
+Evaluates a flag for a hypothetical user and explains the result, with the SDK engine and the
+configuration SDKs are served (segments expanded). It changes nothing: no audit entry, no
+impression, and the request body is neither logged nor stored. Any project member may call it,
+`read_only` tokens included; SDK keys may not.
+
+```json
+{ "targeting_key": "user-123", "attributes": { "plan": "pro", "seats": 12, "beta": true } }
+```
+
+Attribute values must be strings, numbers or booleans (numbers and booleans are evaluated as
+their string form, as SDKs receive them). Limits: targeting key 512 bytes, 100 attributes,
+names 128 bytes, values 1024 bytes.
+
+**Response** `200 OK`
+
+```json
+{
+  "environment_id": "…", "flag_key": "new-checkout", "flag_type": "boolean",
+  "revision": 1042,
+  "enabled": true, "value": true, "reason": "TARGETING_MATCH",
+  "matched_rule": {
+    "rule": { "attribute": "plan", "operator": "equals", "values": ["pro"] },
+    "source_index": 1, "segment_key": "paying", "segment_rule_index": 0
+  },
+  "prerequisites": [],
+  "referenced_attributes": ["country", "plan"],
+  "missing_attributes": ["country"]
+}
+```
+
+`reason` is one of `DISABLED`, `PREREQUISITE_FAILED`, `TARGETING_MATCH`, `ROLLOUT_EXCLUDED`,
+`SPLIT`, `DEFAULT`, `STATIC`. `matched_rule.source_index` is the rule's index as stored (and shown
+in the dashboard); `segment_key`/`segment_rule_index` say which segment rule matched.
+`rollout` (`{ percentage, bucket }`) and `variant` (`{ index, weight, total_weight, value }`)
+appear when hashing was involved. `prerequisites` lists the flag's own prerequisites as checked
+(`outcome`: `satisfied`, `unsatisfied`, `not_found`, `limit_exceeded`), with each one's
+`result` and `revision`.
+
+**Response** `422 Unprocessable Entity` — invalid body; `{ "error": "…" }` says why.
+**Response** `404 Not Found` — no such flag in this environment.
+
+---
+
 ## Segments
 
 Segments are named, reusable groups of targeting rules scoped to an environment. A flag [targeting rule](#targetingrule-object) can reference a segment by `segment_key` instead of repeating the rules inline; the server expands the reference before flags reach SDK clients. Editing or deleting a segment automatically re-broadcasts every flag that references it. Segment writes return `409 Conflict` in environments that require approval, because they can change the behavior of existing flags. Segment keys follow the same constraints as flag keys (alphanumerics, underscores, hyphens; max 100 chars). Writes require **editor** role or above.
@@ -2232,7 +2281,34 @@ Visibility follows project membership:
     "environment_id": "a1b2c3d4-…",
     "sdk_key_name": "Production",
     "client_ip": "203.0.113.0/24",
-    "connected_at": 1767225600
+    "connected_at": 1767225600,
+    "last_delivered_revision": 1042
   }
 ]
 ```
+
+`last_delivered_revision` is the highest flag revision this instance has written to the
+stream (`null` until the bootstrap replay was sent). It shows delivery as the server sees it,
+not what the SDK applied; an SDK reports that itself with `getHealth()`.
+
+```http
+GET /api/health/environments
+```
+
+Per environment with open streams on this instance (same visibility rules, counts only):
+
+```json
+[
+  {
+    "environment_id": "a1b2c3d4-…",
+    "connections": 12,
+    "latest_revision": 1042,
+    "connections_behind": 0,
+    "oldest_connected_at": 1767225600
+  }
+]
+```
+
+`latest_revision` is the environment's highest committed flag revision (deletions included).
+`connections_behind` counts streams not yet sent it: briefly non-zero while a change is in
+flight; persistently non-zero means notifications are being lost (see `sync_divergences_total`).

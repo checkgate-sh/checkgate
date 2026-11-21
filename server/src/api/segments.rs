@@ -100,6 +100,19 @@ pub(crate) async fn load_env_segments(
     Ok(map)
 }
 
+/// Where one rule of an expanded flag came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct RuleOrigin {
+    /// Index of the rule in the flag as stored (as the dashboard shows it).
+    pub source_index: usize,
+    /// The segment the stored rule references, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_key: Option<String>,
+    /// Index of the rule within that segment's rules.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_rule_index: Option<usize>,
+}
+
 /// Expand any `segment_key` references in a flag's rules to their concrete rules.
 /// Uses the preloaded `segment_map` — no DB calls. Unexpanded segment keys that are
 /// not found in the map are silently dropped (safe: flag falls through to default).
@@ -107,30 +120,68 @@ pub(crate) fn expand_flag_with_segments(
     flag: Flag,
     segment_map: &HashMap<String, Vec<TargetingRule>>,
 ) -> Flag {
+    expand_flag(flag, segment_map, &mut |_| {})
+}
+
+/// [`expand_flag_with_segments`], also returning the origin of every rule of
+/// the expanded flag (same order), so an evaluation's matched rule can be
+/// traced to the stored rule and segment. Same expansion code.
+pub(crate) fn expand_flag_with_origins(
+    flag: Flag,
+    segment_map: &HashMap<String, Vec<TargetingRule>>,
+) -> (Flag, Vec<RuleOrigin>) {
+    let mut origins = Vec::new();
+    let flag = expand_flag(flag, segment_map, &mut |origin| origins.push(origin));
+    (flag, origins)
+}
+
+/// The expansion, reporting each produced rule's origin to `record` (a no-op
+/// closure on the SDK snapshot path, which compiles away).
+fn expand_flag(
+    flag: Flag,
+    segment_map: &HashMap<String, Vec<TargetingRule>>,
+    record: &mut impl FnMut(RuleOrigin),
+) -> Flag {
     if !flag.rules.iter().any(|r| r.segment_key.is_some()) {
+        for source_index in 0..flag.rules.len() {
+            record(RuleOrigin {
+                source_index,
+                segment_key: None,
+                segment_rule_index: None,
+            });
+        }
         return flag;
     }
 
     let mut expanded_rules = Vec::new();
-    for rule in flag.rules {
+    for (source_index, rule) in flag.rules.into_iter().enumerate() {
         if let Some(ref seg_key) = rule.segment_key {
             if let Some(seg_rules) = segment_map.get(seg_key) {
                 // Propagate the segment rule's variant to segment rules that don't
                 // specify their own variant.
-                let expanded = seg_rules.iter().map(|sr| {
-                    if sr.variant.is_none() && rule.variant.is_some() {
+                for (segment_rule_index, sr) in seg_rules.iter().enumerate() {
+                    record(RuleOrigin {
+                        source_index,
+                        segment_key: Some(seg_key.clone()),
+                        segment_rule_index: Some(segment_rule_index),
+                    });
+                    expanded_rules.push(if sr.variant.is_none() && rule.variant.is_some() {
                         TargetingRule {
                             variant: rule.variant.clone(),
                             ..sr.clone()
                         }
                     } else {
                         sr.clone()
-                    }
-                });
-                expanded_rules.extend(expanded);
+                    });
+                }
             }
             // segment_key not found → drop the rule
         } else {
+            record(RuleOrigin {
+                source_index,
+                segment_key: None,
+                segment_rule_index: None,
+            });
             expanded_rules.push(rule);
         }
     }

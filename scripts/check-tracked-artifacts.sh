@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # Directories that are always generated, wherever they appear.
-dirs='node_modules|\.dart_tool|target|coverage|\.gradle|\.cxx|Pods|xcuserdata|__pycache__'
+dirs='node_modules|\.dart_tool|target|coverage|\.gradle|\.cxx|Pods|xcuserdata|__pycache__|\.venv|\.pytest_cache'
 pattern="(^|/)(${dirs})/"
 # Generated outputs at known locations.
 pattern+='|^sdks/flutter/dart/build/|^sdks/react-native/android/build/|^sdks/react-native/rust-core/'
@@ -20,7 +20,7 @@ pattern+='|^docs/\.vitepress/dist/|^server/public/'
 # Test output CI writes at the root (CHECKGATE_TEST_ARTIFACTS, CONFORMANCE_TRACE_DIR).
 pattern+='|^(reliability-artifacts|conformance-traces|artifacts)/'
 # Generated or local-only files.
-pattern+='|\.(node|tsbuildinfo|dill|pyc)$|(^|/)native-binding\.(js|d\.ts)$'
+pattern+='|\.(node|tsbuildinfo|dill|pyc|pyd|whl)$|\.abi3\.so$|(^|/)native-binding\.(js|d\.ts)$'
 pattern+='|(^|/)\.DS_Store$|(^|/)checkgate-setup-token$|(^|/)\.env$'
 # Internal reports and working notes stay local, and the docs/ tree holds
 # only the public VitePress site.

@@ -1,0 +1,1514 @@
+{
+  "about": "Shared evaluation vectors. Inputs are hand-written; `expect` is produced by the Rust core (CHECKGATE_BLESS_VECTORS=1 cargo test -p checkgate-core --test vectors) and checked by every SDK. `expect: null` means the flag does not exist. Attributes are strings only: SDKs differ on non-string values by documented design.",
+  "cases": [
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": true
+      },
+      "flag": "static-on",
+      "name": "static-on/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "DISABLED",
+        "value": false
+      },
+      "flag": "off",
+      "name": "off/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "DISABLED",
+        "value": "off"
+      },
+      "flag": "string-off-custom",
+      "name": "string-off-custom/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "pro"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "rules-plan",
+      "name": "rules-plan/user-1/{\"plan\": \"pro\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "team"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "rules-plan",
+      "name": "rules-plan/user-1/{\"plan\": \"team\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "free"
+      },
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "rules-plan",
+      "name": "rules-plan/user-1/{\"plan\": \"free\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "rules-plan",
+      "name": "rules-plan/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "pro"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "rules-plan-default",
+      "name": "rules-plan-default/user-1/{\"plan\": \"pro\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "free"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "DEFAULT",
+        "value": true
+      },
+      "flag": "rules-plan-default",
+      "name": "rules-plan-default/user-1/{\"plan\": \"free\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "country": "PH"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": "asia"
+      },
+      "flag": "multi-rule",
+      "name": "multi-rule/user-1/{\"country\": \"PH\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "country": "US",
+        "plan": "enterprise"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 1,
+        "value": "enterprise"
+      },
+      "flag": "multi-rule",
+      "name": "multi-rule/user-1/{\"country\": \"US\", \"plan\": \"enterprise\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "country": "SG",
+        "plan": "enterprise"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": "asia"
+      },
+      "flag": "multi-rule",
+      "name": "multi-rule/user-1/{\"country\": \"SG\", \"plan\": \"enterprise\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "country": "US"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "DEFAULT",
+        "value": "standard"
+      },
+      "flag": "multi-rule",
+      "name": "multi-rule/user-1/{\"country\": \"US\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "age": "17"
+      },
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "adults",
+      "name": "adults/user-1/{\"age\": \"17\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "age": "18"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "adults",
+      "name": "adults/user-1/{\"age\": \"18\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "age": "18.0"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "adults",
+      "name": "adults/user-1/{\"age\": \"18.0\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "age": " 30 "
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "adults",
+      "name": "adults/user-1/{\"age\": \" 30 \"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "age": "abc"
+      },
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "adults",
+      "name": "adults/user-1/{\"age\": \"abc\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "adults",
+      "name": "adults/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "score": "10"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "numeric-lt",
+      "name": "numeric-lt/user-1/{\"score\": \"10\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "score": "10.5"
+      },
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "numeric-lt",
+      "name": "numeric-lt/user-1/{\"score\": \"10.5\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "score": "-3"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "numeric-lt",
+      "name": "numeric-lt/user-1/{\"score\": \"-3\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "score": "1e1"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "numeric-lt",
+      "name": "numeric-lt/user-1/{\"score\": \"1e1\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "free"
+      },
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "not-free",
+      "name": "not-free/user-1/{\"plan\": \"free\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "pro"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "not-free",
+      "name": "not-free/user-1/{\"plan\": \"pro\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "not-free",
+      "name": "not-free/missing-attribute-matches",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "email": "a@example.com"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": true
+      },
+      "flag": "contains-ends",
+      "name": "contains-ends/user-1/{\"email\": \"a@example.com\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "ua": "Foo Mobile Safari"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 1,
+        "value": true
+      },
+      "flag": "contains-ends",
+      "name": "contains-ends/user-1/{\"ua\": \"Foo Mobile Safari\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "email": "a@example.org",
+        "ua": "Desktop"
+      },
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "contains-ends",
+      "name": "contains-ends/user-1/{\"email\": \"a@example.org\", \"ua\": \"Desktop\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 54,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 94,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-2/{}",
+      "user": "user-2"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 54,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-3/{}",
+      "user": "user-3"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 16,
+        "value": true
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-4/{}",
+      "user": "user-4"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 77,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-5/{}",
+      "user": "user-5"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 18,
+        "value": true
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-6/{}",
+      "user": "user-6"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 36,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-7/{}",
+      "user": "user-7"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 45,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-8/{}",
+      "user": "user-8"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 16,
+        "value": true
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-9/{}",
+      "user": "user-9"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 96,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-10/{}",
+      "user": "user-10"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 17,
+        "value": true
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-11/{}",
+      "user": "user-11"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 59,
+        "value": false
+      },
+      "flag": "rollout-30",
+      "name": "rollout-30/user-12/{}",
+      "user": "user-12"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "value": false
+      },
+      "flag": "rollout-0",
+      "name": "rollout-0/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": true
+      },
+      "flag": "rollout-100",
+      "name": "rollout-100/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "control",
+        "variant_index": 0
+      },
+      "flag": "weighted",
+      "name": "weighted/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "a",
+        "variant_index": 1
+      },
+      "flag": "weighted",
+      "name": "weighted/user-2/{}",
+      "user": "user-2"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "control",
+        "variant_index": 0
+      },
+      "flag": "weighted",
+      "name": "weighted/user-3/{}",
+      "user": "user-3"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "control",
+        "variant_index": 0
+      },
+      "flag": "weighted",
+      "name": "weighted/user-4/{}",
+      "user": "user-4"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "control",
+        "variant_index": 0
+      },
+      "flag": "weighted",
+      "name": "weighted/user-5/{}",
+      "user": "user-5"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "a",
+        "variant_index": 1
+      },
+      "flag": "weighted",
+      "name": "weighted/user-6/{}",
+      "user": "user-6"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "a",
+        "variant_index": 1
+      },
+      "flag": "weighted",
+      "name": "weighted/user-7/{}",
+      "user": "user-7"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "control",
+        "variant_index": 0
+      },
+      "flag": "weighted",
+      "name": "weighted/user-8/{}",
+      "user": "user-8"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "control",
+        "variant_index": 0
+      },
+      "flag": "weighted",
+      "name": "weighted/user-9/{}",
+      "user": "user-9"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "a",
+        "variant_index": 1
+      },
+      "flag": "weighted",
+      "name": "weighted/user-10/{}",
+      "user": "user-10"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "a",
+        "variant_index": 1
+      },
+      "flag": "weighted",
+      "name": "weighted/user-11/{}",
+      "user": "user-11"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "control",
+        "variant_index": 0
+      },
+      "flag": "weighted",
+      "name": "weighted/user-12/{}",
+      "user": "user-12"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 62,
+        "value": "none"
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "ROLLOUT_EXCLUDED",
+        "rollout_bucket": 54,
+        "value": "none"
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-2/{}",
+      "user": "user-2"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 14,
+        "value": "x",
+        "variant_index": 0
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-3/{}",
+      "user": "user-3"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 27,
+        "value": "y",
+        "variant_index": 1
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-4/{}",
+      "user": "user-4"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 11,
+        "value": "x",
+        "variant_index": 0
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-5/{}",
+      "user": "user-5"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 21,
+        "value": "x",
+        "variant_index": 0
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-6/{}",
+      "user": "user-6"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 29,
+        "value": "x",
+        "variant_index": 0
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-7/{}",
+      "user": "user-7"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 44,
+        "value": "x",
+        "variant_index": 0
+      },
+      "flag": "rollout-weighted",
+      "name": "rollout-weighted/user-8/{}",
+      "user": "user-8"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "value": "first",
+        "variant_index": 0
+      },
+      "flag": "zero-weights",
+      "name": "zero-weights/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "DEFAULT",
+        "value": 42
+      },
+      "flag": "int-flag",
+      "name": "int-flag/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "plan": "pro"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": 100
+      },
+      "flag": "int-flag",
+      "name": "int-flag/user-1/{\"plan\": \"pro\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "DISABLED",
+        "value": 0
+      },
+      "flag": "int-off",
+      "name": "int-off/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "DEFAULT",
+        "value": {
+          "limit": 3,
+          "theme": "dark"
+        }
+      },
+      "flag": "json-flag",
+      "name": "json-flag/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "beta": "yes"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "TARGETING_MATCH",
+        "rule_index": 0,
+        "value": {
+          "limit": 10,
+          "theme": "light"
+        }
+      },
+      "flag": "json-flag",
+      "name": "json-flag/user-1/{\"beta\": \"yes\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": null
+      },
+      "flag": "string-no-default",
+      "name": "string-no-default/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "beta": "yes"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": true
+      },
+      "flag": "needs-base",
+      "name": "needs-base/user-1/{\"beta\": \"yes\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "beta": "no"
+      },
+      "expect": {
+        "enabled": false,
+        "reason": "PREREQUISITE_FAILED",
+        "value": false
+      },
+      "flag": "needs-base",
+      "name": "needs-base/user-1/{\"beta\": \"no\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "PREREQUISITE_FAILED",
+        "value": false
+      },
+      "flag": "needs-off",
+      "name": "needs-off/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": "unlocked"
+      },
+      "flag": "needs-variant",
+      "name": "needs-variant/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "PREREQUISITE_FAILED",
+        "value": "locked"
+      },
+      "flag": "needs-variant",
+      "name": "needs-variant/user-2/{}",
+      "user": "user-2"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": "unlocked"
+      },
+      "flag": "needs-variant",
+      "name": "needs-variant/user-3/{}",
+      "user": "user-3"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": "unlocked"
+      },
+      "flag": "needs-variant",
+      "name": "needs-variant/user-4/{}",
+      "user": "user-4"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": "unlocked"
+      },
+      "flag": "needs-variant",
+      "name": "needs-variant/user-5/{}",
+      "user": "user-5"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "PREREQUISITE_FAILED",
+        "value": "locked"
+      },
+      "flag": "needs-variant",
+      "name": "needs-variant/user-6/{}",
+      "user": "user-6"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "PREREQUISITE_FAILED",
+        "value": false
+      },
+      "flag": "needs-missing",
+      "name": "needs-missing/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {
+        "beta": "yes"
+      },
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": true
+      },
+      "flag": "needs-chain",
+      "name": "needs-chain/user-1/{\"beta\": \"yes\"}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "PREREQUISITE_FAILED",
+        "value": false
+      },
+      "flag": "needs-chain",
+      "name": "needs-chain/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": false,
+        "reason": "PREREQUISITE_FAILED",
+        "value": false
+      },
+      "flag": "cycle-a",
+      "name": "cycle-a/user-1/{}",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": null,
+      "flag": "does-not-exist",
+      "name": "missing-flag",
+      "user": "user-1"
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "STATIC",
+        "value": true
+      },
+      "flag": "static-on",
+      "name": "empty-user-key",
+      "user": ""
+    },
+    {
+      "attributes": {},
+      "expect": {
+        "enabled": true,
+        "reason": "SPLIT",
+        "rollout_bucket": 13,
+        "value": true
+      },
+      "flag": "rollout-30",
+      "name": "unicode-user-key",
+      "user": "ユーザー-ü"
+    }
+  ],
+  "flags": [
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "static-on",
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": false,
+      "key": "off",
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "default_value": "on",
+      "description": null,
+      "disabled_value": "off",
+      "flag_type": "string",
+      "is_enabled": false,
+      "key": "string-off-custom",
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "rules-plan",
+      "rollout_percentage": 0,
+      "rules": [
+        {
+          "attribute": "plan",
+          "operator": "equals",
+          "values": [
+            "pro",
+            "team"
+          ]
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "rules-plan-default",
+      "rollout_percentage": null,
+      "rules": [
+        {
+          "attribute": "plan",
+          "operator": "equals",
+          "values": [
+            "pro"
+          ]
+        }
+      ]
+    },
+    {
+      "default_value": "standard",
+      "description": null,
+      "flag_type": "string",
+      "is_enabled": true,
+      "key": "multi-rule",
+      "rollout_percentage": null,
+      "rules": [
+        {
+          "attribute": "country",
+          "operator": "equals",
+          "values": [
+            "PH",
+            "SG"
+          ],
+          "variant": "asia"
+        },
+        {
+          "attribute": "plan",
+          "operator": "starts_with",
+          "values": [
+            "ent"
+          ],
+          "variant": "enterprise"
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "adults",
+      "rollout_percentage": 0,
+      "rules": [
+        {
+          "attribute": "age",
+          "operator": "greater_than_or_equal",
+          "values": [
+            "18"
+          ]
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "numeric-lt",
+      "rollout_percentage": 0,
+      "rules": [
+        {
+          "attribute": "score",
+          "operator": "less_than",
+          "values": [
+            "10.5"
+          ]
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "not-free",
+      "rollout_percentage": 0,
+      "rules": [
+        {
+          "attribute": "plan",
+          "operator": "not_equals",
+          "values": [
+            "free"
+          ]
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "contains-ends",
+      "rollout_percentage": 0,
+      "rules": [
+        {
+          "attribute": "email",
+          "operator": "ends_with",
+          "values": [
+            "@example.com"
+          ]
+        },
+        {
+          "attribute": "ua",
+          "operator": "contains",
+          "values": [
+            "Mobile"
+          ]
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "rollout-30",
+      "rollout_percentage": 30,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "rollout-0",
+      "rollout_percentage": 0,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "rollout-100",
+      "rollout_percentage": 100,
+      "rules": []
+    },
+    {
+      "default_value": "unused",
+      "description": null,
+      "flag_type": "string",
+      "is_enabled": true,
+      "key": "weighted",
+      "rollout_percentage": null,
+      "rules": [],
+      "variants": [
+        {
+          "value": "control",
+          "weight": 60
+        },
+        {
+          "value": "a",
+          "weight": 30
+        },
+        {
+          "value": "b",
+          "weight": 10
+        }
+      ]
+    },
+    {
+      "description": null,
+      "disabled_value": "none",
+      "flag_type": "string",
+      "is_enabled": true,
+      "key": "rollout-weighted",
+      "rollout_percentage": 50,
+      "rules": [],
+      "variants": [
+        {
+          "value": "x",
+          "weight": 1
+        },
+        {
+          "value": "y",
+          "weight": 1
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "string",
+      "is_enabled": true,
+      "key": "zero-weights",
+      "rollout_percentage": null,
+      "rules": [],
+      "variants": [
+        {
+          "value": "first",
+          "weight": 0
+        },
+        {
+          "value": "second",
+          "weight": 0
+        }
+      ]
+    },
+    {
+      "default_value": 42,
+      "description": null,
+      "disabled_value": 0,
+      "flag_type": "integer",
+      "is_enabled": true,
+      "key": "int-flag",
+      "rollout_percentage": null,
+      "rules": [
+        {
+          "attribute": "plan",
+          "operator": "equals",
+          "values": [
+            "pro"
+          ],
+          "variant": 100
+        }
+      ]
+    },
+    {
+      "default_value": 42,
+      "description": null,
+      "disabled_value": 0,
+      "flag_type": "integer",
+      "is_enabled": false,
+      "key": "int-off",
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "default_value": {
+        "limit": 3,
+        "theme": "dark"
+      },
+      "description": null,
+      "flag_type": "json",
+      "is_enabled": true,
+      "key": "json-flag",
+      "rollout_percentage": null,
+      "rules": [
+        {
+          "attribute": "beta",
+          "operator": "equals",
+          "values": [
+            "yes"
+          ],
+          "variant": {
+            "limit": 10,
+            "theme": "light"
+          }
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "string",
+      "is_enabled": true,
+      "key": "string-no-default",
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "prereq-base",
+      "rollout_percentage": 0,
+      "rules": [
+        {
+          "attribute": "beta",
+          "operator": "equals",
+          "values": [
+            "yes"
+          ]
+        }
+      ]
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "needs-base",
+      "prerequisites": [
+        {
+          "flag_key": "prereq-base"
+        }
+      ],
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "needs-off",
+      "prerequisites": [
+        {
+          "flag_key": "off"
+        }
+      ],
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "default_value": "unlocked",
+      "description": null,
+      "disabled_value": "locked",
+      "flag_type": "string",
+      "is_enabled": true,
+      "key": "needs-variant",
+      "prerequisites": [
+        {
+          "flag_key": "weighted",
+          "required_value": "control"
+        }
+      ],
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "needs-missing",
+      "prerequisites": [
+        {
+          "flag_key": "ghost"
+        }
+      ],
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "needs-chain",
+      "prerequisites": [
+        {
+          "flag_key": "static-on"
+        },
+        {
+          "flag_key": "needs-base"
+        }
+      ],
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "cycle-a",
+      "prerequisites": [
+        {
+          "flag_key": "cycle-b"
+        }
+      ],
+      "rollout_percentage": null,
+      "rules": []
+    },
+    {
+      "description": null,
+      "flag_type": "boolean",
+      "is_enabled": true,
+      "key": "cycle-b",
+      "prerequisites": [
+        {
+          "flag_key": "cycle-a"
+        }
+      ],
+      "rollout_percentage": null,
+      "rules": []
+    }
+  ],
+  "malformed": [
+    {
+      "json": "{\"is_enabled\":true,\"rollout_percentage\":null,\"description\":null}",
+      "note": "must be rejected: never loaded, never evaluated"
+    },
+    {
+      "json": "{\"key\":\"bad-rollout\",\"is_enabled\":true,\"rollout_percentage\":\"50\",\"description\":null}",
+      "note": "must be rejected: never loaded, never evaluated"
+    },
+    {
+      "json": "{\"key\":\"bad-op\",\"is_enabled\":true,\"rollout_percentage\":null,\"description\":null,\"rules\":[{\"attribute\":\"a\",\"operator\":\"regex\",\"values\":[\"x\"]}]}",
+      "note": "must be rejected: never loaded, never evaluated"
+    },
+    {
+      "json": "{\"key\":\"bad-type\",\"is_enabled\":true,\"rollout_percentage\":null,\"description\":null,\"flag_type\":\"float\"}",
+      "note": "must be rejected: never loaded, never evaluated"
+    },
+    {
+      "json": "{\"key\":\"neg-weight\",\"is_enabled\":true,\"rollout_percentage\":null,\"description\":null,\"variants\":[{\"weight\":-1,\"value\":\"a\"}]}",
+      "note": "must be rejected: never loaded, never evaluated"
+    },
+    {
+      "json": "not json",
+      "note": "must be rejected: never loaded, never evaluated"
+    }
+  ],
+  "schema": 1
+}

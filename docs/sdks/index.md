@@ -7,7 +7,7 @@ description: "Pick the right Checkgate packages for your stack. Required and opt
 
 Every Checkgate SDK wraps the **same shared Rust evaluation core**, so a flag
 resolves identically on a server, in a browser, and on a phone. What differs is
-only *how the core is embedded* (NAPI, WebAssembly, JSI, FFI) and *where the flag
+only *how the core is embedded* (NAPI, WebAssembly, JSI, FFI, PyO3) and *where the flag
 snapshot comes from*.
 
 Find your stack below — each section lists what's **required**, what's
@@ -22,7 +22,8 @@ Find your stack below — each section lists what's **required**, what's
 | **SPA** — Vite, Vue, React, Svelte, Angular | `@checkgate/web` | `@checkgate/cli` |
 | **React Native** | `@checkgate/react-native` | `@checkgate/cli` |
 | **Flutter** | `checkgate_flutter` | `@checkgate/cli` |
-| **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/node-integrations`, `@checkgate/cli` |
+| **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/cli` |
+| **Python server** — FastAPI, Django, Flask | `checkgate` (PyPI) | — |
 | **Edge** — Cloudflare Workers, Vercel Edge, middleware | `@checkgate/edge` + `@checkgate/web` | `@checkgate/cli` |
 
 `@checkgate/cli` is optional everywhere — it's a dev-time tool that generates
@@ -135,6 +136,19 @@ iOS simulator for 0.1.31). Note this is a pub.dev package — the `@checkgate/*`
 npm packages are not involved.
 
 See the [Flutter SDK reference](/sdks/flutter).
+
+### Python
+
+```bash
+pip install checkgate
+```
+
+**One package** from PyPI: the Python client with the same Rust core compiled
+in through PyO3 (abi3 wheels for CPython 3.11+). Evaluation is synchronous and
+thread-safe; syncing runs on a background thread, so it works the same under
+WSGI and ASGI servers. Create one client per worker process.
+
+See the [Python SDK reference](/sdks/python).
 
 ---
 
