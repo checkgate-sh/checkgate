@@ -286,7 +286,8 @@ pub async fn reject_change_request(
 
 /// DELETE /api/environments/:env_id/change-requests/:id — withdraw your own
 /// pending request. Admins may cancel anyone's (incident-response override,
-/// mirroring how workspace admins bypass project membership elsewhere).
+/// mirroring how workspace admins bypass project membership elsewhere) — but
+/// not through a `propose` token, which only ever withdraws its owner's own.
 pub async fn cancel_change_request(
     State(state): State<AppState>,
     jar: AuthContext,
@@ -294,7 +295,8 @@ pub async fn cancel_change_request(
 ) -> Result<StatusCode, StatusCode> {
     super::flags::check_env_access(&state.db, &jar, &env_id).await?;
     let claims = get_session_claims(&jar);
-    let is_admin = claims.as_ref().is_some_and(|c| c.role == "admin");
+    let is_admin =
+        claims.as_ref().is_some_and(|c| c.role == "admin") && !crate::auth::is_propose_token(&jar);
     let caller_email = claims.map(|c| c.email);
 
     let Some(caller_email) = caller_email else {

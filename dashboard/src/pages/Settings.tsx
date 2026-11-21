@@ -58,7 +58,16 @@ function CodeBlock({ code }: { code: string }) {
 // Personal access tokens
 // ---------------------------------------------------------------------------
 
-function PersonalAccessTokensSection() {
+export function scopeLabel(scope: TokenScope): string {
+  switch (scope) {
+    case 'read_only': return 'read-only'
+    case 'propose': return 'propose-only'
+    case 'read_write': return 'read-write'
+    default: return String(scope)
+  }
+}
+
+export function PersonalAccessTokensSection() {
   const [tokens, setTokens] = useState<TokenInfo[]>([])
   const [loadError, setLoadError] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -149,7 +158,7 @@ function PersonalAccessTokensSection() {
             <div className="min-w-0">
               <p className="text-gray-900 text-sm font-medium truncate">{t.name}</p>
               <p className="text-gray-500 text-xs font-mono">
-                {t.prefix} · {t.scope === 'read_only' ? 'read-only' : 'read-write'}
+                {t.prefix} · {scopeLabel(t.scope)}
                 {t.expires_at ? ` · expires ${new Date(t.expires_at).toLocaleDateString()}` : ' · never expires'}
               </p>
             </div>
@@ -187,6 +196,7 @@ function PersonalAccessTokensSection() {
               className="flex-1 bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500/30 transition-all shadow-premium"
             >
               <option value="read_only">Read-only</option>
+              <option value="propose">Propose (agents)</option>
               <option value="read_write">Read-write</option>
             </select>
             <select
@@ -200,6 +210,11 @@ function PersonalAccessTokensSection() {
               <option value="">Never expires</option>
             </select>
           </div>
+          {newScope === 'propose' && (
+            <p className="text-gray-500 text-xs">
+              For AI agents: can read, and propose flag changes that someone else must approve — never apply, approve or reject them.
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => void handleCreate()}
