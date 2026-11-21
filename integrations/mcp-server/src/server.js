@@ -4,9 +4,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { createClient } from './client.js'
 import { createContext, guarded, toolDefinitions } from './tools.js'
+import { VERSION } from './version.js'
 
 export const SERVER_NAME = 'checkgate'
-export const SERVER_VERSION = '0.2.0'
+export const SERVER_VERSION = VERSION
 
 const INSTRUCTIONS =
   'Checkgate feature-flag tools. Reads are safe. Changes are PROPOSALS: Checkgate queues them as change requests ' +

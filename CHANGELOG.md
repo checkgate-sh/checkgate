@@ -17,10 +17,14 @@ adds a network request per evaluation.
 - **One database migration** (`20261121000029_pat_propose_scope`): it widens
   the personal-access-token scope check to allow `propose`. It is additive and
   applies on start. **A 0.1.31 binary will not start against a database that
-  has it** (the migrator reports an applied migration it does not know). To
-  roll back the binary, restore the database from before the upgrade, or
-  delete that version's row from `_sqlx_migrations` after revoking every
-  `propose` token.
+  has it** (the migrator reports an applied migration it does not know), so
+  there is no rolling mixed-version upgrade: replace all instances.
+- **Create no `propose` tokens while any 0.1.31 instance is still serving**:
+  0.1.31 does not know the scope and would let such a token create a
+  `read_write` token.
+- **Rollback:** stop 0.2.0, delete every `propose` token, delete the
+  migration's row from `_sqlx_migrations`, start 0.1.31 (tested). Details:
+  docs/operations/upgrading-to-0-2-0.md.
 - No configuration change is required. The SDK protocol (`/stream`,
   `/flags/snapshot`) is unchanged, so 0.1.31 SDKs work with a 0.2.0 server and
   0.2.0 SDKs with a 0.1.31 server; the new server endpoints are additive.
@@ -65,8 +69,13 @@ adds a network request per evaluation.
 - Node.js SDK: on a stream's `ready` the client now marks itself ready before
   switching to `streaming`, so status listeners see `isReady()` on a first
   connection.
-- CI tests Node.js 22, 24 and 26 for the new packages (Node.js 20 reached end
-  of life on 2026-04-30).
+- CI tests the Node.js SDK's native build, the OpenFeature provider and the
+  framework integrations on Node.js 22, 24 and 26 (Node.js 20 reached end of
+  life on 2026-04-30); the MCP server on 22.
+- Packages not yet on a registry: the Python package (`checkgate` on PyPI) has
+  no publish job yet; `@checkgate/openfeature-provider`,
+  `@checkgate/node-integrations` and `@checkgate/mcp-server` publish with the
+  release (packaging checked in the release workflow).
 
 ## [0.1.31] - 2026-11-21
 

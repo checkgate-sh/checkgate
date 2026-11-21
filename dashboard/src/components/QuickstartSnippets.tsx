@@ -12,7 +12,7 @@ export function quickstartSnippet(lang: Lang, serverUrl: string, flagKey: string
   const key = sdkKey ? `'${sdkKey}'` : null
   if (lang === 'python') {
     return [
-      '# pip install checkgate',
+      '# pip install checkgate   (not on PyPI yet: build sdks/python from the repository)',
       'import os',
       'from checkgate import CheckgateClient',
       '',

@@ -64,6 +64,29 @@ jobs:
         working-directory: ssr
         run: node --test
 
+      # Packages added in 0.2.0. Their tests run in CI (they need the native
+      # addon or a server); here: the MCP server's own tests, and that every
+      # package packs the files its manifest points at (an ignored bin/
+      # once kept the MCP executable out of the repository).
+      - name: MCP server — tests
+        working-directory: integrations/mcp-server
+        run: npm ci --ignore-scripts && npm test
+
+      - name: New packages — packaging integrity
+        run: |
+          set -euo pipefail
+          check() {
+            dir="$1"; shift
+            out="$(cd "$dir" && npm pack --dry-run --json 2>/dev/null)"
+            for f in "$@"; do
+              echo "$out" | grep -q "\"path\": \"$f\"" || { echo "Error: $dir does not pack $f"; exit 1; }
+            done
+            echo "$dir packs: $*"
+          }
+          check sdks/openfeature-provider src/index.js src/index.d.ts README.md
+          check sdks/node-integrations src/express.js src/fastify.js src/nestjs.js
+          check integrations/mcp-server bin/checkgate-mcp.js src/index.js README.md
+
       - name: React Native — packaging integrity
         working-directory: sdks/react-native
         run: |
@@ -579,6 +602,87 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  publish-openfeature:
+    name: Publish — @checkgate/openfeature-provider
+    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Set version from tag
+        working-directory: sdks/openfeature-provider
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish @checkgate/openfeature-provider
+        working-directory: sdks/openfeature-provider
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-node-integrations:
+    name: Publish — @checkgate/node-integrations
+    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Set version from tag
+        working-directory: sdks/node-integrations
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish @checkgate/node-integrations
+        working-directory: sdks/node-integrations
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-mcp-server:
+    name: Publish — @checkgate/mcp-server
+    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Set version from tag
+        working-directory: integrations/mcp-server
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish @checkgate/mcp-server
+        working-directory: integrations/mcp-server
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   publish-react-native:
     name: Publish — @checkgate/react-native
     needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
@@ -715,6 +819,9 @@ jobs:
       - publish-cli
       - publish-edge
       - publish-ssr
+      - publish-openfeature
+      - publish-node-integrations
+      - publish-mcp-server
       - publish-react-native
       - publish-flutter
       - publish-docker
