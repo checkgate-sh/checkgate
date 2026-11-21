@@ -42,14 +42,18 @@ COPY sdks/nodejs/Cargo.toml sdks/nodejs/Cargo.toml
 COPY sdks/web/Cargo.toml sdks/web/Cargo.toml
 COPY sdks/flutter/dart/rust/Cargo.toml sdks/flutter/dart/rust/Cargo.toml
 COPY sdks/react-native/Cargo.toml sdks/react-native/Cargo.toml
+# Every workspace member's manifest must be present for cargo to load the
+# workspace, even though only the server is built here.
+COPY sdks/python/Cargo.toml sdks/python/Cargo.toml
 
-RUN mkdir -p core/src server/src sdks/nodejs/src sdks/web/src sdks/flutter/dart/rust/src sdks/react-native/src && \
+RUN mkdir -p core/src server/src sdks/nodejs/src sdks/web/src sdks/flutter/dart/rust/src sdks/react-native/src sdks/python/src && \
     echo "fn main(){}" > server/src/main.rs && \
     echo "" > core/src/lib.rs && \
     echo "" > sdks/nodejs/src/lib.rs && \
     echo "" > sdks/web/src/lib.rs && \
     echo "" > sdks/flutter/dart/rust/src/lib.rs && \
-    echo "" > sdks/react-native/src/lib.rs
+    echo "" > sdks/react-native/src/lib.rs && \
+    echo "" > sdks/python/src/lib.rs
 
 RUN cargo build --release -p server 2>/dev/null || true
 
