@@ -37,6 +37,10 @@ pub struct ConnectedClient {
     pub client_ip: std::net::IpAddr,
     /// Unix timestamp (seconds) when the connection was established.
     pub connected_at: i64,
+    /// Highest flag revision this server has written to the stream (the
+    /// bootstrap replay, then each change event); -1 before the replay was
+    /// sent. Delivery as the server sees it — not proof the SDK applied it.
+    pub last_delivered_revision: Arc<std::sync::atomic::AtomicI64>,
 }
 
 #[derive(Clone)]

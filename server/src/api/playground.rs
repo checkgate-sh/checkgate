@@ -194,6 +194,35 @@ async fn evaluate_flag(
     Path(path): Path<EvaluatePath>,
     body: Result<Json<EvaluateRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Response, StatusCode> {
+    use crate::metrics::PlaygroundOutcome;
+    let metrics = std::sync::Arc::clone(&state.metrics);
+    let result = evaluate(state, jar, path, body).await;
+    let status = match &result {
+        Ok(response) => response.status(),
+        Err(status) => *status,
+    };
+    let outcome = match status {
+        StatusCode::OK => Some(PlaygroundOutcome::ok),
+        StatusCode::NOT_FOUND => Some(PlaygroundOutcome::not_found),
+        StatusCode::UNPROCESSABLE_ENTITY | StatusCode::PAYLOAD_TOO_LARGE => {
+            Some(PlaygroundOutcome::invalid)
+        }
+        s if s.is_server_error() => Some(PlaygroundOutcome::error),
+        // Refused before evaluating (401/403): not playground usage.
+        _ => None,
+    };
+    if let Some(outcome) = outcome {
+        metrics.playground(outcome);
+    }
+    result
+}
+
+async fn evaluate(
+    state: AppState,
+    jar: AuthContext,
+    path: EvaluatePath,
+    body: Result<Json<EvaluateRequest>, axum::extract::rejection::JsonRejection>,
+) -> Result<Response, StatusCode> {
     check_env_access(&state.db, &jar, &path.env_id).await?;
     if !super::flags::is_valid_flag_key(&path.key) {
         return Err(StatusCode::NOT_FOUND);
