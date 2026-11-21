@@ -10,7 +10,11 @@
 //                  same Rust engine compiled to WASM (JSI exists only on a device)
 // - flutter:       checkgate_flutter's Dart client and SSE loop, Rust engine via
 //                  FFI from a host build (CHECKGATE_FLUTTER_LIB)
+// - python:        the checkgate package's client and its http.client SSE loop,
+//                  Rust engine via the PyO3 extension module (an installed build:
+//                  `maturin develop` into the interpreter named by PYTHON)
 
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
@@ -168,9 +172,75 @@ export function flutterAdapter() {
     };
 }
 
+/**
+ * The Python interpreter that has the `checkgate` package installed: $PYTHON,
+ * else sdks/python/.venv (where `maturin develop` installs it), else python3.
+ */
+function pythonInterpreter() {
+    if (process.env.PYTHON) return process.env.PYTHON;
+    const venv = here(process.platform === 'win32' ? '../python/.venv/Scripts/python.exe' : '../python/.venv/bin/python');
+    return fs.existsSync(venv) ? venv : 'python3';
+}
+
+/** The Python client, one adapter process per client (sdks/python/tool/conformance_adapter.py). */
+export function pythonAdapter() {
+    const python = pythonInterpreter();
+    const script = here('../python/tool/conformance_adapter.py');
+    const start = () => {
+        // -I: isolated mode, so only the installed package is imported (never
+        // a checkgate/ directory that happens to be on the working path).
+        const proc = spawn(python, ['-I', script], { stdio: ['pipe', 'pipe', 'inherit'] });
+        const waiting = new Map();
+        let next = 1;
+        readline.createInterface({ input: proc.stdout }).on('line', (line) => {
+            let msg;
+            try { msg = JSON.parse(line); } catch { return; }
+            const w = waiting.get(msg.id);
+            if (w) { waiting.delete(msg.id); w(msg); }
+        });
+        const call = (cmd, extra = {}) => new Promise((resolve) => {
+            const id = next++;
+            waiting.set(id, resolve);
+            proc.stdin.write(JSON.stringify({ id, cmd, ...extra }) + '\n');
+        });
+        return { proc, call };
+    };
+    return {
+        name: 'python',
+        engine: 'Rust via PyO3',
+        async create(url, key, timing) {
+            const a = start();
+            await a.call('create', { url, key, timing });
+            return a;
+        },
+        async connect(a) {
+            const r = await a.call('connect');
+            if (!r.ok) {
+                const err = new Error(r.error);
+                if (/^CheckgateAuthError/.test(r.error)) err.name = 'CheckgateAuthError';
+                throw err;
+            }
+        },
+        async flags(a) { return new Map(Object.entries((await a.call('flags')).flags)); },
+        async evaluate(a, key, user, attrs = {}) { return (await a.call('evaluate', { key, user, attrs })).value; },
+        async value(a, key, user) { return (await a.call('value', { key, user })).value; },
+        async status(a) { return { state: (await a.call('status')).state }; },
+        async sample(a, users) {
+            const r = await a.call('sample', { users });
+            return { flags: new Map(Object.entries(r.flags)), evals: new Map(Object.entries(r.evals)) };
+        },
+        async close(a) {
+            await a.call('close');
+            await a.call('exit');
+            a.proc.kill();
+        },
+    };
+}
+
 export const ADAPTERS = {
     node: nodeAdapter,
     web: webAdapter,
     'react-native': reactNativeAdapter,
     flutter: async () => flutterAdapter(),
+    python: async () => pythonAdapter(),
 };

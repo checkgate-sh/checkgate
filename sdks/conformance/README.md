@@ -9,12 +9,15 @@ real client code and its real transport, checking the same invariants.
 | Web | `eventsource`, made to hide HTTP status like a browser | stand-in (WASM is stubbed in vitest) | `sdks/web/test/faults.test.js` |
 | React Native | `react-native-sse` (the polyfill the README requires) over a streaming XHR like React Native's | stand-in (JSI is device-only) | `sdks/react-native/test/faults.test.js` |
 | Flutter | the SDK's own `package:http` loop and SSE parser | real Rust engine with `CHECKGATE_FLUTTER_LIB` | `flutter.mjs` (drives `sdks/flutter/dart/tool/conformance_adapter.dart`) |
+| Python | the SDK's own `http.client` loop and SSE parser | real Rust engine (PyO3 extension module) | `python.mjs` (drives `sdks/python/tool/conformance_adapter.py`) |
 
 The stand-in engine (`fake-core.mjs`) is deterministic and evaluates enough
 (enabled, rollout, one attribute rule) for the flapping check to bite. Engine
 semantics themselves are tested in `core/` and by the live end-to-end suites.
 
 None of this is a device test: React Native and Flutter run on the host.
+The Flutter and Python clients run in a child process (one per scenario) that
+speaks JSON lines with the runner.
 
 ## What is checked
 
@@ -54,6 +57,8 @@ reaches `auth_failed`, makes no further requests, and recovers on `connect()`.
 (cd sdks/react-native && npx vitest run test/faults.test.js)
 (cd sdks/flutter/dart && flutter pub get) && cargo build -p flutter && \
   CHECKGATE_FLUTTER_LIB=$PWD/target/debug/libflutter.dylib node --test sdks/conformance/flutter.mjs
+(cd sdks/python && maturin develop --release) && \
+  node --test --test-concurrency=1 sdks/conformance/python.mjs   # PYTHON=… to pick the interpreter
 
 # Extended tier: any seed range (nightly in .github/workflows/reliability.yml)
 CONFORMANCE_SEEDS=1-500 CONFORMANCE_TRACE_DIR=/tmp/traces CONFORMANCE_REPORT=/tmp/results.jsonl \
