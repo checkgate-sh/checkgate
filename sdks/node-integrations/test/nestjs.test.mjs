@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url)
 require('reflect-metadata')
 const { Controller, Get, Inject, Injectable, Module, UseGuards } = require('@nestjs/common')
 const { Test } = require('@nestjs/testing')
+const { FastifyAdapter } = require('@nestjs/platform-fastify')
 const {
     CHECKGATE_CLIENT, Checkgate, CheckgateModule, CheckgateService, RequireFlag, createTestClient,
 } = require('@checkgate/node-integrations/nestjs')
@@ -60,8 +61,12 @@ Checkgate()(GatedController.prototype, 'open', 0)
 
 const userContext = (req) => (req.user ? { key: req.user.id, attributes: { plan: req.user.plan, beta: req.user.beta } } : null)
 
-async function listen(moduleRef) {
-    const app = moduleRef.createNestApplication({ logger: false })
+// Nest's default HTTP platform is Express; 'fastify' runs the same app on
+// @nestjs/platform-fastify, where the request is a FastifyRequest.
+async function listen(moduleRef, platform = 'express') {
+    const app = platform === 'fastify'
+        ? moduleRef.createNestApplication(new FastifyAdapter(), { logger: false })
+        : moduleRef.createNestApplication({ logger: false })
     try {
         await app.listen(0, '127.0.0.1')
     } catch (err) {
@@ -71,26 +76,28 @@ async function listen(moduleRef) {
     return { app, url: `http://127.0.0.1:${app.getHttpServer().address().port}` }
 }
 
-frameworkSuite('nestjs', {
-    async start({ client, readyTimeoutMs, onTimeout }) {
-        const moduleRef = await Test.createTestingModule({
-            imports: [CheckgateModule.forRoot({
-                client, readyTimeoutMs, onTimeout, logger: quietLogger, context: (req) => contextFromHeaders(req.headers),
-            })],
-            controllers: [CheckController],
-        }).compile()
-        const { app, url } = await listen(moduleRef)
-        return { url, close: () => app.close() }
-    },
-})
+for (const platform of ['express', 'fastify']) {
+    frameworkSuite(platform === 'express' ? 'nestjs' : 'nestjs/fastify-platform', {
+        async start({ client, readyTimeoutMs, onTimeout }) {
+            const moduleRef = await Test.createTestingModule({
+                imports: [CheckgateModule.forRoot({
+                    client, readyTimeoutMs, onTimeout, logger: quietLogger, context: (req) => contextFromHeaders(req.headers),
+                })],
+                controllers: [CheckController],
+            }).compile()
+            const { app, url } = await listen(moduleRef, platform)
+            return { url, close: () => app.close() }
+        },
+    })
+}
 
-test('[nestjs] RequireFlag: 404 / 403 when off, passes when on, all flags must pass', async () => {
+for (const platform of ['express', 'fastify']) test(`[nestjs/${platform}] RequireFlag: 404 / 403 when off, passes when on, all flags must pass`, async () => {
     const fake = await startFake()
     const moduleRef = await Test.createTestingModule({
         imports: [CheckgateModule.forRoot({ client: makeClient(fake.url), context: userContext, logger: quietLogger })],
         controllers: [GatedController],
     }).compile()
-    const { app, url } = await listen(moduleRef)
+    const { app, url } = await listen(moduleRef, platform)
     try {
         const pro = { 'x-user': 'p', 'x-plan': 'pro' }
         const proBeta = { ...pro, 'x-beta': '1' }
