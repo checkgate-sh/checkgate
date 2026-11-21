@@ -1,0 +1,92 @@
+{
+  "name": "@checkgate/node-integrations",
+  "version": "0.2.0",
+  "description": "Express, Fastify and NestJS integrations for @checkgate/node: request-bound flag evaluation and startup/shutdown lifecycle.",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./express": {
+      "types": "./src/express.d.ts",
+      "default": "./src/express.js"
+    },
+    "./fastify": {
+      "types": "./src/fastify.d.ts",
+      "default": "./src/fastify.js"
+    },
+    "./nestjs": {
+      "types": "./src/nestjs.d.ts",
+      "default": "./src/nestjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/checkgate-sh/checkgate.git",
+    "directory": "sdks/node-integrations"
+  },
+  "homepage": "https://checkgate-sh.github.io/checkgate/sdks/node-frameworks",
+  "bugs": {
+    "url": "https://github.com/checkgate-sh/checkgate/issues"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "feature-flags",
+    "checkgate",
+    "express",
+    "fastify",
+    "nestjs"
+  ],
+  "files": [
+    "src/*.js",
+    "src/*.d.ts"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/",
+    "typecheck": "tsc -p test/types/tsconfig.json"
+  },
+  "dependencies": {
+    "fastify-plugin": "^5.0.0 || ^6.0.0"
+  },
+  "peerDependencies": {
+    "@checkgate/node": ">=0.1.31 <0.3.0",
+    "@nestjs/common": "^12.0.0",
+    "@nestjs/core": "^12.0.0",
+    "express": "^5.0.0",
+    "fastify": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": {
+      "optional": true
+    },
+    "@nestjs/core": {
+      "optional": true
+    },
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@checkgate/node": "file:../nodejs",
+    "@nestjs/common": "^12.6.0",
+    "@nestjs/core": "^12.6.0",
+    "@nestjs/platform-express": "^12.6.0",
+    "@nestjs/testing": "^12.6.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "express": "^5.3.0",
+    "fastify": "^5.12.8",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "typescript": "^5.9.3"
+  }
+}
