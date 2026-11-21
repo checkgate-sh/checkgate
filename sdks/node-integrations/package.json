@@ -48,7 +48,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/",
+    "test": "node --test --test-concurrency=1 \"test/*.test.mjs\"",
     "typecheck": "tsc -p test/types/tsconfig.json"
   },
   "dependencies": {
