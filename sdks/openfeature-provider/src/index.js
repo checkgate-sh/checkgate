@@ -130,11 +130,29 @@ class CheckgateProvider {
                     // A rejected key does not become valid by waiting: FATAL.
                     throw new ProviderFatalError(err.message);
                 }
+                if (this._servesOfflineCache()) {
+                    // Timed out, but the last persisted flag set is loaded:
+                    // valid (if possibly old) answers, so READY then STALE
+                    // until the server is reached.
+                    this._initialized = true;
+                    this._announced = 'ready';
+                    // After OpenFeature has applied READY from this resolution.
+                    const t = setTimeout(() => this._onStatus(this.client.getStatus()), 0);
+                    if (t.unref) t.unref();
+                    return;
+                }
                 throw new GeneralError(err && err.message ? err.message : String(err));
             }
         }
         this._initialized = true;
         this._announced = 'ready';
+    }
+
+    /** The client answers from flags hydrated from its offline cache. */
+    _servesOfflineCache() {
+        if (typeof this.client.getHealth !== 'function') return false;
+        const health = this.client.getHealth();
+        return health.source === 'offline_cache' && health.flagCount > 0;
     }
 
     _connect() {

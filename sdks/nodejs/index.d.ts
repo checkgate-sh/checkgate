@@ -118,6 +118,45 @@ export interface CheckgateStatus {
 }
 
 /**
+ * SDK diagnostics, schema 1 — the same fields in every Checkgate SDK (Python
+ * uses snake_case). Local state only; never the SDK key, user keys or
+ * attributes. Timestamps are milliseconds since the epoch.
+ */
+export interface CheckgateHealth {
+  schemaVersion: 1;
+  state: CheckgateConnectionState;
+  /** A complete flag set from the server has been applied since connect(). */
+  ready: boolean;
+  /** Where the served flags came from. */
+  source: 'none' | 'offline_cache' | 'server';
+  flagCount: number;
+  /** Last confirmation that the flags are current (as in getStatus()). */
+  lastSyncAt: number | null;
+  /** Milliseconds since lastSyncAt; `null` before the first sync. */
+  configAgeMs: number | null;
+  /** Highest flag revision seen in any event or snapshot, applied or not. */
+  lastReceivedRevision: number | null;
+  /** Highest revision in the flags currently held. */
+  lastAppliedRevision: number | null;
+  /** Events and snapshot entries rejected as not newer than what was held. */
+  staleEventsIgnored: number;
+  /** Consecutive failed attempts since the last successful connection. */
+  reconnectAttempts: number;
+  /** Reconnects scheduled since the client was created. */
+  reconnectCount: number;
+  /** Poll fallback active. */
+  polling: boolean;
+  /** Last successful poll, or `null`. */
+  lastPollAt: number | null;
+  /**
+   * The most recent synchronization error. Not cleared by later success:
+   * compare `at` with `lastSyncAt`.
+   */
+  lastError: { message: string; kind: 'auth' | 'network' | 'http' | 'parse' | 'timeout'; at: number } | null;
+  offlineCache: { configured: boolean; hydrated: boolean; lastPersistAt: number | null };
+}
+
+/**
  * The server rejected the SDK key (HTTP 401 or 403). The client stops
  * retrying and keeps serving the flags it already has; call `connect()` again
  * to retry.
@@ -149,6 +188,9 @@ export declare class CheckgateClient {
 
   /** Connection health, for detecting stale flags. */
   getStatus(): CheckgateStatus;
+
+  /** Detailed diagnostics (schema 1) for health checks and dashboards; no network IO. */
+  getHealth(): CheckgateHealth;
 
   /**
    * Registers a listener called with {@link getStatus} whenever the connection

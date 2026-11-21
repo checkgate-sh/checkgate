@@ -110,6 +110,7 @@ export default defineConfig({
           { text: "Deployment & Recovery", link: "/operations/failure-recovery" },
           { text: "Reliability & Sync", link: "/operations/reliability" },
           { text: "Observability", link: "/operations/observability" },
+          { text: "SDK diagnostics", link: "/operations/sdk-diagnostics" },
           {
             text: "Configuration Consistency",
             link: "/operations/configuration-consistency",
