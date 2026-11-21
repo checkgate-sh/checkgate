@@ -46,8 +46,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      # The toolchain rust-toolchain.toml pins, as release.yml installs it:
+      # installing `stable` first and letting cargo fetch the pin conflicts on
+      # Windows runners (clippy's cargo-clippy.exe already present).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup show
 
       - name: Build the wheel on this platform
         run: |
