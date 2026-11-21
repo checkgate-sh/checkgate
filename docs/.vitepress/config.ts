@@ -99,6 +99,7 @@ export default defineConfig({
           { text: "SSR / Bootstrap", link: "/ecosystem/ssr" },
           { text: "Terraform / OpenTofu", link: "/ecosystem/terraform" },
           { text: "Kubernetes Operator", link: "/ecosystem/kubernetes" },
+          { text: "AI Agents (MCP)", link: "/ecosystem/mcp" },
         ],
       },
       {

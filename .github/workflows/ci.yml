@@ -218,6 +218,28 @@ jobs:
       - name: SSE fault-injection tests
         run: cargo test -p server --test sse_faults -- --nocapture
 
+      # @checkgate/mcp-server against the real server binary built above: an
+      # agent with a propose token proposes, the server queues it, a different
+      # person approves, the agent reads it back. Also prints the measured
+      # MCP-over-stdio overhead versus direct HTTP.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: MCP server end-to-end test
+        working-directory: integrations/mcp-server
+        env:
+          PGPASSWORD: postgres
+          CHECKGATE_E2E_SERVER_BIN: ${{ github.workspace }}/target/debug/server
+          CHECKGATE_E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/checkgate_mcp_e2e
+          CHECKGATE_E2E_REDIS_URL: redis://localhost:6379
+          CHECKGATE_REQUIRE_MCP_E2E: "1"
+        run: |
+          npm ci --ignore-scripts
+          test -x "$CHECKGATE_E2E_SERVER_BIN" || cargo build -p server
+          psql -h localhost -U postgres -c 'DROP DATABASE IF EXISTS checkgate_mcp_e2e' -c 'CREATE DATABASE checkgate_mcp_e2e'
+          node --test test/e2e.test.js
+
       - name: Upload reliability artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -420,6 +442,33 @@ jobs:
           set -e
           test "$code" -eq 3
           node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); if (r.status !== "out_of_date" || r.findings[0].id !== "typegen.out_of_date") process.exit(1)' "$RUNNER_TEMP/report.json"
+
+  # ---------------------------------------------------------------------------
+  # MCP server — @checkgate/mcp-server unit, schema and stdio lifecycle tests
+  # against a fake API (the e2e run against a real server is in
+  # server-integration).
+  # ---------------------------------------------------------------------------
+  mcp-server:
+    name: MCP server tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install dependencies (lockfile, no install scripts)
+        working-directory: integrations/mcp-server
+        run: npm ci --ignore-scripts
+
+      - name: Run tests
+        working-directory: integrations/mcp-server
+        run: npm test
+
+      - name: Audit production dependencies
+        working-directory: integrations/mcp-server
+        run: npm audit --omit=dev --audit-level=high
 
   # ---------------------------------------------------------------------------
   # Edge — @checkgate/edge evaluator tests (zero deps, Node's built-in runner)

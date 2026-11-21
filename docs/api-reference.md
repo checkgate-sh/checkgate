@@ -1419,7 +1419,7 @@ A token acts as its owning user — same workspace role, same project membership
 `propose` is meant for AI agents and other automation that should suggest changes but never apply,
 approve or reject one — the server enforces it on every request, whatever client sends it. Project
 roles still apply (a viewer's `propose` token cannot propose), and a change request can only be
-approved by someone other than its requester.
+approved by someone other than its requester. See [AI agents (MCP)](/ecosystem/mcp).
 
 ### List Tokens
 
