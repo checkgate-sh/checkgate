@@ -171,7 +171,7 @@ pub(crate) async fn lock_environment_for_segment_write(
 /// ASCII alphanumerics, underscores, or hyphens. This prevents ambiguous
 /// routing, log pollution, and surprises in SDK consumers that use the key
 /// as a cache key or filename.
-fn is_valid_flag_key(key: &str) -> bool {
+pub(super) fn is_valid_flag_key(key: &str) -> bool {
     !key.is_empty()
         && key.len() <= 100
         && key
