@@ -55,6 +55,10 @@ __version__ = "0.1.31"
 
 log = logging.getLogger("checkgate")
 
+# Longest accepted delay or timeout, in ms (Node's timer ceiling, 2^31 - 1;
+# about 24.8 days). Python's timers fail beyond threading.TIMEOUT_MAX.
+MAX_DELAY_MS = 2**31 - 1
+
 #: HTTP statuses that mean the SDK key itself is rejected: retrying cannot help.
 AUTH_FAILURE_STATUSES = frozenset({401, 403})
 
@@ -268,10 +272,15 @@ class CheckgateClient:
             ("connect_timeout_ms", connect_timeout_ms),
             ("request_timeout_ms", request_timeout_ms),
         ):
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not value > 0 or not math.isfinite(value):
-                raise ValueError(f"{name} must be a positive number of milliseconds")
-        if stream_idle_timeout_ms is not None and not stream_idle_timeout_ms >= 0:
-            raise ValueError("stream_idle_timeout_ms must be >= 0 (0 disables it) or None")
+            if (not isinstance(value, (int, float)) or isinstance(value, bool) or not value > 0
+                    or not math.isfinite(value) or value > MAX_DELAY_MS):
+                raise ValueError(f"{name} must be a positive number of milliseconds, at most {MAX_DELAY_MS}")
+        if stream_idle_timeout_ms is not None and (
+                not isinstance(stream_idle_timeout_ms, (int, float)) or isinstance(stream_idle_timeout_ms, bool)
+                or not 0 <= stream_idle_timeout_ms <= MAX_DELAY_MS):
+            # Infinity used to pass and then stop the sync thread for good
+            # (a timer beyond threading.TIMEOUT_MAX): 0 disables the timeout.
+            raise ValueError(f"stream_idle_timeout_ms must be 0 (disabled) to {MAX_DELAY_MS}, or None")
         if storage is not None and not isinstance(storage, Storage):
             raise TypeError("storage must have get_item(key) and set_item(key, value)")
 
@@ -717,22 +726,27 @@ class CheckgateClient:
         def apply() -> None:
             if self._user_closed:
                 return
-            if raw and self._source == "none":
-                try:
-                    snapshot = loads(raw)
-                    if not isinstance(snapshot, dict) or not all(isinstance(f, dict) for f in snapshot.values()):
-                        raise ValueError("not a flag set")
-                except ValueError as err:
-                    log.warning("[Checkgate] Ignoring an unreadable flag cache: %s", err)
-                else:
-                    self._flag_cache.update(snapshot)
-                    self._apply_engine([(k, f) for k, f in snapshot.items()], [])
-                    # Only mark hydrated once the live stream hasn't already taken over.
-                    if not self._ready:
-                        self._hydrated = True
-                        self._hydrated_from_cache = True
-                        self._source = "offline_cache"
-            self._connect_deltas()
+            try:
+                if raw and self._source == "none":
+                    try:
+                        snapshot = loads(raw)
+                        if not isinstance(snapshot, dict) or not all(isinstance(f, dict) for f in snapshot.values()):
+                            raise ValueError("not a flag set")
+                    # Anything a corrupt or hostile cache can raise (RecursionError,
+                    # TypeError from a custom storage, ...): never stop the connect.
+                    except Exception as err:
+                        log.warning("[Checkgate] Ignoring an unreadable flag cache: %s", err)
+                    else:
+                        self._flag_cache.update(snapshot)
+                        self._apply_engine([(k, f) for k, f in snapshot.items()], [])
+                        # Only mark hydrated once the live stream hasn't already taken over.
+                        if not self._ready:
+                            self._hydrated = True
+                            self._hydrated_from_cache = True
+                            self._source = "offline_cache"
+            finally:
+                # The stream opens whatever happened to the cache (as in Node).
+                self._connect_deltas()
 
         self._task(apply)
 
@@ -820,7 +834,7 @@ class CheckgateClient:
         log.debug("[Checkgate] Stream connected; rebuilding from server state.")
         try:
             payload = loads(data)
-        except ValueError:
+        except (ValueError, RecursionError):
             payload = None
         payload = payload if isinstance(payload, dict) else {}
         env_id = payload.get("environment_id")
@@ -855,7 +869,7 @@ class CheckgateClient:
     def _on_update(self, data: str) -> None:
         try:
             event = loads(data)
-        except ValueError as err:
+        except (ValueError, RecursionError) as err:  # deep nesting raises RecursionError
             log.error("[Checkgate] Failed to parse a delta update: %s", err)
             self._record_error("parse", "stream: an update event was not valid JSON")
             return
@@ -1070,7 +1084,7 @@ class CheckgateClient:
         body, env_id = args
         try:
             flags, revisions = parse_snapshot(body)
-        except ValueError as err:
+        except (ValueError, TypeError, RecursionError) as err:
             log.warning("[Checkgate] Poll returned an unusable snapshot: %s", err)
             self._record_error("parse", f"poll: {err}")
             return

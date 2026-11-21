@@ -95,7 +95,9 @@ class Loop:
                     if self._ready:
                         fn = self._ready.popleft()
                         break
-                    self._cv.wait(self._timers[0][0] - now if self._timers else None)
+                    # Bounded: Condition.wait raises OverflowError beyond
+                    # TIMEOUT_MAX, which would end this thread for good.
+                    self._cv.wait(min(self._timers[0][0] - now, threading.TIMEOUT_MAX) if self._timers else None)
             try:
                 fn()
             except Exception:  # a bug in a task must not end syncing
