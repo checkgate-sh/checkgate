@@ -4,3 +4,6 @@ terraform-provider-checkgate
 checkgate-operator
 *.test
 *.out
+
+# Not a build output: the MCP server's executable entry point (package.json "bin").
+!mcp-server/bin/
