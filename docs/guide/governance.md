@@ -84,10 +84,14 @@ For CI/CD, Terraform, and scripts, mint a **personal access token**. SDK keys ar
 only reach the SDK endpoints (stream, snapshot, reading flags, impressions and events):
 
 - A token acts as its owning user (same role, same project memberships) and can be capped to
-  **`read_only`**.
+  **`read_only`**, or to **`propose`**: reads, plus proposing flag changes that someone else must
+  approve — every edit becomes a pending change request, new flags are created disabled, and the
+  token can never approve, reject or apply anything. Use it for AI agents
+  ([MCP server](/ecosystem/mcp)).
 - Tokens are **SHA-256 hashed at rest**, support optional expiry, and are strictly self-service —
   you can only list, create, and revoke your own.
-- A `read_only` token cannot mint a more-privileged replacement for itself.
+- A token cannot mint a more-privileged replacement for itself (`read_only` < `propose` <
+  `read_write`).
 
 Manage tokens under **Settings → Access Tokens**, or via the
 [Personal Access Tokens API](/api-reference#personal-access-tokens).

@@ -36,11 +36,74 @@ pub(crate) struct SessionClaims {
 #[derive(Clone)]
 pub(crate) struct PatIdentity {
     pub claims: SessionClaims,
-    /// `"read_only"` or `"read_write"`.
+    /// [`SCOPE_READ_ONLY`], [`SCOPE_PROPOSE`] or [`SCOPE_READ_WRITE`]. Any
+    /// other value (a scope added by a newer release, then rolled back) is
+    /// treated as read-only: only `read_write` passes the write checks, and
+    /// only `propose` reaches the [`propose_route_allowed`] routes.
     pub scope: String,
     /// When the token expires; `None` for a token that never does. A token
     /// created with this one may not outlive it.
     pub expires_at: Option<time::OffsetDateTime>,
+}
+
+/// Token scope: reads only.
+pub(crate) const SCOPE_READ_ONLY: &str = "read_only";
+/// Token scope: reads, plus *proposing* flag changes that a different person
+/// must approve. Meant for AI agents and other automation that should never
+/// apply, approve or reject a change on its own. See [`propose_route_allowed`].
+pub(crate) const SCOPE_PROPOSE: &str = "propose";
+/// Token scope: everything the owning user may do.
+pub(crate) const SCOPE_READ_WRITE: &str = "read_write";
+
+/// Scopes `POST /api/tokens` accepts.
+pub(crate) const KNOWN_SCOPES: [&str; 3] = [SCOPE_READ_ONLY, SCOPE_PROPOSE, SCOPE_READ_WRITE];
+
+/// How capable a scope is. The scopes form a chain: every route a
+/// `read_only` token may call, a `propose` token may too, and a `read_write`
+/// token can do at least what a `propose` token can (create a flag, change
+/// one — directly where no approval is required — and withdraw its own
+/// request). A token may mint another only when the new one ranks no higher.
+/// An unknown scope ranks with `read_only` (fail closed).
+pub(crate) fn scope_rank(scope: &str) -> u8 {
+    match scope {
+        SCOPE_READ_WRITE => 2,
+        SCOPE_PROPOSE => 1,
+        _ => 0,
+    }
+}
+
+/// The only write routes a `propose` token may reach — each handler then
+/// narrows what it does for such a token:
+///
+/// - `PATCH /api/environments/{env}/flags/{key}` always queues a pending
+///   change request (`202`), whether or not the environment requires approval;
+/// - `POST /api/environments/{env}/flags` only creates a *new*, disabled flag
+///   (`409` if the key exists, `422` if the body enables it or sets a
+///   `disabled_value`);
+/// - `DELETE /api/environments/{env}/change-requests/{id}` only withdraws the
+///   token owner's own pending request (no admin override).
+///
+/// Anything else that writes — approve, reject, delete, promote, archive,
+/// segments, environments, keys, users, webhooks, tokens — is `403`.
+///
+/// `path` may still carry the `/api` prefix (it does in `require_auth`, not
+/// inside the nested router). Segments are compared exactly, without
+/// dropping empty ones, so a path this accepts has the shape of exactly one
+/// route.
+fn propose_route_allowed(method: &Method, path: &str) -> bool {
+    let trimmed = path.strip_prefix('/').unwrap_or(path);
+    let segments: Vec<&str> = trimmed.split('/').collect();
+    let rest = match segments.as_slice() {
+        ["api", rest @ ..] => rest,
+        rest => rest,
+    };
+    let param = |s: &str| !s.is_empty();
+    match (method, rest) {
+        (&Method::PATCH, ["environments", env, "flags", key]) => param(env) && param(key),
+        (&Method::POST, ["environments", env, "flags"]) => param(env),
+        (&Method::DELETE, ["environments", env, "change-requests", id]) => param(env) && param(id),
+        _ => false,
+    }
 }
 
 /// Extract the SDK key from a request — Bearer header takes priority over the
@@ -198,6 +261,13 @@ pub(crate) fn pat_scope(ctx: &AuthContext) -> Option<&str> {
     ctx.pat.as_ref().map(|p| p.scope.as_str())
 }
 
+/// True when the request was authenticated by a `propose`-scoped personal
+/// access token. Handlers on the [`propose_route_allowed`] routes use this to
+/// narrow their behaviour; a session or another scope returns false.
+pub(crate) fn is_propose_token(ctx: &AuthContext) -> bool {
+    pat_scope(ctx) == Some(SCOPE_PROPOSE)
+}
+
 /// For a request authenticated by a personal access token, that token's
 /// expiry (`Some(None)` if it never expires); `None` for a session or SDK key.
 pub(crate) fn pat_expires_at(ctx: &AuthContext) -> Option<Option<time::OffsetDateTime>> {
@@ -336,7 +406,8 @@ pub async fn require_admin(
     if claims.role != "admin" {
         return Err(StatusCode::FORBIDDEN);
     }
-    check_write_scope(&req)?;
+    // Admin routes are never open to a `propose` token.
+    check_write_scope(&req, false)?;
     Ok(next.run(req).await)
 }
 
@@ -347,22 +418,35 @@ fn request_claims(req: &Request<axum::body::Body>) -> Result<&SessionClaims, Sta
         .ok_or(StatusCode::UNAUTHORIZED)
 }
 
+/// Handler-level write check: only a `read_write` token (or a session)
+/// passes. `propose` and any unknown scope are refused.
 pub(crate) fn check_write_scope_ctx(ctx: &AuthContext) -> Result<(), StatusCode> {
-    if pat_scope(ctx).is_some_and(|scope| scope != "read_write") {
+    if pat_scope(ctx).is_some_and(|scope| scope != SCOPE_READ_WRITE) {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
 }
 
-fn check_write_scope(req: &Request<axum::body::Body>) -> Result<(), StatusCode> {
-    if req
-        .extensions()
-        .get::<PatIdentity>()
-        .is_some_and(|p| p.scope != "read_write")
-    {
-        return Err(StatusCode::FORBIDDEN);
+/// Middleware-level write check. A session or `read_write` token passes; a
+/// `propose` token passes only when `allow_propose` is set and the request is
+/// one of the [`propose_route_allowed`] routes; every other scope — including
+/// one this build does not know — is refused.
+fn check_write_scope(
+    req: &Request<axum::body::Body>,
+    allow_propose: bool,
+) -> Result<(), StatusCode> {
+    let Some(pat) = req.extensions().get::<PatIdentity>() else {
+        return Ok(());
+    };
+    let allowed = pat.scope == SCOPE_READ_WRITE
+        || (allow_propose
+            && pat.scope == SCOPE_PROPOSE
+            && propose_route_allowed(req.method(), req.uri().path()));
+    if allowed {
+        Ok(())
+    } else {
+        Err(StatusCode::FORBIDDEN)
     }
-    Ok(())
 }
 
 pub(crate) async fn check_env_role(
@@ -395,7 +479,7 @@ pub async fn require_editor(
     if req.extensions().get::<SdkKeyEntry>().is_some() {
         return Err(StatusCode::FORBIDDEN);
     }
-    check_write_scope(&req)?;
+    check_write_scope(&req, true)?;
     let claims = request_claims(&req)?;
     let mut parts = req.uri().path().split('/');
     if let Some(env_id) = parts
@@ -407,4 +491,115 @@ pub async fn require_editor(
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(next.run(req).await)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test code")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn propose_routes_are_exactly_three() {
+        for (method, path) in [
+            (Method::PATCH, "/api/environments/e1/flags/new-ui"),
+            (Method::PATCH, "/environments/e1/flags/new-ui"),
+            (Method::POST, "/api/environments/e1/flags"),
+            (Method::POST, "/environments/e1/flags"),
+            (Method::DELETE, "/api/environments/e1/change-requests/7"),
+            (Method::DELETE, "/environments/e1/change-requests/7"),
+        ] {
+            assert!(propose_route_allowed(&method, path), "{method} {path}");
+        }
+        for (method, path) in [
+            (Method::DELETE, "/api/environments/e1/flags/new-ui"),
+            (Method::PUT, "/api/environments/e1/flags/new-ui"),
+            (Method::POST, "/api/environments/e1/flags/new-ui/promote"),
+            (Method::POST, "/api/environments/e1/flags/new-ui/archive"),
+            (Method::POST, "/api/environments/e1/flags/new-ui/unarchive"),
+            (
+                Method::POST,
+                "/api/environments/e1/change-requests/7/approve",
+            ),
+            (
+                Method::POST,
+                "/api/environments/e1/change-requests/7/reject",
+            ),
+            (Method::POST, "/api/environments/e1/segments"),
+            (Method::PATCH, "/api/environments/e1/segments/beta"),
+            (Method::POST, "/api/environments/e1/webhooks"),
+            (
+                Method::POST,
+                "/api/environments/e1/flags/new-ui/scheduled-changes",
+            ),
+            (Method::POST, "/api/environments/e1/experiments"),
+            (Method::POST, "/api/environments/e1/impressions"),
+            (Method::POST, "/api/tokens"),
+            (Method::DELETE, "/api/tokens/3"),
+            (Method::POST, "/api/users"),
+            (Method::POST, "/api/projects/p1/environments"),
+            (Method::GET, "/api/environments/e1/flags"),
+            // Shapes that only look similar.
+            (Method::POST, "/api/environments//flags"),
+            (Method::PATCH, "/api/environments/e1/flags/"),
+            (Method::PATCH, "/api/environments/e1//flags/k"),
+            (Method::PATCH, "/api/api/environments/e1/flags/k"),
+            (Method::PATCH, "/api/environments/e1/flags/k/extra"),
+            (Method::DELETE, "/api/environments/e1/change-requests/"),
+        ] {
+            assert!(!propose_route_allowed(&method, path), "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn scope_rank_is_a_chain_and_unknown_is_lowest() {
+        assert!(scope_rank(SCOPE_READ_ONLY) < scope_rank(SCOPE_PROPOSE));
+        assert!(scope_rank(SCOPE_PROPOSE) < scope_rank(SCOPE_READ_WRITE));
+        assert_eq!(scope_rank("admin"), scope_rank(SCOPE_READ_ONLY));
+        assert_eq!(scope_rank(""), scope_rank(SCOPE_READ_ONLY));
+        assert_eq!(scope_rank("READ_WRITE"), scope_rank(SCOPE_READ_ONLY));
+    }
+
+    fn pat_request(scope: &str, method: Method, path: &str) -> Request<axum::body::Body> {
+        let mut req = Request::builder()
+            .method(method)
+            .uri(path)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(PatIdentity {
+            claims: SessionClaims {
+                user_id: 1,
+                expires_at: i64::MAX,
+                email: "agent-owner@acme.test".into(),
+                name: "Owner".into(),
+                role: "admin".into(),
+            },
+            scope: scope.into(),
+            expires_at: None,
+        });
+        req
+    }
+
+    #[test]
+    fn write_scope_fails_closed() {
+        let patch = |scope| pat_request(scope, Method::PATCH, "/environments/e1/flags/k");
+        let promote = |scope| pat_request(scope, Method::POST, "/environments/e1/flags/k/promote");
+        // read_write: everything.
+        assert!(check_write_scope(&patch(SCOPE_READ_WRITE), true).is_ok());
+        assert!(check_write_scope(&promote(SCOPE_READ_WRITE), false).is_ok());
+        // propose: only its routes, and never where the caller disallows it.
+        assert!(check_write_scope(&patch(SCOPE_PROPOSE), true).is_ok());
+        assert!(check_write_scope(&patch(SCOPE_PROPOSE), false).is_err());
+        assert!(check_write_scope(&promote(SCOPE_PROPOSE), true).is_err());
+        // read_only and scopes this build does not know: nothing.
+        for scope in [SCOPE_READ_ONLY, "future_scope", ""] {
+            assert!(check_write_scope(&patch(scope), true).is_err(), "{scope}");
+        }
+        // No token at all (a session): the role checks decide.
+        let session = Request::builder()
+            .method(Method::PATCH)
+            .uri("/environments/e1/flags/k")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert!(check_write_scope(&session, false).is_ok());
+    }
 }

@@ -552,6 +552,8 @@ Content-Type: application/json
 
 Creates a flag. If the key already exists in this environment, replaces it entirely unless the environment requires approval. In that case replacement returns `409 Conflict`; use PATCH to submit a change request.
 
+With a [`propose`-scoped token](#token-scopes) (since 0.2.0) this only ever creates a **new, disabled** flag: an existing key is `409 Conflict` in every environment, and a body with `"is_enabled": true` or a `disabled_value` is `422 Unprocessable Entity` (rejected rather than rewritten, so the caller knows exactly what was stored). Turning the flag on later is a PATCH, which becomes a change request.
+
 **Request Body**
 
 ```json
@@ -566,7 +568,9 @@ Creates a flag. If the key already exists in this environment, replaces it entir
 
 **Response** `200 OK` — returns the created flag.
 
-**Response** `422 Unprocessable Entity` — invalid flag key or `rollout_percentage` out of range.
+**Response** `409 Conflict` — the key exists and the environment requires approval, or the caller uses a `propose` token.
+
+**Response** `422 Unprocessable Entity` — invalid flag key or `rollout_percentage` out of range; or a `propose` token tried to create an enabled flag or set `disabled_value`.
 
 ---
 
@@ -589,7 +593,7 @@ Applies a JSON merge patch. Only the provided fields are updated; omitted fields
 
 **Response** `200 OK` — returns the updated flag (applied immediately).
 
-**Response** `202 Accepted` — the environment has `require_approval` set; the patch was validated and queued as a pending [change request](#change-requests) instead of applied. Returns the created change request, not the flag (which is unchanged).
+**Response** `202 Accepted` — the environment has `require_approval` set, **or the caller uses a [`propose` token](#token-scopes)** (always, in any environment); the patch was validated and queued as a pending [change request](#change-requests) instead of applied. Returns the created change request, not the flag (which is unchanged).
 
 **Response** `404 Not Found` — flag does not exist.
 
@@ -812,7 +816,8 @@ Editor role or above. Flags referencing this segment are re-broadcast without th
 
 ## Change Requests
 
-Only relevant for environments with [`require_approval`](#set-approval-requirement) enabled. A change
+Created by a flag `PATCH` in environments with [`require_approval`](#set-approval-requirement)
+enabled, and by every `PATCH` made with a [`propose` token](#token-scopes). A change
 request captures a flag `PATCH` that hasn't been applied yet — see
 [Partially Update a Flag](#partially-update-a-flag) for how one gets created. Someone other than the
 requester must approve it (self-approval is rejected); admins may cancel anyone's pending request,
@@ -857,7 +862,7 @@ Applies the stored patch to the flag's *current* state (not a stale snapshot fro
 
 **Response** `200 OK` — returns the updated flag.
 
-**Response** `403 Forbidden` — the caller is the original requester.
+**Response** `403 Forbidden` — the caller is the original requester, or uses a `propose` or `read_only` token (neither can ever approve or reject).
 
 **Response** `409 Conflict` — the request is no longer pending (already approved/rejected/cancelled).
 
@@ -886,7 +891,7 @@ Content-Type: application/json
 DELETE /api/environments/{env_id}/change-requests/{id}
 ```
 
-Only the original requester or a workspace admin may cancel, and only while still `pending`.
+Only the original requester or a workspace admin may cancel, and only while still `pending`. A `propose` token may cancel only its owner's own requests — the admin override does not apply to it.
 
 **Response** `204 No Content`
 
@@ -1450,6 +1455,21 @@ under `/api/tokens` and always operate on the caller's own tokens. There is
 no admin override; revoking a departing or compromised user's automation
 access is done by deleting the user, which cascades to their tokens.
 
+### Token scopes
+
+A token acts as its owning user — same workspace role, same project memberships — capped by its scope:
+
+| Scope | Reads | Writes |
+|---|---|---|
+| `read_only` | everything the owner can read | none |
+| `propose` | everything the owner can read | only: `PATCH` a flag → always a pending change request (`202`), in every environment; `POST` a **new, disabled** flag; `DELETE` the owner's own pending change request. Everything else (approve, reject, delete, promote, archive, segments, environments, keys, users, webhooks, revoking tokens, analytics ingest) is `403`. |
+| `read_write` | everything the owner can read | everything the owner can do |
+
+`propose` is meant for AI agents and other automation that should suggest changes but never apply,
+approve or reject one — the server enforces it on every request, whatever client sends it. Project
+roles still apply (a viewer's `propose` token cannot propose), and a change request can only be
+approved by someone other than its requester. See [AI agents (MCP)](/ecosystem/mcp).
+
 ### List Tokens
 
 ```http
@@ -1491,7 +1511,7 @@ Content-Type: application/json
 }
 ```
 
-- `scope` is `"read_only"` or `"read_write"`. A token authenticated request that is itself `read_only` cannot create a `read_write` token — this would let a leaked read-only credential mint itself a more privileged replacement.
+- `scope` is `"read_only"`, `"propose"` (since 0.2.0) or `"read_write"` — see [Token scopes](#token-scopes). A request authenticated by a token may only create tokens **at most as capable** as itself (`read_only` < `propose` < `read_write`): a leaked read-only or propose credential cannot mint itself a more privileged replacement.
 - `expires_in_days` is optional (1–365); omit for a token that never expires.
 
 **Response** `200 OK` — returns the token including the full value (shown once only).
@@ -1508,7 +1528,9 @@ Content-Type: application/json
 }
 ```
 
-**Response** `403 Forbidden` — a read-only-scoped caller tried to create a read-write token.
+**Response** `403 Forbidden` — a token-authenticated caller tried to create a token more capable than itself (or one that outlives it).
+
+**Response** `422 Unprocessable Entity` — unknown `scope`, empty or over-long `name`, or `expires_in_days` outside 1–365.
 
 ---
 
