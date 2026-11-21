@@ -478,6 +478,44 @@ jobs:
         run: node --test
 
   # ---------------------------------------------------------------------------
+  # Node SDK with the REAL native engine (sdk-node above uses the stand-in):
+  # the shared evaluation vectors, and the OpenFeature provider against the
+  # real OpenFeature SDK and a real SSE stream. Node 20, 22 and 24 are the
+  # supported LTS lines in November 2026.
+  # ---------------------------------------------------------------------------
+  sdk-node-native:
+    name: Node SDK (native) + OpenFeature provider
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the native addon
+        working-directory: sdks/nodejs
+        run: npm ci && npm run build:debug
+
+      - name: Node SDK tests (real engine, shared vectors)
+        working-directory: sdks/nodejs
+        run: node --test
+
+      - name: OpenFeature provider — install, typecheck, test
+        working-directory: sdks/openfeature-provider
+        run: npm ci && npm run typecheck && npm test
+
+  # ---------------------------------------------------------------------------
   # Web + React Native SDKs — client-logic unit tests (vitest; the WASM core is
   # stubbed for web, the JSI bridge faked for RN — no native/WASM build needed)
   # ---------------------------------------------------------------------------

@@ -15,6 +15,39 @@ export interface FlagEvaluation {
   value: FlagValue;
 }
 
+/** Why an evaluation resolved as it did (see {@link CheckgateClient.getDetails}). */
+export type EvaluationReason =
+  | 'DISABLED'
+  | 'PREREQUISITE_FAILED'
+  | 'TARGETING_MATCH'
+  | 'ROLLOUT_EXCLUDED'
+  | 'SPLIT'
+  | 'DEFAULT'
+  | 'STATIC';
+
+/** One prerequisite of the evaluated flag, in the order they were checked. */
+export interface PrerequisiteCheck {
+  flagKey: string;
+  outcome: 'satisfied' | 'unsatisfied' | 'not_found' | 'limit_exceeded';
+  /** The value the prerequisite must resolve to; absent means "enabled". */
+  requiredValue?: FlagValue;
+  /** What the prerequisite resolved to; absent when it was not evaluated. */
+  result?: FlagEvaluation;
+}
+
+/** An evaluation plus the path that produced it. */
+export interface EvaluationDetails extends FlagEvaluation {
+  reason: EvaluationReason;
+  /** Index into the flag's `rules` of the rule that matched. */
+  ruleIndex?: number;
+  /** The user's rollout bucket (0–99), when a partial rollout was checked. */
+  rolloutBucket?: number;
+  /** Index into the flag's `variants` of the weighted variant assigned. */
+  variantIndex?: number;
+  /** The flag's own prerequisites as checked (stops at the first failure). */
+  prerequisites?: PrerequisiteCheck[];
+}
+
 export interface CheckgateClientOptions {
   /** Base URL of your Checkgate server. */
   serverUrl: string;
@@ -85,6 +118,45 @@ export interface CheckgateStatus {
 }
 
 /**
+ * SDK diagnostics, schema 1 — the same fields in every Checkgate SDK (Python
+ * uses snake_case). Local state only; never the SDK key, user keys or
+ * attributes. Timestamps are milliseconds since the epoch.
+ */
+export interface CheckgateHealth {
+  schemaVersion: 1;
+  state: CheckgateConnectionState;
+  /** A complete flag set from the server has been applied since connect(). */
+  ready: boolean;
+  /** Where the served flags came from. */
+  source: 'none' | 'offline_cache' | 'server';
+  flagCount: number;
+  /** Last confirmation that the flags are current (as in getStatus()). */
+  lastSyncAt: number | null;
+  /** Milliseconds since lastSyncAt; `null` before the first sync. */
+  configAgeMs: number | null;
+  /** Highest flag revision seen in any event or snapshot, applied or not. */
+  lastReceivedRevision: number | null;
+  /** Highest revision in the flags currently held. */
+  lastAppliedRevision: number | null;
+  /** Events and snapshot entries rejected as not newer than what was held. */
+  staleEventsIgnored: number;
+  /** Consecutive failed attempts since the last successful connection. */
+  reconnectAttempts: number;
+  /** Reconnects scheduled since the client was created. */
+  reconnectCount: number;
+  /** Poll fallback active. */
+  polling: boolean;
+  /** Last successful poll, or `null`. */
+  lastPollAt: number | null;
+  /**
+   * The most recent synchronization error. Not cleared by later success:
+   * compare `at` with `lastSyncAt`.
+   */
+  lastError: { message: string; kind: 'auth' | 'network' | 'http' | 'parse' | 'timeout'; at: number } | null;
+  offlineCache: { configured: boolean; hydrated: boolean; lastPersistAt: number | null };
+}
+
+/**
  * The server rejected the SDK key (HTTP 401 or 403). The client stops
  * retrying and keeps serving the flags it already has; call `connect()` again
  * to retry.
@@ -116,6 +188,17 @@ export declare class CheckgateClient {
 
   /** Connection health, for detecting stale flags. */
   getStatus(): CheckgateStatus;
+
+  /** Detailed diagnostics (schema 1) for health checks and dashboards; no network IO. */
+  getHealth(): CheckgateHealth;
+
+  /**
+   * Registers a listener called with {@link getStatus} whenever the connection
+   * state changes, and after each successful poll while in poll fallback.
+   *
+   * @returns an unsubscribe function.
+   */
+  onStatusChange(callback: (status: CheckgateStatus) => void): () => void;
 
   /** Whether the initial bootstrap has completed and flags are ready to evaluate. */
   isReady(): boolean;
@@ -175,6 +258,19 @@ export declare class CheckgateClient {
     userAttributes?: Record<string, string>,
     defaultValue?: FlagValue
   ): FlagValue;
+
+  /**
+   * Evaluates a flag and explains the result (reason, matched rule, rollout
+   * bucket, weighted variant, prerequisites). Same local evaluation as
+   * {@link getVariant}; no network IO.
+   *
+   * @returns The details, or `null` if the flag does not exist.
+   */
+  getDetails(
+    flagKey: string,
+    userKey: string,
+    userAttributes?: Record<string, string>
+  ): EvaluationDetails | null;
 
   /**
    * Records a goal/conversion event for A/B testing (e.g. "checkout_complete").
