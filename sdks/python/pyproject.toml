@@ -1,0 +1,42 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "checkgate"
+version = "0.1.31"
+description = "Checkgate feature flags for Python: local evaluation with the Rust engine, kept in sync over SSE"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["feature-flags", "feature-toggles", "checkgate", "openfeature"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/checkgate-sh/checkgate"
+Documentation = "https://github.com/checkgate-sh/checkgate/blob/main/docs/sdks/python.md"
+Repository = "https://github.com/checkgate-sh/checkgate"
+
+[tool.maturin]
+python-source = "python"
+module-name = "checkgate._core"
+manifest-path = "Cargo.toml"
+# Strip debug symbols from release wheels.
+strip = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
