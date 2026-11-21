@@ -606,3 +606,50 @@ test('polls ask for ?v=2; a server without revisions gets the old behaviour', as
     assert.equal(client._revisions.size, 0, 'no revisions invented (never revision 0)');
     client.disconnect();
 });
+
+test('onStatusChange reports each state transition once', () => {
+    const client = connectedClient();
+    const seen = [];
+    const off = client.onStatusChange((s) => seen.push(s.state));
+    bootstrap(client, [[{ key: 'f', is_enabled: true }, 1]]);
+    assert.deepEqual(seen, ['streaming']);
+    // A dropped stream schedules a reconnect: one transition, not one per event.
+    client.sse.listeners.error({});
+    assert.deepEqual(seen, ['streaming', 'reconnecting']);
+    client.sse = null;
+    // A listener that throws does not break the client or other listeners.
+    client.onStatusChange(() => { throw new Error('boom'); });
+    const quiet = console.error;
+    console.error = () => {};
+    client.disconnect();
+    console.error = quiet;
+    assert.deepEqual(seen, ['streaming', 'reconnecting', 'closed']);
+    off();
+    client.connect().catch(() => {});
+    assert.deepEqual(seen, ['streaming', 'reconnecting', 'closed'], 'unsubscribed');
+    client.disconnect();
+});
+
+test('status listeners see the error of auth_failed (review F-10)', async () => {
+    const client = newClient({ reportImpressions: false });
+    const seen = [];
+    client.onStatusChange((s) => seen.push([s.state, s.error && s.error.name]));
+    const pending = client.connect();
+    await new Promise((r) => setImmediate(r));
+    client.sse.listeners.error({ type: 'error', code: 401 });
+    await assert.rejects(pending);
+    assert.deepEqual(seen.at(-1), ['auth_failed', 'CheckgateAuthError']);
+    client.disconnect();
+});
+
+test('a listener that disconnects while connecting settles connect() (review F-11)', async () => {
+    const client = newClient({ reportImpressions: false });
+    client.onStatusChange((s) => { if (s.state === 'connecting') client.disconnect(); });
+    const result = await Promise.race([
+        client.connect().then(() => 'resolved', () => 'rejected'),
+        new Promise((r) => setTimeout(() => r('pending'), 500)),
+    ]);
+    assert.equal(result, 'rejected');
+    assert.equal(client.getStatus().state, 'closed');
+    assert.equal(client.sse, null, 'no stream opened after the disconnect');
+});

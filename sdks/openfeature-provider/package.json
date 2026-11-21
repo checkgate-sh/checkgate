@@ -1,0 +1,54 @@
+{
+  "name": "@checkgate/openfeature-provider",
+  "version": "0.2.0",
+  "description": "OpenFeature provider for Checkgate \u2014 flags evaluated locally by the Checkgate Rust engine, no network call per evaluation.",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/checkgate-sh/checkgate.git",
+    "directory": "sdks/openfeature-provider"
+  },
+  "homepage": "https://github.com/checkgate-sh/checkgate#readme",
+  "bugs": {
+    "url": "https://github.com/checkgate-sh/checkgate/issues"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "openfeature",
+    "feature-flags",
+    "checkgate",
+    "provider"
+  ],
+  "files": [
+    "src/index.js",
+    "src/index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "bench": "node bench/overhead.mjs"
+  },
+  "peerDependencies": {
+    "@checkgate/node": ">=0.2.0 <1",
+    "@openfeature/server-sdk": "^1.17.0"
+  },
+  "devDependencies": {
+    "@checkgate/node": "file:../nodejs",
+    "@openfeature/server-sdk": "1.23.0",
+    "typescript": "5.9.3",
+    "@types/node": "22.19.1"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./package.json": "./package.json"
+  }
+}

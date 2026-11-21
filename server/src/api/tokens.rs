@@ -1,7 +1,9 @@
 //! Personal access tokens — scoped, user-owned API credentials for CI/CD,
 //! Terraform, and other automation. Unlike SDK keys (always admin-equivalent,
 //! managed by an operator), a PAT acts *as its owning user* — same role, same
-//! project memberships — and can be capped to `read_only`.
+//! project memberships — and can be capped to `read_only` or `propose`
+//! (reads plus proposing changes someone else must approve; see
+//! `crate::auth::propose_route_allowed`).
 //!
 //! Tokens are strictly self-service: a user can only list/create/revoke their
 //! own tokens. There is no admin override — revoking access to a compromised
@@ -59,7 +61,7 @@ pub struct NewTokenResponse {
 #[derive(Deserialize)]
 pub struct CreateTokenRequest {
     pub name: String,
-    /// `"read_only"` or `"read_write"`.
+    /// `"read_only"`, `"propose"` or `"read_write"`.
     pub scope: String,
     /// Number of days until expiry. `None` (or omitted) never expires.
     pub expires_in_days: Option<i64>,
@@ -153,13 +155,16 @@ pub async fn create_token(
     if name.is_empty() || name.len() > 100 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    if !matches!(req.scope.as_str(), "read_only" | "read_write") {
+    if !crate::auth::KNOWN_SCOPES.contains(&req.scope.as_str()) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    // A read_only PAT must not be able to mint a read_write PAT for the same
-    // user — that would let a leaked read-only credential self-escalate.
-    // Session cookies and read_write PATs are uncapped.
-    if crate::auth::pat_scope(&ctx) == Some("read_only") && req.scope == "read_write" {
+    // A capped PAT may only mint tokens at most as capable as itself — a
+    // leaked read-only or propose credential must not be able to self-escalate
+    // by creating a more privileged replacement. Session cookies are uncapped;
+    // a caller token with a scope this build does not know ranks as read-only.
+    if let Some(caller_scope) = crate::auth::pat_scope(&ctx)
+        && crate::auth::scope_rank(&req.scope) > crate::auth::scope_rank(caller_scope)
+    {
         return Err(StatusCode::FORBIDDEN);
     }
     let expires_at = match req.expires_in_days {

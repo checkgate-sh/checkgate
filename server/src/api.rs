@@ -9,6 +9,7 @@ pub mod impressions;
 mod ingest;
 pub mod integrations;
 pub mod keys;
+pub mod playground;
 pub mod projects;
 pub mod scheduled;
 pub mod segments;
@@ -147,6 +148,7 @@ pub fn read_router() -> Router<AppState> {
         .merge(health::read_router())
         .merge(tokens::read_router())
         .merge(change_requests::read_router())
+        .merge(playground::read_router())
 }
 
 /// Self-service write routes — any authenticated user, no elevated role

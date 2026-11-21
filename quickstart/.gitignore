@@ -1,0 +1,4 @@
+.env
+node/node_modules/
+node/package-lock.json
+python/.venv/

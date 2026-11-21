@@ -65,8 +65,10 @@ export default defineConfig({
         text: "Introduction",
         items: [
           { text: "What is Checkgate?", link: "/guide/what-is-checkgate" },
+          { text: "Five-minute quickstart", link: "/guide/quickstart" },
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Dashboard", link: "/guide/dashboard" },
+          { text: "Evaluation playground", link: "/guide/playground" },
           { text: "Architecture", link: "/guide/architecture" },
           { text: "Roadmap", link: "/roadmap" },
         ],
@@ -85,9 +87,12 @@ export default defineConfig({
         items: [
           { text: "Which SDK do I need?", link: "/sdks/" },
           { text: "Node.js (NAPI)", link: "/sdks/nodejs" },
+          { text: "Express, Fastify, NestJS", link: "/sdks/node-frameworks" },
           { text: "Web (WebAssembly)", link: "/sdks/web" },
           { text: "React Native (JSI)", link: "/sdks/react-native" },
           { text: "Flutter (FFI)", link: "/sdks/flutter" },
+          { text: "Python (PyO3)", link: "/sdks/python" },
+          { text: "OpenFeature (Node.js)", link: "/sdks/openfeature" },
         ],
       },
       {
@@ -99,6 +104,7 @@ export default defineConfig({
           { text: "SSR / Bootstrap", link: "/ecosystem/ssr" },
           { text: "Terraform / OpenTofu", link: "/ecosystem/terraform" },
           { text: "Kubernetes Operator", link: "/ecosystem/kubernetes" },
+          { text: "AI Agents (MCP)", link: "/ecosystem/mcp" },
         ],
       },
       {
@@ -109,10 +115,12 @@ export default defineConfig({
           { text: "Deployment & Recovery", link: "/operations/failure-recovery" },
           { text: "Reliability & Sync", link: "/operations/reliability" },
           { text: "Observability", link: "/operations/observability" },
+          { text: "SDK diagnostics", link: "/operations/sdk-diagnostics" },
           {
             text: "Configuration Consistency",
             link: "/operations/configuration-consistency",
           },
+          { text: "Upgrading to 0.2.0", link: "/operations/upgrading-to-0-2-0" },
           { text: "Upgrading to 0.1.31", link: "/operations/upgrading" },
           { text: "AWS & Cloud", link: "/self-hosting#aws" },
           {

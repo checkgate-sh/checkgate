@@ -5,7 +5,9 @@ Thanks for your interest in contributing. This document covers how to get set up
 ## Prerequisites
 
 - Rust (the toolchain pinned in `rust-toolchain.toml`, installed automatically by rustup)
-- Node.js 20+ (SDKs, CLI, docs; CI uses 22)
+- Node.js 22+ (SDKs, CLI, docs; CI uses 22, 24 and 26)
+- Python 3.11+ (the workspace includes the Python SDK's PyO3 crate, whose build script needs
+  an interpreter of at least 3.11; if `python3` is older, set `PYO3_PYTHON=/path/to/python3.11`)
 - Bun 1.4+ (dashboard)
 - Docker and Docker Compose (for integration tests)
 - `wasm-pack` (browser SDK)

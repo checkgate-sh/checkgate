@@ -186,7 +186,8 @@ fn random_connection_id() -> String {
 
 /// What the stream loop does next.
 enum Step {
-    Forward(String),
+    /// A change event's payload and its revision (absent from old publishers).
+    Forward(String, Option<i64>),
     Wait,
     End(DisconnectReason),
 }
@@ -252,6 +253,8 @@ pub async fn sse_handler(
     let rx = state.flag_tx.subscribe();
     let mut bootstrap = Vec::new();
     let mut flag_count = 0usize;
+    // Highest revision in the replay, for the SDK health page.
+    let mut bootstrap_revision: i64 = -1;
     // One consistent snapshot: each flag's revision must match the segments it
     // is expanded with, and a tombstone must not race the flags it shadows.
     let mut tx = state.db.begin().await.map_err(|_| internal())?;
@@ -276,6 +279,7 @@ pub async fn sse_handler(
                 .map_err(|_| internal())?;
             let revision: i64 = row.try_get("revision").map_err(|_| internal())?;
             let flag = crate::api::segments::expand_flag_with_segments(flag, &segments);
+            bootstrap_revision = bootstrap_revision.max(revision);
             bootstrap.push(crate::api::flags::upsert_message(env_id, &flag, revision));
             flag_count = flag_count.saturating_add(1);
         }
@@ -294,6 +298,7 @@ pub async fn sse_handler(
         for row in tombstones {
             let key: String = row.try_get("key").map_err(|_| internal())?;
             let revision: i64 = row.try_get("revision").map_err(|_| internal())?;
+            bootstrap_revision = bootstrap_revision.max(revision);
             bootstrap.push(crate::api::flags::delete_message(env_id, &key, revision));
         }
     }
@@ -305,6 +310,7 @@ pub async fn sse_handler(
 
     // Register this connection for the SDK health dashboard.
     let connection_id = random_connection_id();
+    let delivered = Arc::new(std::sync::atomic::AtomicI64::new(-1));
     let connected_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -318,6 +324,7 @@ pub async fn sse_handler(
             sdk_key_name: sdk_key_name.clone(),
             client_ip,
             connected_at,
+            last_delivered_revision: Arc::clone(&delivered),
         },
     );
     metrics.sse_connections.inc();
@@ -369,6 +376,7 @@ pub async fn sse_handler(
         // deterministically (instead of guessing when bootstrap finished). Sent on
         // every (re)connect after the full flag set has been replayed.
         yield Ok(Event::default().event("ready").data(flag_count.to_string()));
+        delivered.fetch_max(bootstrap_revision, Ordering::Relaxed);
 
         // Stream live deltas, filtering by environment. A resync closes the
         // stream after a random delay within SSE_RESYNC_SPREAD_MS, so the
@@ -398,7 +406,7 @@ pub async fn sse_handler(
                         EventKind::Upsert | EventKind::Delete
                             if event.env_id.as_ref().is_some_and(|e| allowed_envs.contains(e)) =>
                         {
-                            Step::Forward(event.payload.clone())
+                            Step::Forward(event.payload.clone(), event.revision)
                         }
                         _ => Step::Wait,
                     },
@@ -415,7 +423,12 @@ pub async fn sse_handler(
                 },
             };
             match step {
-                Step::Forward(payload) => yield Ok(Event::default().event("update").data(payload)),
+                Step::Forward(payload, revision) => {
+                    yield Ok(Event::default().event("update").data(payload));
+                    if let Some(revision) = revision {
+                        delivered.fetch_max(revision, Ordering::Relaxed);
+                    }
+                }
                 Step::Wait => {}
                 Step::End(reason) => {
                     guard.reason = reason;
@@ -549,12 +562,18 @@ pub async fn flags_snapshot_handler(
     // shares the bootstrap slots rather than adding its own load.
     let started = Instant::now();
     let Some(permit) = state.sse_limits.bootstrap_permit().await else {
+        state
+            .metrics
+            .snapshot_request(crate::metrics::SnapshotOutcome::busy, revisioned);
         warn!("flags_snapshot: bootstrap queue full — refusing request");
         return Err(unavailable("Server busy; retry shortly."));
     };
     let snapshot = read_snapshot(&state, &env_id, revisioned)
         .await
         .map_err(|e| {
+            state
+                .metrics
+                .snapshot_request(crate::metrics::SnapshotOutcome::error, revisioned);
             warn!(error = %e, "flags_snapshot: failed to read a consistent snapshot");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
@@ -563,6 +582,9 @@ pub async fn flags_snapshot_handler(
         .metrics
         .snapshot_duration
         .observe(started.elapsed().as_secs_f64());
+    state
+        .metrics
+        .snapshot_request(crate::metrics::SnapshotOutcome::ok, revisioned);
 
     info!(
         env_id = %env_id,
@@ -628,6 +650,37 @@ async fn read_snapshot(
     env_id: &str,
     revisioned: bool,
 ) -> Result<Snapshot, String> {
+    let raw = read_raw_snapshot(state, env_id, revisioned).await?;
+    Ok(Snapshot {
+        flags: raw
+            .flags
+            .into_iter()
+            .map(|flag| crate::api::segments::expand_flag_with_segments(flag, &raw.segment_map))
+            .collect(),
+        revisions: raw.revisions,
+        tombstones: raw.tombstones,
+    })
+}
+
+/// One snapshot statement's rows, decoded but not yet segment-expanded.
+pub(crate) struct RawSnapshot {
+    pub(crate) segment_map: std::collections::HashMap<String, Vec<TargetingRule>>,
+    /// Flags as stored, in key order.
+    pub(crate) flags: Vec<checkgate_core::evaluator::Flag>,
+    /// Each flag's revision (same order as `flags`); empty unless revisioned.
+    pub(crate) revisions: Vec<i64>,
+    pub(crate) tombstones: Vec<(String, i64)>,
+}
+
+/// Reads and decodes an environment's snapshot rows with one statement (see
+/// [`read_snapshot`] for why one). Shared by the SDK snapshot and the
+/// evaluation playground, so the playground evaluates exactly what SDKs are
+/// served.
+pub(crate) async fn read_raw_snapshot(
+    state: &AppState,
+    env_id: &str,
+    revisioned: bool,
+) -> Result<RawSnapshot, String> {
     let sql = if revisioned {
         REVISIONED_SNAPSHOT_SQL
     } else {
@@ -673,11 +726,9 @@ async fn read_snapshot(
             }
         }
     }
-    Ok(Snapshot {
-        flags: flags
-            .into_iter()
-            .map(|flag| crate::api::segments::expand_flag_with_segments(flag, &segment_map))
-            .collect(),
+    Ok(RawSnapshot {
+        segment_map,
+        flags,
         revisions,
         tombstones,
     })

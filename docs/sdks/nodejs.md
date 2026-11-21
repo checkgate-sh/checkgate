@@ -98,6 +98,34 @@ key is never in the message), the last known flags keep being served, and callin
 retries. `connect()` also rejects if `disconnect()` is called before it completes. While the server is
 unreachable it keeps retrying; race it with a timeout if startup cannot wait.
 
+### `client.getHealth(): CheckgateHealth`
+
+Detailed diagnostics for health checks, readiness probes and dashboards. Local state only (no
+network call), and it never contains the SDK key, user keys or attributes. The same fields
+exist in the Python SDK's `get_health()` ([SDK diagnostics](../operations/sdk-diagnostics));
+the web, React Native and Flutter SDKs do not have it yet.
+
+```typescript
+app.get('/healthz/flags', (_req, res) => {
+  const h = client.getHealth()
+  const fresh = h.ready && h.configAgeMs !== null && h.configAgeMs < 5 * 60_000
+  res.status(fresh ? 200 : 503).json(h)
+})
+```
+
+| Field | Meaning |
+|---|---|
+| `state`, `lastSyncAt` | as in `getStatus()` |
+| `ready` | a complete flag set from the server has been applied since `connect()` |
+| `source` | `none`, `offline_cache` (only the persisted snapshot so far) or `server` |
+| `flagCount`, `configAgeMs` | flags held; milliseconds since `lastSyncAt` |
+| `lastReceivedRevision`, `lastAppliedRevision` | highest revision seen on the wire, and held |
+| `staleEventsIgnored` | events or snapshot entries rejected as older than what was held |
+| `reconnectAttempts`, `reconnectCount` | consecutive failures now, and reconnects since start |
+| `polling`, `lastPollAt` | poll fallback active, and its last success |
+| `lastError` | `{ message, kind, at }` of the latest sync error (`auth`, `network`, `http`, `parse`, `timeout`); not cleared by a later success — compare `at` with `lastSyncAt` |
+| `offlineCache` | `{ configured, hydrated, lastPersistAt }` |
+
 ### `client.isEnabled(flagKey, userKey, attributes): boolean`
 
 Evaluates a flag for a user. This is a synchronous, in-process call.
@@ -124,6 +152,36 @@ missing.
 ```typescript
 const color = client.getValue('checkout-button-color', userId, {}, 'blue') // string
 ```
+
+### `client.getDetails(flagKey, userKey, attributes): EvaluationDetails | null`
+
+The same local evaluation as `getVariant()`, plus why it resolved that way. Use it for
+debugging and logging; `isEnabled()` stays the fastest call.
+
+```typescript
+const d = client.getDetails('new-checkout', userId, { plan: 'pro' })
+// { enabled: true, value: true, reason: 'TARGETING_MATCH', ruleIndex: 0 }
+```
+
+| `reason` | Meaning | Extra fields |
+|---|---|---|
+| `DISABLED` | The flag is switched off. | |
+| `PREREQUISITE_FAILED` | A prerequisite flag was not satisfied. | `prerequisites` |
+| `TARGETING_MATCH` | A targeting rule matched. | `ruleIndex` |
+| `ROLLOUT_EXCLUDED` | The user is outside the percentage rollout. | `rolloutBucket` (0–99) when hashed |
+| `SPLIT` | Hashing decided: inside a partial rollout, or a weighted variant. | `rolloutBucket`, `variantIndex` |
+| `DEFAULT` | The flag has rules; none matched. | |
+| `STATIC` | No rules, partial rollout or variants: same value for everyone. | |
+
+`prerequisites` lists the flag's own prerequisites in the order they were checked, each with an
+`outcome` (`satisfied`, `unsatisfied`, `not_found`, `limit_exceeded`) and, when evaluated, its
+`result`. Checking stops at the first failure. Returns `null` if the flag does not exist.
+
+### `client.onStatusChange(callback): () => void`
+
+Calls `callback(client.getStatus())` whenever the connection state changes, and after each
+successful poll while in poll fallback. Returns an unsubscribe function. The
+[OpenFeature provider](./openfeature) uses it to report `STALE` and `READY`.
 
 ### `client.track(eventKey, userKey, opts?): void`
 
@@ -187,6 +245,9 @@ stream idle timeout (older servers announce no heartbeat). See
 :::
 
 ## Usage with Express
+
+For Express, Fastify and NestJS, [`@checkgate/node-integrations`](/sdks/node-frameworks) binds
+flags to each request's user and handles startup timeouts and shutdown. Without it:
 
 ```typescript
 import express from 'express'

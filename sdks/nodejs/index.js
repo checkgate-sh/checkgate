@@ -44,17 +44,20 @@ function isStaleEvent(known, revision, isUpsert) {
  * for a poll answered by a server older than 0.1.31, which sends no revisions:
  * the set then replaces everything, exactly as before.
  *
- * Returns `{ flags, revisions }`; revision entries carry `at`, the learn
- * counter value when the client learned them.
+ * Returns `{ flags, revisions, ignored }`; revision entries carry `at`, the
+ * learn counter value when the client learned them, and `ignored` counts the
+ * set's entries that were older than what the client held.
  */
 function mergeFullSet(flags, revisions, incoming, incomingRevisions, startedAt, at) {
-    if (!incomingRevisions) return { flags: new Map(incoming), revisions: new Map() };
+    if (!incomingRevisions) return { flags: new Map(incoming), revisions: new Map(), ignored: 0 };
     const outFlags = new Map();
     const outRevisions = new Map();
+    let ignored = 0;
     const visit = (key) => {
         const held = revisions.get(key);
         const offered = incomingRevisions.get(key);
         if (held && held.at > startedAt && (!offered || !supersedes(offered, held))) {
+            if (offered) ignored++;
             outRevisions.set(key, held);
             if (!held.deleted && flags.has(key)) outFlags.set(key, flags.get(key));
             return;
@@ -70,7 +73,7 @@ function mergeFullSet(flags, revisions, incoming, incomingRevisions, startedAt, 
     for (const key of incoming.keys()) visit(key);
     for (const key of incomingRevisions.keys()) if (!incoming.has(key)) visit(key);
     for (const key of revisions.keys()) if (!incoming.has(key) && !incomingRevisions.has(key)) visit(key);
-    return { flags: outFlags, revisions: outRevisions };
+    return { flags: outFlags, revisions: outRevisions, ignored };
 }
 
 /**
@@ -97,6 +100,23 @@ function parseSnapshot(body) {
         if (!revisions.has(key)) revisions.set(key, { revision: tombstones[key], deleted: true });
     }
     return { flags: body.flags, revisions };
+}
+
+/** The engine's explanation (snake_case JSON) in the SDK's camelCase shape. */
+function toDetails(raw) {
+    const out = { enabled: raw.enabled, value: raw.value, reason: raw.reason };
+    if (raw.rule_index !== undefined) out.ruleIndex = raw.rule_index;
+    if (raw.rollout_bucket !== undefined) out.rolloutBucket = raw.rollout_bucket;
+    if (raw.variant_index !== undefined) out.variantIndex = raw.variant_index;
+    if (Array.isArray(raw.prerequisites)) {
+        out.prerequisites = raw.prerequisites.map((p) => {
+            const check = { flagKey: p.flag_key, outcome: p.outcome };
+            if (p.required_value !== undefined) check.requiredValue = p.required_value;
+            if (p.result !== undefined) check.result = p.result;
+            return check;
+        });
+    }
+    return out;
 }
 
 /** HTTP statuses that mean the SDK key itself is rejected: retrying cannot help. */
@@ -203,7 +223,19 @@ class CheckgateClient {
         this._resolveReady = null;
         this._rejectReady = null;
         this._changeListeners = [];
+        this._statusListeners = [];
         this.sse = null;
+
+        // Diagnostics (see getHealth()). Counters and timestamps only: never
+        // the SDK key, user keys or attributes.
+        this._source = 'none';
+        this._lastReceivedRevision = null;
+        this._staleEventsIgnored = 0;
+        this._reconnectCount = 0;
+        this._lastPollAt = null;
+        this._lastSyncError = null;
+        this._hydratedFromCache = false;
+        this._lastPersistAt = null;
 
         // Connection health (see getStatus()). The watchdog closes a stream
         // that has gone silent: a dropped NAT mapping or a half-open TCP
@@ -275,20 +307,25 @@ class CheckgateClient {
 
         this._userClosed = false;
         this._lastError = null;
-        this._state = this._ready ? 'reconnecting' : 'connecting';
-        this._connectPromise = new Promise((resolve, reject) => {
+        // The promise exists before listeners hear about the new state, so a
+        // listener that calls disconnect() settles it (rejects) instead of
+        // leaving it pending forever.
+        const connecting = new Promise((resolve, reject) => {
             this._resolveReady = resolve;
             this._rejectReady = reject;
         });
+        this._connectPromise = connecting;
         // A caller that does not await connect() must not get an unhandled
         // rejection (which ends a Node process); one that awaits still sees it.
-        this._connectPromise.catch(() => {});
+        connecting.catch(() => {});
+        this._setState(this._ready ? 'reconnecting' : 'connecting');
+        if (this._userClosed) return connecting;
         // Hydrate from the persisted snapshot first so evaluations work offline
         // immediately, then open the live stream.
         this._hydrateFromCache().finally(() => {
             if (!this._userClosed) this._connectDeltas();
         });
-        return this._connectPromise;
+        return connecting;
     }
 
     /**
@@ -320,9 +357,75 @@ class CheckgateClient {
         return { state: this._state, lastSyncAt: this._lastSyncAt, error: this._lastError };
     }
 
+    /**
+     * Diagnostics for health checks and dashboards (schema 1, shared by every
+     * Checkgate SDK). Local state only: it does not contact the server, and
+     * it never contains the SDK key, user keys or attributes.
+     *
+     * @returns {object} see `CheckgateHealth` in index.d.ts.
+     */
+    getHealth() {
+        const now = Date.now();
+        let lastAppliedRevision = null;
+        for (const entry of this._revisions.values()) {
+            if (lastAppliedRevision === null || entry.revision > lastAppliedRevision) {
+                lastAppliedRevision = entry.revision;
+            }
+        }
+        const err = this._lastSyncError;
+        return {
+            schemaVersion: 1,
+            state: this._state,
+            ready: this._ready,
+            source: this._source,
+            flagCount: this._flagCache.size,
+            lastSyncAt: this._lastSyncAt,
+            configAgeMs: this._lastSyncAt === null ? null : Math.max(0, now - this._lastSyncAt),
+            lastReceivedRevision: this._lastReceivedRevision,
+            lastAppliedRevision,
+            staleEventsIgnored: this._staleEventsIgnored,
+            reconnectAttempts: this._reconnectAttempts,
+            reconnectCount: this._reconnectCount,
+            polling: this._polling,
+            lastPollAt: this._lastPollAt,
+            lastError: err ? { message: err.message, kind: err.kind, at: err.at } : null,
+            offlineCache: {
+                configured: !!this.storage,
+                hydrated: this._hydratedFromCache,
+                lastPersistAt: this._lastPersistAt,
+            },
+        };
+    }
+
+    /** Records a synchronization failure for getHealth() (never secrets). */
+    _noteSyncError(kind, message) {
+        this._lastSyncError = { kind, message: String(message), at: Date.now() };
+    }
+
+    /**
+     * A poll failed: record it, and tell status listeners while polling — the
+     * state stays 'polling', so without this nobody would learn that the
+     * flags stopped being refreshed (see onStatusChange).
+     */
+    _pollFailed(kind, message) {
+        this._noteSyncError(kind, message);
+        if (this._state === 'polling') this._notifyStatus();
+    }
+
+    /** Records a revision seen on the wire, applied or not. */
+    _noteRevision(revision) {
+        if (typeof revision === 'number' &&
+            (this._lastReceivedRevision === null || revision > this._lastReceivedRevision)) {
+            this._lastReceivedRevision = revision;
+        }
+    }
+
     _markReady() {
         this._lastSyncAt = Date.now();
         this._ready = true;
+        // While polling, a successful poll is the only sign the flags are
+        // current again (the state stays 'polling'), so report it.
+        if (this._state === 'polling') this._notifyStatus();
         // Also settles a connect() issued after an auth failure, when the
         // client was already ready once.
         const resolve = this._resolveReady;
@@ -353,6 +456,41 @@ class CheckgateClient {
                 cb(flagKey);
             } catch (err) {
                 console.error('[Checkgate] change listener threw:', err);
+            }
+        }
+    }
+
+    /**
+     * Registers a listener invoked with `getStatus()` whenever the connection
+     * state changes (e.g. `'streaming'` → `'reconnecting'`), and after each
+     * poll while in poll fallback, successful or not (`'polling'` stays the
+     * state; `getHealth().lastPollAt` says when one last succeeded). Not
+     * called for heartbeats or individual flag changes (see onChange).
+     *
+     * @param {(status: { state: string, lastSyncAt: number|null, error: Error|null }) => void} callback
+     * @returns {() => void} an unsubscribe function.
+     */
+    onStatusChange(callback) {
+        this._statusListeners.push(callback);
+        return () => {
+            this._statusListeners = this._statusListeners.filter((cb) => cb !== callback);
+        };
+    }
+
+    _setState(state) {
+        if (this._state === state) return;
+        this._state = state;
+        this._notifyStatus();
+    }
+
+    _notifyStatus() {
+        if (this._statusListeners.length === 0) return;
+        const status = this.getStatus();
+        for (const cb of this._statusListeners) {
+            try {
+                cb(status);
+            } catch (err) {
+                console.error('[Checkgate] status listener threw:', err);
             }
         }
     }
@@ -439,10 +577,13 @@ class CheckgateClient {
             // fire only for flags that changed while the stream was down.
             this._applySnapshot(staged, revisions, this._streamStartedAt);
             this._hydrated = true;
+            this._source = 'server';
             // Persist the freshly-bootstrapped full flag set for offline use.
             this._persistCache();
-            this._state = 'streaming';
+            // Ready before the state change, so status listeners already see
+            // isReady() on a first connection.
             this._markReady();
+            this._setState('streaming');
         });
 
         on('update', (e) => {
@@ -451,6 +592,7 @@ class CheckgateClient {
                 event = JSON.parse(e.data);
             } catch (err) {
                 console.error('[Checkgate] Failed to parse delta update:', err);
+                this._noteSyncError('parse', 'A stream event could not be parsed.');
                 return;
             }
             this._applyDelta(event);
@@ -463,6 +605,8 @@ class CheckgateClient {
                 this._failAuth(status);
                 return;
             }
+            if (typeof status === 'number') this._noteSyncError('http', `Stream request failed: HTTP ${status}`);
+            else this._noteSyncError('network', (e && e.message) || 'Stream connection failed.');
             // Take over reconnection so we can apply exponential backoff instead
             // of the library's fixed retry cadence.
             this._scheduleReconnect();
@@ -497,6 +641,7 @@ class CheckgateClient {
                 return;
             }
             console.warn('[Checkgate] Stream silent past its deadline — treating it as dead and reconnecting.');
+            this._noteSyncError('timeout', 'Stream silent past its deadline.');
             this._scheduleReconnect();
         }, ms);
         if (this._watchdog.unref) this._watchdog.unref();
@@ -524,6 +669,7 @@ class CheckgateClient {
     _failAuth(status) {
         const err = new CheckgateAuthError(status);
         console.error(err.message);
+        this._noteSyncError('auth', `SDK key rejected (HTTP ${status}).`);
         this._closeStream();
         if (this._reconnectTimer) {
             clearTimeout(this._reconnectTimer);
@@ -533,8 +679,9 @@ class CheckgateClient {
         this._staged = null;
         this._stagedRevisions = null;
         this._reconnectAttempts = 0;
-        this._state = 'auth_failed';
+        // The error first: status listeners read it from getStatus().
         this._lastError = err;
+        this._setState('auth_failed');
         const reject = this._rejectReady;
         this._resolveReady = null;
         this._rejectReady = null;
@@ -555,15 +702,22 @@ class CheckgateClient {
         if (typeof key !== 'string') return;
         const revision = typeof event.revision === 'number' ? event.revision : null;
 
+        this._noteRevision(revision);
         if (this._staged) {
-            if (isStaleEvent(this._stagedRevisions.get(key), revision, isUpsert)) return;
+            if (isStaleEvent(this._stagedRevisions.get(key), revision, isUpsert)) {
+                this._staleEventsIgnored++;
+                return;
+            }
             if (isUpsert) this._staged.set(key, flag);
             else this._staged.delete(key);
             if (revision !== null) this._stagedRevisions.set(key, { revision, deleted: !isUpsert });
             return;
         }
 
-        if (isStaleEvent(this._revisions.get(key), revision, isUpsert)) return;
+        if (isStaleEvent(this._revisions.get(key), revision, isUpsert)) {
+            this._staleEventsIgnored++;
+            return;
+        }
         if (revision !== null) this._revisions.set(key, { revision, deleted: !isUpsert, at: ++this._learnSeq });
         if (isUpsert) {
             // Pass the full flag (flag_type, default/disabled values, and per-rule
@@ -592,6 +746,7 @@ class CheckgateClient {
         const capped = Math.min(this.maxReconnectDelayMs, base);
         const delay = capped + Math.random() * capped * 0.3; // up to 30% jitter
         this._reconnectAttempts++;
+        this._reconnectCount++;
         // A replay cut short never replaces the live snapshot.
         this._staged = null;
         this._stagedRevisions = null;
@@ -602,7 +757,7 @@ class CheckgateClient {
         if (this._reconnectAttempts >= this.pollFallbackThreshold) {
             this._startPollFallback();
         }
-        this._state = this._polling ? 'polling' : (this._ready ? 'reconnecting' : 'connecting');
+        this._setState(this._polling ? 'polling' : (this._ready ? 'reconnecting' : 'connecting'));
 
         console.warn(`[Checkgate] Stream disconnected — reconnecting in ${Math.round(delay)}ms.`);
         this._reconnectTimer = setTimeout(() => {
@@ -685,20 +840,34 @@ class CheckgateClient {
                     return;
                 }
                 console.warn(`[Checkgate] Poll fallback request failed: HTTP ${res.status}`);
+                this._pollFailed('http', `Poll request failed: HTTP ${res.status}`);
                 return;
             }
             const body = await res.json();
             if (generation !== this._syncGeneration || this._userClosed) return;
-            const { flags, revisions } = parseSnapshot(body);
+            let snapshot;
+            try {
+                snapshot = parseSnapshot(body);
+            } catch (err) {
+                console.warn('[Checkgate] Poll fallback request failed:', err.message);
+                this._pollFailed('parse', err.message);
+                return;
+            }
+            const { flags, revisions } = snapshot;
             const envId = res.headers?.get('X-Checkgate-Environment-Id');
             if (envId) this._envId = envId;
             this._applySnapshot(flags, revisions, startedAt);
             this._hydrated = true;
+            this._source = 'server';
+            this._lastPollAt = Date.now();
             this._startImpressionTimer();
             this._markReady();
         } catch (err) {
             if (generation === this._syncGeneration && !this._userClosed) {
                 console.warn('[Checkgate] Poll fallback request failed:', err && err.message);
+                // A body that is not JSON surfaces here as a SyntaxError.
+                this._pollFailed(err && err.name === 'SyntaxError' ? 'parse' : 'network',
+                    (err && err.message) || 'Poll request failed.');
             }
         }
     }
@@ -719,8 +888,10 @@ class CheckgateClient {
             incoming = new Map();
             for (const flag of flags) incoming.set(flag.key, flag);
         }
+        if (revisions) for (const entry of revisions.values()) this._noteRevision(entry.revision);
         const merged = mergeFullSet(
             this._flagCache, this._revisions, incoming, revisions, startedAt, ++this._learnSeq);
+        this._staleEventsIgnored += merged.ignored;
         const newKeys = new Set();
         const changed = [];
 
@@ -811,6 +982,36 @@ class CheckgateClient {
     getValue(flagKey, userKey, userAttributes = {}, defaultValue = null) {
         const variant = this.getVariant(flagKey, userKey, userAttributes);
         return variant === null ? defaultValue : variant.value;
+    }
+
+    /**
+     * Evaluates a flag and explains the result: `{ enabled, value, reason }`
+     * plus `ruleIndex`, `rolloutBucket`, `variantIndex` and `prerequisites`
+     * when they apply. Same evaluation as getVariant() (same engine code),
+     * locally and without network IO; slightly more work, since it records
+     * the path. Reasons: `DISABLED`, `PREREQUISITE_FAILED`, `TARGETING_MATCH`,
+     * `ROLLOUT_EXCLUDED`, `SPLIT`, `DEFAULT`, `STATIC`.
+     *
+     * @param {string} flagKey
+     * @param {string} userKey
+     * @param {Record<string, string>} [userAttributes={}]
+     * @returns {object|null} `null` if the flag does not exist (or before
+     *          connect() resolved and nothing was hydrated).
+     */
+    getDetails(flagKey, userKey, userAttributes = {}) {
+        if (!this._ready && !this._hydrated) {
+            console.warn('[Checkgate] getDetails() called before connect() resolved. Returning null.');
+            return null;
+        }
+        let raw;
+        try {
+            raw = JSON.parse(this.core.explain(flagKey, userKey, userAttributes));
+        } catch {
+            return null;
+        }
+        if (raw === null) return null;
+        this._recordImpression(flagKey, userKey, this._formatValue(raw.value), userAttributes);
+        return toDetails(raw);
     }
 
     // ---------------------------------------------------------------------
@@ -959,7 +1160,11 @@ class CheckgateClient {
                 this.core.upsertFlagV2(JSON.stringify(flag));
             }
             // Only mark hydrated once the live stream hasn't already taken over.
-            if (!this._ready) this._hydrated = true;
+            if (!this._ready) {
+                this._hydrated = true;
+                this._hydratedFromCache = true;
+                if (this._source === 'none') this._source = 'offline_cache';
+            }
         } catch (err) {
             console.warn('[Checkgate] Failed to hydrate flag cache:', err && err.message);
         }
@@ -971,6 +1176,7 @@ class CheckgateClient {
         try {
             const snapshot = Object.fromEntries(this._flagCache);
             Promise.resolve(this.storage.setItem(this._cacheKey, JSON.stringify(snapshot)))
+                .then(() => { this._lastPersistAt = Date.now(); })
                 .catch((err) => console.warn('[Checkgate] Failed to persist flag cache:', err && err.message));
         } catch (err) {
             console.warn('[Checkgate] Failed to persist flag cache:', err && err.message);
@@ -983,7 +1189,7 @@ class CheckgateClient {
     disconnect() {
         // Stop managed reconnection before tearing down the stream.
         this._userClosed = true;
-        this._state = 'closed';
+        this._setState('closed');
         if (this._reconnectTimer) {
             clearTimeout(this._reconnectTimer);
             this._reconnectTimer = null;

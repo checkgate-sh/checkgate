@@ -1,0 +1,8 @@
+{
+  "name": "checkgate-quickstart-node",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@checkgate/node": ">=0.1.31 <1"
+  }
+}

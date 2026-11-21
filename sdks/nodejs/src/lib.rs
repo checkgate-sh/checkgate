@@ -17,7 +17,7 @@
 #[macro_use]
 extern crate napi_derive;
 
-use checkgate_core::evaluator::{Flag, UserContext, evaluate, evaluate_variant};
+use checkgate_core::evaluator::{Flag, UserContext, evaluate, evaluate_variant, explain};
 use checkgate_core::store::FlagStore;
 use napi::bindgen_prelude::{JsObjectValue, Object};
 use std::collections::{HashMap, HashSet};
@@ -201,5 +201,25 @@ impl CheckgateCore {
         let ctx = user_context(&flag, &self.store, user_key, user_attributes)?;
         let result = evaluate_variant(flag.as_ref(), &ctx, &self.store);
         Ok(serde_json::to_string(&result).unwrap_or_else(|_| "null".to_string()))
+    }
+
+    /// Evaluate a flag and return its explanation as a JSON string: the
+    /// result `{ enabled, value }` plus `reason`, and `rule_index`,
+    /// `rollout_bucket`, `variant_index` and `prerequisites` when they apply
+    /// (see `checkgate_core::evaluator::explain`). Returns `"null"` if the
+    /// flag is not found. Same evaluation code as `get_variant`.
+    #[napi]
+    pub fn explain(
+        &self,
+        flag_key: String,
+        user_key: String,
+        user_attributes: Option<Object<'_>>,
+    ) -> napi::Result<String> {
+        let Some(flag) = self.store.get_flag(&flag_key) else {
+            return Ok("null".to_string());
+        };
+        let ctx = user_context(&flag, &self.store, user_key, user_attributes)?;
+        let explanation = explain(flag.as_ref(), &ctx, &self.store);
+        Ok(serde_json::to_string(&explanation).unwrap_or_else(|_| "null".to_string()))
     }
 }

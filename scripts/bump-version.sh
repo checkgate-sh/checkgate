@@ -29,7 +29,7 @@ SED_INPLACE "s/^version = \".*\"$/version = \"$VERSION\"/" "$ROOT/Cargo.toml"
 echo "  updated Cargo.toml [workspace.package]"
 
 # --- JS SDKs ---
-for pkg in nodejs web react-native; do
+for pkg in nodejs node-integrations openfeature-provider web react-native; do
   FILE="$ROOT/sdks/$pkg/package.json"
   SED_INPLACE "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$FILE"
   echo "  updated sdks/$pkg/package.json"
@@ -41,6 +41,15 @@ for pkg in cli edge ssr; do
   SED_INPLACE "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$FILE"
   echo "  updated $pkg/package.json"
 done
+
+# --- MCP server (its code reads the version from package.json) ---
+SED_INPLACE "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$ROOT/integrations/mcp-server/package.json"
+echo "  updated integrations/mcp-server/package.json"
+
+# --- Python SDK (the wheel's version, and the client's __version__) ---
+SED_INPLACE "s/^version = \".*\"$/version = \"$VERSION\"/" "$ROOT/sdks/python/pyproject.toml"
+SED_INPLACE "s/^__version__ = \".*\"$/__version__ = \"$VERSION\"/" "$ROOT/sdks/python/python/checkgate/_client.py"
+echo "  updated sdks/python/pyproject.toml and checkgate/_client.py __version__"
 
 # --- Dashboard ---
 SED_INPLACE "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$ROOT/dashboard/package.json"

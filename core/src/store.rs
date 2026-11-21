@@ -37,6 +37,32 @@ impl FlagStore {
     pub fn clear(&self) {
         self.flags.clear();
     }
+
+    /// A new store holding the same flags, independent of this one: changes
+    /// to either are not seen by the other. The flags themselves are shared
+    /// (`Arc` clones), so this copies one pointer per flag, never flag data.
+    ///
+    /// Lets a binding build the next version of its flag set beside the one
+    /// being evaluated and swap it in whole (copy-on-write), so a concurrent
+    /// evaluation sees either the old set or the new one, never a mix.
+    #[must_use]
+    pub fn independent_copy(&self) -> Self {
+        Self {
+            flags: Arc::new((*self.flags).clone()),
+        }
+    }
+
+    /// Number of flags held.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.flags.len()
+    }
+
+    /// Whether the store holds no flags.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.flags.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -134,6 +160,28 @@ mod tests {
             store.get_flag("shared").is_none(),
             "original should see the delete"
         );
+    }
+
+    #[test]
+    fn independent_copy_shares_flags_but_not_changes() {
+        let store = FlagStore::new();
+        store.upsert_flag(mk("a", true));
+        let copy = store.independent_copy();
+        assert_eq!(copy.len(), 1);
+        assert!(Arc::ptr_eq(
+            &store.get_flag("a").unwrap(),
+            &copy.get_flag("a").unwrap()
+        ));
+        copy.upsert_flag(mk("b", true));
+        copy.delete_flag("a");
+        assert!(store.get_flag("a").is_some(), "original keeps its flag");
+        assert!(
+            store.get_flag("b").is_none(),
+            "original never sees the copy's write"
+        );
+        assert_eq!(store.len(), 1);
+        assert!(!store.is_empty());
+        assert!(FlagStore::new().is_empty());
     }
 
     #[test]
