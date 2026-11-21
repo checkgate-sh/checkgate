@@ -606,3 +606,26 @@ test('polls ask for ?v=2; a server without revisions gets the old behaviour', as
     assert.equal(client._revisions.size, 0, 'no revisions invented (never revision 0)');
     client.disconnect();
 });
+
+test('onStatusChange reports each state transition once', () => {
+    const client = connectedClient();
+    const seen = [];
+    const off = client.onStatusChange((s) => seen.push(s.state));
+    bootstrap(client, [[{ key: 'f', is_enabled: true }, 1]]);
+    assert.deepEqual(seen, ['streaming']);
+    // A dropped stream schedules a reconnect: one transition, not one per event.
+    client.sse.listeners.error({});
+    assert.deepEqual(seen, ['streaming', 'reconnecting']);
+    client.sse = null;
+    // A listener that throws does not break the client or other listeners.
+    client.onStatusChange(() => { throw new Error('boom'); });
+    const quiet = console.error;
+    console.error = () => {};
+    client.disconnect();
+    console.error = quiet;
+    assert.deepEqual(seen, ['streaming', 'reconnecting', 'closed']);
+    off();
+    client.connect().catch(() => {});
+    assert.deepEqual(seen, ['streaming', 'reconnecting', 'closed'], 'unsubscribed');
+    client.disconnect();
+});

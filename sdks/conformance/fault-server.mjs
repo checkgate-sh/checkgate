@@ -41,6 +41,9 @@ export class FaultServer {
         this.streams = new Set();
         // New connections: 'pass' | 'refuse' (socket destroyed) | 'unavailable' (503)
         this.mode = 'pass';
+        // Streams only answer 503 while snapshots work: a proxy that blocks
+        // long-lived connections (the reason poll fallback exists).
+        this.blockStreams = false;
         this.acceptedKey = sdkKey;
         this.fragment = false;
         this.writeDelayMs = 0;
@@ -190,6 +193,10 @@ export class FaultServer {
 
     _stream(req, res, url) {
         this.counters.streamRequests++;
+        if (this.blockStreams) {
+            res.writeHead(503, { 'Retry-After': '1' }).end('streams blocked');
+            return;
+        }
         if (!this._gate(req, res, url)) return;
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',

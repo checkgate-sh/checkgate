@@ -88,7 +88,7 @@ export default defineConfig({
           { text: "Web (WebAssembly)", link: "/sdks/web" },
           { text: "React Native (JSI)", link: "/sdks/react-native" },
           { text: "Flutter (FFI)", link: "/sdks/flutter" },
-          { text: "Python (PyO3)", link: "/sdks/python" },
+          { text: "OpenFeature (Node.js)", link: "/sdks/openfeature" },
         ],
       },
       {
@@ -110,6 +110,7 @@ export default defineConfig({
           { text: "Deployment & Recovery", link: "/operations/failure-recovery" },
           { text: "Reliability & Sync", link: "/operations/reliability" },
           { text: "Observability", link: "/operations/observability" },
+          { text: "SDK diagnostics", link: "/operations/sdk-diagnostics" },
           {
             text: "Configuration Consistency",
             link: "/operations/configuration-consistency",
