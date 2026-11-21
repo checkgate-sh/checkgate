@@ -194,7 +194,7 @@ export declare class CheckgateClient {
 
   /**
    * Registers a listener called with {@link getStatus} whenever the connection
-   * state changes, and after each successful poll while in poll fallback.
+   * state changes, and after each poll (successful or not) while in poll fallback.
    *
    * @returns an unsubscribe function.
    */

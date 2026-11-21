@@ -307,20 +307,25 @@ class CheckgateClient {
 
         this._userClosed = false;
         this._lastError = null;
-        this._setState(this._ready ? 'reconnecting' : 'connecting');
-        this._connectPromise = new Promise((resolve, reject) => {
+        // The promise exists before listeners hear about the new state, so a
+        // listener that calls disconnect() settles it (rejects) instead of
+        // leaving it pending forever.
+        const connecting = new Promise((resolve, reject) => {
             this._resolveReady = resolve;
             this._rejectReady = reject;
         });
+        this._connectPromise = connecting;
         // A caller that does not await connect() must not get an unhandled
         // rejection (which ends a Node process); one that awaits still sees it.
-        this._connectPromise.catch(() => {});
+        connecting.catch(() => {});
+        this._setState(this._ready ? 'reconnecting' : 'connecting');
+        if (this._userClosed) return connecting;
         // Hydrate from the persisted snapshot first so evaluations work offline
         // immediately, then open the live stream.
         this._hydrateFromCache().finally(() => {
             if (!this._userClosed) this._connectDeltas();
         });
-        return this._connectPromise;
+        return connecting;
     }
 
     /**
@@ -397,6 +402,16 @@ class CheckgateClient {
         this._lastSyncError = { kind, message: String(message), at: Date.now() };
     }
 
+    /**
+     * A poll failed: record it, and tell status listeners while polling — the
+     * state stays 'polling', so without this nobody would learn that the
+     * flags stopped being refreshed (see onStatusChange).
+     */
+    _pollFailed(kind, message) {
+        this._noteSyncError(kind, message);
+        if (this._state === 'polling') this._notifyStatus();
+    }
+
     /** Records a revision seen on the wire, applied or not. */
     _noteRevision(revision) {
         if (typeof revision === 'number' &&
@@ -448,9 +463,9 @@ class CheckgateClient {
     /**
      * Registers a listener invoked with `getStatus()` whenever the connection
      * state changes (e.g. `'streaming'` → `'reconnecting'`), and after each
-     * successful poll while in poll fallback (`'polling'` stays the state, but
-     * `lastSyncAt` shows the flags are current again). Not called for
-     * heartbeats or individual flag changes (see onChange).
+     * poll while in poll fallback, successful or not (`'polling'` stays the
+     * state; `getHealth().lastPollAt` says when one last succeeded). Not
+     * called for heartbeats or individual flag changes (see onChange).
      *
      * @param {(status: { state: string, lastSyncAt: number|null, error: Error|null }) => void} callback
      * @returns {() => void} an unsubscribe function.
@@ -664,8 +679,9 @@ class CheckgateClient {
         this._staged = null;
         this._stagedRevisions = null;
         this._reconnectAttempts = 0;
-        this._setState('auth_failed');
+        // The error first: status listeners read it from getStatus().
         this._lastError = err;
+        this._setState('auth_failed');
         const reject = this._rejectReady;
         this._resolveReady = null;
         this._rejectReady = null;
@@ -824,7 +840,7 @@ class CheckgateClient {
                     return;
                 }
                 console.warn(`[Checkgate] Poll fallback request failed: HTTP ${res.status}`);
-                this._noteSyncError('http', `Poll request failed: HTTP ${res.status}`);
+                this._pollFailed('http', `Poll request failed: HTTP ${res.status}`);
                 return;
             }
             const body = await res.json();
@@ -834,7 +850,7 @@ class CheckgateClient {
                 snapshot = parseSnapshot(body);
             } catch (err) {
                 console.warn('[Checkgate] Poll fallback request failed:', err.message);
-                this._noteSyncError('parse', err.message);
+                this._pollFailed('parse', err.message);
                 return;
             }
             const { flags, revisions } = snapshot;
@@ -850,7 +866,7 @@ class CheckgateClient {
             if (generation === this._syncGeneration && !this._userClosed) {
                 console.warn('[Checkgate] Poll fallback request failed:', err && err.message);
                 // A body that is not JSON surfaces here as a SyntaxError.
-                this._noteSyncError(err && err.name === 'SyntaxError' ? 'parse' : 'network',
+                this._pollFailed(err && err.name === 'SyntaxError' ? 'parse' : 'network',
                     (err && err.message) || 'Poll request failed.');
             }
         }

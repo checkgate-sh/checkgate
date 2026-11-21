@@ -280,6 +280,41 @@ test('initTimeoutMs with an offline cache: STALE on cached flags, READY once con
     }
 });
 
+test('poll fallback: READY while polls succeed, STALE when they keep failing (review F-05)', opts, async () => {
+    const env = await setUp({
+        flags: vectors.flags,
+        providerOptions: { pollFallbackThreshold: 2, pollIntervalMs: 100 },
+    });
+    try {
+        // Streams blocked (a proxy), snapshots fine: the provider stays usable.
+        env.server.blockStreams = true;
+        env.server.severAll();
+        await until(() => env.provider.client.getHealth().lastPollAt !== null && env.client.providerStatus === ProviderStatus.READY);
+        // Now polls fail too: not current anymore, so STALE — while serving.
+        env.server.mode = 'unavailable';
+        await until(() => env.client.providerStatus === ProviderStatus.STALE, 5000);
+        assert.equal(await env.client.getBooleanValue('static-on', false, { targetingKey: 'u' }), true);
+        env.server.mode = 'pass';
+        await until(() => env.client.providerStatus === ProviderStatus.READY, 5000);
+    } finally {
+        await tearDown(env);
+    }
+});
+
+test('an init timeout followed by a rejected key ends FATAL (review F-13)', opts, async () => {
+    const env = await setUp({ flags: vectors.flags, start: false, providerOptions: { initTimeoutMs: 300 } });
+    try {
+        env.server.mode = 'refuse';
+        await assert.rejects(OpenFeature.setProviderAndWait(env.domain, env.provider));
+        assert.equal(env.client.providerStatus, ProviderStatus.ERROR);
+        env.server.setAcceptedKey(null);
+        env.server.mode = 'pass';
+        await until(() => env.client.providerStatus === ProviderStatus.FATAL, 5000);
+    } finally {
+        await tearDown(env);
+    }
+});
+
 test('close disconnects an owned client but never a shared one', opts, async () => {
     const owned = await setUp({ flags: vectors.flags });
     await until(() => owned.server.streams.size === 1);

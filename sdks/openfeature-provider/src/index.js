@@ -114,6 +114,7 @@ class CheckgateProvider {
         this._closed = false;
         this._announced = null; // last lifecycle event emitted: 'ready' | 'stale' | 'error'
         this._staleSince = 0;
+        this._initializing = false;
         this._pendingChanges = null;
         this._unsubscribe = [];
     }
@@ -123,6 +124,7 @@ class CheckgateProvider {
         this._closed = false;
         this._watch();
         if (!this.client.isReady()) {
+            this._initializing = true;
             try {
                 await this._connect();
             } catch (err) {
@@ -142,6 +144,8 @@ class CheckgateProvider {
                     return;
                 }
                 throw new GeneralError(err && err.message ? err.message : String(err));
+            } finally {
+                this._initializing = false;
             }
         }
         this._initialized = true;
@@ -192,10 +196,7 @@ class CheckgateProvider {
 
     _onStatus({ state, error, lastSyncAt }) {
         if (this._closed) return;
-        // 'polling' is entered before any poll has succeeded; it shows
-        // current flags only once a sync lands after the provider went stale.
-        const fresh = state === 'streaming' ||
-            (state === 'polling' && lastSyncAt !== null && lastSyncAt >= this._staleSince);
+        const fresh = state === 'streaming' || (state === 'polling' && this._pollingFresh(lastSyncAt));
         if (fresh && this.client.isReady()) {
             // Recovered (or became ready after a timed-out initialize).
             if (this._announced !== 'ready') {
@@ -207,6 +208,13 @@ class CheckgateProvider {
             this._announce('stale', ProviderEvents.Stale, {
                 message: `Checkgate connection ${state}; serving the last known flags.`,
             });
+        } else if (state === 'auth_failed' && !this._initialized && !this._initializing) {
+            // After a timed-out initialize: the key will not become valid by
+            // retrying, as when it is rejected during initialize — FATAL.
+            this._announce('error', ProviderEvents.Error, {
+                message: error && error.message ? error.message : 'SDK key rejected',
+                errorCode: ErrorCode.PROVIDER_FATAL,
+            });
         } else if (state === 'auth_failed' && this._initialized) {
             // Flags already held keep being served, so not FATAL: evaluations
             // continue while the key is fixed and connect() retried.
@@ -215,6 +223,21 @@ class CheckgateProvider {
                 errorCode: ErrorCode.GENERAL,
             });
         }
+    }
+
+    /**
+     * Whether a client in poll fallback is keeping its flags current: a poll
+     * succeeded after the provider went stale, and recently (within two poll
+     * intervals). 'polling' is entered before any poll succeeds and stays the
+     * state when polls start failing, so the state alone says nothing.
+     */
+    _pollingFresh(lastSyncAt) {
+        if (typeof this.client.getHealth !== 'function') {
+            return lastSyncAt !== null && lastSyncAt >= this._staleSince;
+        }
+        const { lastPollAt } = this.client.getHealth();
+        const interval = Number(this.client.pollIntervalMs) > 0 ? Number(this.client.pollIntervalMs) : 30000;
+        return lastPollAt !== null && lastPollAt >= this._staleSince && Date.now() - lastPollAt <= 2 * interval;
     }
 
     _announce(kind, event, details) {

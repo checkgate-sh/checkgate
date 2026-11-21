@@ -629,3 +629,27 @@ test('onStatusChange reports each state transition once', () => {
     assert.deepEqual(seen, ['streaming', 'reconnecting', 'closed'], 'unsubscribed');
     client.disconnect();
 });
+
+test('status listeners see the error of auth_failed (review F-10)', async () => {
+    const client = newClient({ reportImpressions: false });
+    const seen = [];
+    client.onStatusChange((s) => seen.push([s.state, s.error && s.error.name]));
+    const pending = client.connect();
+    await new Promise((r) => setImmediate(r));
+    client.sse.listeners.error({ type: 'error', code: 401 });
+    await assert.rejects(pending);
+    assert.deepEqual(seen.at(-1), ['auth_failed', 'CheckgateAuthError']);
+    client.disconnect();
+});
+
+test('a listener that disconnects while connecting settles connect() (review F-11)', async () => {
+    const client = newClient({ reportImpressions: false });
+    client.onStatusChange((s) => { if (s.state === 'connecting') client.disconnect(); });
+    const result = await Promise.race([
+        client.connect().then(() => 'resolved', () => 'rejected'),
+        new Promise((r) => setTimeout(() => r('pending'), 500)),
+    ]);
+    assert.equal(result, 'rejected');
+    assert.equal(client.getStatus().state, 'closed');
+    assert.equal(client.sse, null, 'no stream opened after the disconnect');
+});

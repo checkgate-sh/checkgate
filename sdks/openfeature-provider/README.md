@@ -45,7 +45,7 @@ Full documentation: [OpenFeature provider](https://checkgate-sh.github.io/checkg
 ```bash
 (cd ../nodejs && npm ci && npm run build)   # the native engine
 npm ci && npm run typecheck && npm test
-node test/bench.mjs                          # provider overhead vs. direct SDK calls
+node bench/overhead.mjs                        # provider overhead vs. direct SDK calls
 ```
 
 Apache-2.0
