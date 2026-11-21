@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import queue
+import select
 import socket
 import threading
 import time
@@ -273,10 +274,10 @@ class FakeServer:
 
 
 def _peer_closed(conn: socket.socket) -> bool:
+    """Whether the client hung up (portable: no MSG_DONTWAIT on Windows)."""
     try:
-        return conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
-    except (BlockingIOError, InterruptedError):
-        return False
+        readable, _, _ = select.select([conn], [], [], 0)
+        return bool(readable) and conn.recv(1, socket.MSG_PEEK) == b""
     except OSError:
         return True
 
