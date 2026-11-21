@@ -1,0 +1,26 @@
+[package]
+name = "checkgate-python"
+version.workspace = true
+license.workspace = true
+edition = "2024"
+publish = false
+description = "Checkgate's Rust evaluation engine as a CPython extension module (checkgate._core)"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+# The extension module is tested from Python (sdks/python/tests): a Rust test
+# binary would have to link libpython, which `cargo test --workspace` cannot
+# assume on every machine. Clippy still checks every line.
+test = false
+doctest = false
+
+[dependencies]
+# abi3-py311: one wheel per platform for CPython 3.11 and every later 3.x.
+pyo3 = { version = "0.30.1", features = ["abi3-py311"] }
+serde = "1.0"
+serde_json = "1.0"
+checkgate-core = { version = "0.1.0", path = "../../core" }
+
+[lints]
+workspace = true

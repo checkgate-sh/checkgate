@@ -2,13 +2,15 @@
 // (adapters.mjs) against a running Checkgate server, through an HTTP proxy
 // that can sever, stall, or refuse only `/stream`.
 //
-//   node sdks/conformance/live.mjs [node|web|react-native|flutter|all]
+//   node sdks/conformance/live.mjs [node|web|react-native|flutter|python|all]
 //
 // Env: CHECKGATE_URL          the server (default http://127.0.0.1:3000); run it
 //                             with SSE_HEARTBEAT_INTERVAL_SECS=1
 //      CHECKGATE_SETUP_TOKEN  first-run setup of a fresh database, or
 //      CHECKGATE_E2E_SESSION  a JSON file to reuse (written after setup)
 //      CHECKGATE_FLUTTER_LIB  the host build of the Flutter engine
+//      PYTHON                 an interpreter with the checkgate package installed
+//                             (default sdks/python/.venv/bin/python)
 //
 // scripts/sdk-live-e2e.sh starts a server on a fresh database and runs this.
 // Prints one JSON line per check and exits non-zero if any failed.
