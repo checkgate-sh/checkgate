@@ -337,6 +337,19 @@ jobs:
         with:
           channel: stable
 
+      # The Python SDK joins the live suite: scripts/sdk-live-e2e.sh expects
+      # the package installed in sdks/python/.venv.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Python SDK for the live suite
+        run: |
+          python -m venv sdks/python/.venv
+          sdks/python/.venv/bin/pip install "maturin>=1.9.4,<2"
+          sdks/python/.venv/bin/maturin build --release --manifest-path sdks/python/Cargo.toml --out dist-python
+          sdks/python/.venv/bin/pip install dist-python/*.whl
+
       - name: Live end-to-end, every SDK
         env:
           PGPASSWORD: postgres
