@@ -7,7 +7,7 @@
 //!
 //! # Concurrency
 //!
-//! One [`Engine`] is shared by every Python thread of a process. Evaluations
+//! One `Engine` is shared by every Python thread of a process. Evaluations
 //! read the current flag set through an `Arc` taken under a read lock held
 //! only for that clone, then evaluate without the GIL. Writers build the next
 //! flag set beside the live one and swap it in whole (copy-on-write, see
