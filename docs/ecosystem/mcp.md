@@ -11,7 +11,7 @@ lets an AI agent — Claude Desktop, Claude Code, or any MCP client — work wit
 - **read**: projects, environments, flags, targeting rules explained in plain language, flag
   dependencies, recent audit events, a flag compared across two environments, change requests,
   and SDK connection counts;
-- **propose** (opt-in): draft new flags and propose changes — which Checkgate records as
+- **propose** (opt-in): propose changes to existing flags — which Checkgate records as
   **change requests that a person must approve**. The agent can never apply, approve or reject a
   change.
 
@@ -26,11 +26,12 @@ Three layers, from the one that matters most:
    token with scope **`propose`**. With it, the Checkgate server itself:
    - turns every flag `PATCH` into a **pending change request** (`202`) — in every environment,
      whether or not it requires approval;
-   - allows creating only **new, disabled** flags (an existing key is `409`; an enabled flag is
-     `422`);
    - lets the token withdraw only **its owner's own** pending requests;
-   - refuses everything else that writes with `403`: approve, reject, delete, promote, archive,
-     segments, environments, keys, users, webhooks, tokens.
+   - refuses everything else that writes with `403`: creating a flag, approve, reject, delete,
+     promote, archive, segments, environments, keys, users, webhooks, tokens. Creating is refused
+     because a new flag is served to SDKs immediately — even a disabled one makes code that
+     already reads that key get `false` instead of its own default, with no review. People create
+     flags; agents propose changes to them.
 
    This holds for raw HTTP too — it does not depend on the MCP server behaving. Project roles
    still apply (a viewer's token cannot propose), and the requester can never approve their own
@@ -139,7 +140,6 @@ approval, so open the change-request list for those environments too.
 | `compare_flag_across_environments` | read | Evaluation-relevant vs metadata differences between two environments. |
 | `list_change_requests` | read | Change requests, by status. |
 | `sdk_connection_summary` | read | Live SDK connections per environment (counts only, no addresses). |
-| `create_draft_flag` | propose | A new flag, always disabled; never overwrites. |
 | `propose_flag_change` | propose | A pending change request for an existing flag. |
 | `propose_rollout_change` | propose | Shortcut: a pending change to the rollout percentage (0–100). |
 | `cancel_change_request` | propose | Withdraw one of your own pending change requests. |
@@ -148,9 +148,8 @@ Every input is validated with bounded lengths and ranges before anything is sent
 
 ## Limits and caveats
 
-- **Creating a flag is visible immediately**, even disabled: SDKs that already evaluate that key
-  start receiving it (served value `false`) instead of their code default. Draft flags under keys
-  no running code reads yet.
+- **Agents cannot create flags** (no tool, and `propose` tokens get `403`). Ask a person to create
+  the flag, disabled, then propose its configuration with `propose_flag_change`.
 - The propose guard looks up the token's scope from `GET /api/tokens` (the token list shows each
   token's display prefix and scope). If it cannot tell — for example two of your tokens share a
   prefix with different scopes — it assumes "not propose" and refuses. With a non-`propose` token

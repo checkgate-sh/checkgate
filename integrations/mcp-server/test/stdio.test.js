@@ -32,7 +32,7 @@ test('stdio: CHECKGATE_MCP_WRITE=1 registers the proposal tools; SIGTERM exits',
     const p = start({ CHECKGATE_URL: fake.url, CHECKGATE_TOKEN: TOKENS.propose, CHECKGATE_MCP_WRITE: '1' })
     await initialize(p)
     const names = (await p.send('tools/list', {})).result.tools.map((t) => t.name)
-    for (const n of ['create_draft_flag', 'propose_flag_change', 'propose_rollout_change', 'cancel_change_request']) assert.ok(names.includes(n), n)
+    for (const n of ['propose_flag_change', 'propose_rollout_change', 'cancel_change_request']) assert.ok(names.includes(n), n)
     const call = await p.send('tools/call', { name: 'propose_rollout_change', arguments: { environment_id: E_OPEN, key: 'checkout', rollout_percentage: 10 } })
     assert.equal(call.result.structuredContent.data.outcome, 'pending_review')
     p.child.kill('SIGTERM')

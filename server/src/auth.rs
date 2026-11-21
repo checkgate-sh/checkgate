@@ -60,9 +60,8 @@ pub(crate) const KNOWN_SCOPES: [&str; 3] = [SCOPE_READ_ONLY, SCOPE_PROPOSE, SCOP
 
 /// How capable a scope is. The scopes form a chain: every route a
 /// `read_only` token may call, a `propose` token may too, and a `read_write`
-/// token can do at least what a `propose` token can (create a flag, change
-/// one — directly where no approval is required — and withdraw its own
-/// request). A token may mint another only when the new one ranks no higher.
+/// token can do at least what a `propose` token can (change a flag —
+/// directly where no approval is required — and withdraw its own request). A token may mint another only when the new one ranks no higher.
 /// An unknown scope ranks with `read_only` (fail closed).
 pub(crate) fn scope_rank(scope: &str) -> u8 {
     match scope {
@@ -77,14 +76,14 @@ pub(crate) fn scope_rank(scope: &str) -> u8 {
 ///
 /// - `PATCH /api/environments/{env}/flags/{key}` always queues a pending
 ///   change request (`202`), whether or not the environment requires approval;
-/// - `POST /api/environments/{env}/flags` only creates a *new*, disabled flag
-///   (`409` if the key exists, `422` if the body enables it or sets a
-///   `disabled_value`);
 /// - `DELETE /api/environments/{env}/change-requests/{id}` only withdraws the
 ///   token owner's own pending request (no admin override).
 ///
-/// Anything else that writes — approve, reject, delete, promote, archive,
-/// segments, environments, keys, users, webhooks, tokens — is `403`.
+/// Anything else that writes — creating a flag, approve, reject, delete,
+/// promote, archive, segments, environments, keys, users, webhooks, tokens —
+/// is `403`. Creating is excluded because a new flag is served to SDKs at
+/// once: even a disabled one makes code that already reads the key get
+/// `false` instead of its own default, with no review.
 ///
 /// `path` may still carry the `/api` prefix (it does in `require_auth`, not
 /// inside the nested router). Segments are compared exactly, without
@@ -100,7 +99,6 @@ fn propose_route_allowed(method: &Method, path: &str) -> bool {
     let param = |s: &str| !s.is_empty();
     match (method, rest) {
         (&Method::PATCH, ["environments", env, "flags", key]) => param(env) && param(key),
-        (&Method::POST, ["environments", env, "flags"]) => param(env),
         (&Method::DELETE, ["environments", env, "change-requests", id]) => param(env) && param(id),
         _ => false,
     }
@@ -499,18 +497,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn propose_routes_are_exactly_three() {
+    fn propose_routes_are_exactly_two() {
         for (method, path) in [
             (Method::PATCH, "/api/environments/e1/flags/new-ui"),
             (Method::PATCH, "/environments/e1/flags/new-ui"),
-            (Method::POST, "/api/environments/e1/flags"),
-            (Method::POST, "/environments/e1/flags"),
             (Method::DELETE, "/api/environments/e1/change-requests/7"),
             (Method::DELETE, "/environments/e1/change-requests/7"),
         ] {
             assert!(propose_route_allowed(&method, path), "{method} {path}");
         }
         for (method, path) in [
+            // Creating a flag serves it to SDKs at once (F-01).
+            (Method::POST, "/api/environments/e1/flags"),
+            (Method::POST, "/environments/e1/flags"),
             (Method::DELETE, "/api/environments/e1/flags/new-ui"),
             (Method::PUT, "/api/environments/e1/flags/new-ui"),
             (Method::POST, "/api/environments/e1/flags/new-ui/promote"),

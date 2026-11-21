@@ -8,7 +8,7 @@ const READ_TOOLS = [
   'flag_dependencies', 'flag_audit_events', 'compare_flag_across_environments', 'list_change_requests',
   'sdk_connection_summary',
 ]
-const WRITE_TOOLS = ['create_draft_flag', 'propose_flag_change', 'propose_rollout_change', 'cancel_change_request']
+const WRITE_TOOLS = ['propose_flag_change', 'propose_rollout_change', 'cancel_change_request']
 const FORBIDDEN_TOOLS = /approve|reject|delete|promote|archive|http|request|raw/i
 
 function writes(fake) {
@@ -174,7 +174,6 @@ test('propose guard: a read_write token never sends a PATCH to an unprotected en
     for (const [name, args] of [
       ['propose_flag_change', { environment_id: E_OPEN, key: 'checkout', changes: { is_enabled: false } }],
       ['propose_rollout_change', { environment_id: E_OPEN, key: 'checkout', rollout_percentage: 0 }],
-      ['create_draft_flag', { environment_id: E_OPEN, key: 'draft-x' }],
       ['cancel_change_request', { environment_id: E_OPEN, change_request_id: 1 }],
     ]) {
       const r = await s.call(name, args)
@@ -196,10 +195,6 @@ test('guard off + read_write on an unprotected environment: the direct apply is 
     assert.notEqual(r.isError, true)
     assert.equal(r.structuredContent.data.outcome, 'applied_immediately')
     assert.match(r.content[0].text, /^WARNING: Checkgate APPLIED THIS CHANGE IMMEDIATELY \(HTTP 200\)/)
-    // create_draft_flag still never overwrites, even where the server would.
-    const c = await s.call('create_draft_flag', { environment_id: E_OPEN, key: 'checkout' })
-    assert.equal(c.structuredContent.error.kind, 'conflict')
-    assert.equal(writes(s.fake).filter((x) => x.method === 'POST').length, 0)
   } finally { await s.close() }
 })
 
@@ -213,24 +208,12 @@ test('unknown scope (ambiguous or not a PAT) counts as not-propose', async () =>
   } finally { await s.close() }
 })
 
-test('create_draft_flag always sends a disabled flag', async () => {
+test('no tool creates a flag (a new flag is served to SDKs at once)', async () => {
   const s = await connect({ write: true })
   try {
-    const r = await s.call('create_draft_flag', {
-      environment_id: E_OPEN, key: 'agent-draft', description: 'new', flag_type: 'string', default_value: 'v2', tags: ['agent'],
-    })
-    assert.notEqual(r.isError, true, r.content[0].text)
-    assert.equal(r.structuredContent.data.outcome, 'created_disabled')
-    const post = writes(s.fake).find((x) => x.method === 'POST')
-    assert.equal(post.body.is_enabled, false)
-    assert.equal(post.body.rollout_percentage, null)
-    assert.ok(!('disabled_value' in post.body))
-    // The schema has no way to ask for an enabled flag.
-    const bad = await s.call('create_draft_flag', { environment_id: E_OPEN, key: 'x2', is_enabled: true })
-    assert.equal(bad.isError, true)
-    // Existing key → 409 from the server, surfaced as conflict.
-    const dup = await s.call('create_draft_flag', { environment_id: E_OPEN, key: 'checkout' })
-    assert.equal(dup.structuredContent.error.kind, 'conflict')
+    const names = (await s.client.listTools()).tools.map((t) => t.name)
+    assert.ok(!names.includes('create_draft_flag'))
+    for (const name of names) assert.doesNotMatch(name, /create|delete|approve|reject|promote|archive/, name)
   } finally { await s.close() }
 })
 
@@ -261,8 +244,6 @@ test('schema bounds are enforced before anything is sent', async () => {
       ['propose_flag_change', { environment_id: E_OPEN, key: 'checkout', changes: { description: 'd'.repeat(1001) } }],
       ['propose_flag_change', { environment_id: E_OPEN, key: 'checkout', changes: { tags: Array.from({ length: 21 }, (_, i) => `t${i}`) } }],
       ['cancel_change_request', { environment_id: E_OPEN, change_request_id: 0 }],
-      ['create_draft_flag', { environment_id: E_OPEN, key: 'x', flag_type: 'float' }],
-      ['create_draft_flag', { environment_id: E_OPEN, key: 'x', owner_email: 'not an email' }],
     ]
     const before = s.fake.state.requests.length
     for (const [name, args] of bad) {
