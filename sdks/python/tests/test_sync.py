@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import threading
 import time
 from typing import Any, Callable
@@ -553,3 +554,57 @@ def test_invalid_options() -> None:
         CheckgateClient("http://x", reconnect_delay_ms=0)
     with pytest.raises(TypeError):
         CheckgateClient("http://x", storage=object())  # type: ignore[arg-type]
+
+
+def test_hostile_offline_cache_never_stops_the_connect(server: FakeServer, make_client: Make) -> None:
+    # Review F-04: only ValueError was caught, so a cache whose parse raised
+    # anything else (deep nesting -> RecursionError) skipped opening the
+    # stream and connect() never settled.
+    c0 = CheckgateClient(server.url, "sk_test")
+    server.upsert(flag("a"))
+    for raw in ("[" * 100_000 + "]" * 100_000, '{"a": ' + "[" * 50_000 + "]" * 50_000 + "}"):
+        storage = MemoryStorage()
+        storage.set_item(c0._cache_key, raw)
+        c = make_client(server.url, storage=storage)
+        c.connect(timeout=5)
+        assert c.is_enabled("a", "u")
+        assert c.get_health()["offline_cache"]["hydrated"] is False
+
+    class Exploding(MemoryStorage):
+        def get_item(self, key: str) -> Any:
+            raise TypeError("storage bug")
+
+    c = make_client(server.url, storage=Exploding())
+    c.connect(timeout=5)
+    assert c.is_enabled("a", "u")
+
+
+def test_delay_options_are_bounded() -> None:
+    # Review F-03: stream_idle_timeout_ms=inf used to pass and then stop the
+    # sync thread for good (a timer beyond threading.TIMEOUT_MAX).
+    for bad in (math.inf, -1, math.nan, 2**31, "30"):
+        with pytest.raises(ValueError):
+            CheckgateClient("http://x", stream_idle_timeout_ms=bad)  # type: ignore[arg-type]
+    for name in ("reconnect_delay_ms", "max_reconnect_delay_ms", "poll_interval_ms",
+                 "connect_timeout_ms", "request_timeout_ms"):
+        with pytest.raises(ValueError):
+            CheckgateClient("http://x", **{name: math.inf})
+        with pytest.raises(ValueError):
+            CheckgateClient("http://x", **{name: 2**31})
+    CheckgateClient("http://x", stream_idle_timeout_ms=0).close()
+    CheckgateClient("http://x", stream_idle_timeout_ms=2**31 - 1, poll_interval_ms=2**31 - 1).close()
+
+
+def test_a_huge_timer_does_not_end_the_sync_thread() -> None:
+    from checkgate._loop import Loop
+
+    loop = Loop("t")
+    loop.start()
+    ran = threading.Event()
+    loop.call_later(1e12, lambda: None)  # far beyond threading.TIMEOUT_MAX seconds
+    loop.call_soon(ran.set)
+    assert ran.wait(2)
+    ran.clear()
+    loop.call_soon(ran.set)
+    assert ran.wait(2), "the loop must still run tasks after waiting on a huge timer"
+    loop.stop()
