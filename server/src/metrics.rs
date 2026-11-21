@@ -88,6 +88,58 @@ pub struct RejectLabels {
     pub reason: RejectReason,
 }
 
+/// How a `GET /flags/snapshot` (SDK poll fallback) request ended.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+#[allow(
+    non_camel_case_types,
+    reason = "label values are rendered from variant names"
+)]
+pub enum SnapshotOutcome {
+    /// Served.
+    ok,
+    /// Refused: no bootstrap slot (503).
+    busy,
+    /// The read failed (500).
+    error,
+}
+
+/// The response format a snapshot request asked for.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+#[allow(
+    non_camel_case_types,
+    reason = "label values are rendered from variant names"
+)]
+pub enum SnapshotFormat {
+    /// `?v=2`: revisions and tombstones (SDKs from 0.1.31).
+    v2,
+    /// The bare array (older SDKs).
+    legacy,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct SnapshotLabels {
+    pub outcome: SnapshotOutcome,
+    pub format: SnapshotFormat,
+}
+
+/// How an evaluation-playground request ended.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+#[allow(
+    non_camel_case_types,
+    reason = "label values are rendered from variant names"
+)]
+pub enum PlaygroundOutcome {
+    ok,
+    not_found,
+    invalid,
+    error,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct PlaygroundLabels {
+    pub outcome: PlaygroundOutcome,
+}
+
 /// What made this instance tell its SSE clients to re-bootstrap.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
 #[allow(
@@ -242,6 +294,10 @@ pub struct Metrics {
     pub sse_active: Gauge,
     pub sse_bootstrap_duration: Histogram,
     pub snapshot_duration: Histogram,
+    /// `GET /flags/snapshot` requests by outcome and format: poll-fallback
+    /// activity, which a rise in signals SDKs that cannot hold a stream.
+    pub snapshot_requests: Family<SnapshotLabels, Counter>,
+    pub playground_evaluations: Family<PlaygroundLabels, Counter>,
 
     pub db_pool_connections: Gauge,
     pub db_pool_idle_connections: Gauge,
@@ -406,6 +462,18 @@ impl Metrics {
             "Time to read a /flags/snapshot response, including waiting for a slot",
             Unit::Seconds,
             snapshot_duration.clone(),
+        );
+        let snapshot_requests = Family::<SnapshotLabels, Counter>::default();
+        r.register(
+            p("snapshot_requests"),
+            "GET /flags/snapshot requests (SDK poll fallback), by outcome and format",
+            snapshot_requests.clone(),
+        );
+        let playground_evaluations = Family::<PlaygroundLabels, Counter>::default();
+        r.register(
+            p("playground_evaluations"),
+            "Evaluation playground requests, by outcome",
+            playground_evaluations.clone(),
         );
 
         let db_pool_connections = Gauge::default();
@@ -572,6 +640,8 @@ impl Metrics {
             sse_active,
             sse_bootstrap_duration,
             snapshot_duration,
+            snapshot_requests,
+            playground_evaluations,
             db_pool_connections,
             db_pool_idle_connections,
             db_pool_max_connections,
@@ -593,6 +663,23 @@ impl Metrics {
                 .get_or_create(&AnalyticsRowLabels { table, outcome })
                 .inc_by(u64::try_from(rows).unwrap_or(u64::MAX));
         }
+    }
+
+    pub fn snapshot_request(&self, outcome: SnapshotOutcome, revisioned: bool) {
+        let format = if revisioned {
+            SnapshotFormat::v2
+        } else {
+            SnapshotFormat::legacy
+        };
+        self.snapshot_requests
+            .get_or_create(&SnapshotLabels { outcome, format })
+            .inc();
+    }
+
+    pub fn playground(&self, outcome: PlaygroundOutcome) {
+        self.playground_evaluations
+            .get_or_create(&PlaygroundLabels { outcome })
+            .inc();
     }
 
     pub fn resync(&self, trigger: ResyncTrigger) {
