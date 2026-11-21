@@ -14,7 +14,9 @@ from fake_server import FakeServer
 from checkgate import CheckgateClient
 from checkgate._core import Engine
 
-DOC = json.loads(VECTORS.read_text())
+# UTF-8 explicitly: the default is the locale encoding (cp1252 on Windows),
+# which garbles the non-ASCII user key of the `unicode-user-key` case.
+DOC = json.loads(VECTORS.read_text(encoding="utf-8"))
 CASES = DOC["cases"]
 OPTIONAL = ("rule_index", "rollout_bucket", "variant_index")
 
