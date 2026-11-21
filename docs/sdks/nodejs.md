@@ -98,6 +98,33 @@ key is never in the message), the last known flags keep being served, and callin
 retries. `connect()` also rejects if `disconnect()` is called before it completes. While the server is
 unreachable it keeps retrying; race it with a timeout if startup cannot wait.
 
+### `client.getHealth(): CheckgateHealth`
+
+Detailed diagnostics for health checks, readiness probes and dashboards. Local state only (no
+network call), and it never contains the SDK key, user keys or attributes. The same fields
+exist in every Checkgate SDK ([SDK diagnostics](../operations/sdk-diagnostics)).
+
+```typescript
+app.get('/healthz/flags', (_req, res) => {
+  const h = client.getHealth()
+  const fresh = h.ready && h.configAgeMs !== null && h.configAgeMs < 5 * 60_000
+  res.status(fresh ? 200 : 503).json(h)
+})
+```
+
+| Field | Meaning |
+|---|---|
+| `state`, `lastSyncAt` | as in `getStatus()` |
+| `ready` | a complete flag set from the server has been applied since `connect()` |
+| `source` | `none`, `offline_cache` (only the persisted snapshot so far) or `server` |
+| `flagCount`, `configAgeMs` | flags held; milliseconds since `lastSyncAt` |
+| `lastReceivedRevision`, `lastAppliedRevision` | highest revision seen on the wire, and held |
+| `staleEventsIgnored` | events or snapshot entries rejected as older than what was held |
+| `reconnectAttempts`, `reconnectCount` | consecutive failures now, and reconnects since start |
+| `polling`, `lastPollAt` | poll fallback active, and its last success |
+| `lastError` | `{ message, kind, at }` of the latest sync error (`auth`, `network`, `http`, `parse`, `timeout`); not cleared by a later success — compare `at` with `lastSyncAt` |
+| `offlineCache` | `{ configured, hydrated, lastPersistAt }` |
+
 ### `client.isEnabled(flagKey, userKey, attributes): boolean`
 
 Evaluates a flag for a user. This is a synchronous, in-process call.
