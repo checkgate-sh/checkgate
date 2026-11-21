@@ -582,6 +582,60 @@ jobs:
           path: conformance-traces
           retention-days: 30
 
+  sdk-python:
+    name: Python SDK tests (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The wheel is abi3 (CPython 3.11+): test the oldest and the newest.
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # Build the release wheel and test the installed wheel, not the source
+      # tree: what users install is what is tested.
+      - name: Build and install the wheel
+        run: |
+          python -m venv sdks/python/.venv
+          sdks/python/.venv/bin/pip install "maturin>=1.9.4,<2" pytest
+          sdks/python/.venv/bin/maturin build --release --manifest-path sdks/python/Cargo.toml --out dist-python
+          sdks/python/.venv/bin/pip install dist-python/*.whl
+
+      # Unit tests, the shared evaluation vectors, the sync state machine
+      # against a local fake server, concurrency and fork safety.
+      - name: Tests
+        run: sdks/python/.venv/bin/python -m pytest sdks/python/tests -q
+
+      # The shared SSE fault-injection suite (sdks/conformance), driving the
+      # Python client with the real Rust engine.
+      - name: SSE fault injection (CI seeds)
+        env:
+          PYTHON: ${{ github.workspace }}/sdks/python/.venv/bin/python
+          CONFORMANCE_TRACE_DIR: ${{ github.workspace }}/conformance-traces
+        run: node --test --test-concurrency=1 sdks/conformance/python.mjs
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: conformance-traces-python-${{ matrix.python }}
+          path: conformance-traces
+          retention-days: 30
+
   # ---------------------------------------------------------------------------
   # Go integrations — shared client, Terraform provider, Kubernetes operator
   # ---------------------------------------------------------------------------
