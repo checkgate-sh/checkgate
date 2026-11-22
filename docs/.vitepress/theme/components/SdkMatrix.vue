@@ -8,6 +8,7 @@ import { packages, statusLabel, type Package } from '../../data/release'
 const props = defineProps<{ group?: Package['group'] }>()
 const rows = computed(() => packages.filter((p) => !props.group || p.group === props.group))
 const published = (p: Package) => ['npm', 'pub', 'pypi'].includes(p.registry.kind)
+const notes = (p: Package) => [('note' in p.registry ? p.registry.note : ''), p.limits].filter(Boolean).join(' ')
 </script>
 
 <template>
@@ -18,15 +19,16 @@ const published = (p: Package) => ['npm', 'pub', 'pypi'].includes(p.registry.kin
           <th scope="col">For</th>
           <th scope="col">Package</th>
           <th scope="col">Status</th>
-          <th scope="col">Notes</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="p in rows" :key="p.id">
           <th scope="row"><a :href="withBase(p.doc + (p.doc.endsWith('/') ? '' : '.html'))">{{ p.platform }}</a></th>
-          <td><code>{{ p.name }}</code><span class="cg-binding">{{ p.binding }}</span></td>
+          <td>
+            <code>{{ p.name }}</code><span class="cg-binding">{{ p.binding }}</span>
+            <span v-if="notes(p)" class="cg-notes">{{ notes(p) }}</span>
+          </td>
           <td><span class="cg-status" :class="published(p) ? 'ok' : 'pending'">{{ statusLabel(p) }}</span></td>
-          <td class="cg-notes">{{ p.limits || ('note' in p.registry ? p.registry.note : '') }}</td>
         </tr>
       </tbody>
     </table>
@@ -58,6 +60,10 @@ td {
 tr:last-child > * {
   border-bottom: 0 !important;
 }
+tr,
+tr:nth-child(2n) {
+  background: transparent !important;
+}
 thead th {
   background: var(--cg-surface);
   font-size: 12px;
@@ -67,9 +73,13 @@ thead th {
 }
 tbody th {
   font-weight: 600;
-  white-space: nowrap;
+  min-width: 120px;
+  background: transparent !important;
 }
 code {
+  overflow-wrap: anywhere;
+}
+td:last-child {
   white-space: nowrap;
 }
 .cg-binding {
@@ -100,8 +110,24 @@ code {
   border-color: rgba(129, 140, 248, 0.35);
 }
 .cg-notes {
-  min-width: 220px;
+  display: block;
+  margin-top: 6px;
+  max-width: 52ch;
   color: var(--cg-ink-2);
   font-size: 13px;
+  line-height: 1.5;
+}
+@media (max-width: 640px) {
+  th,
+  td {
+    padding: 10px !important;
+  }
+  tbody th {
+    min-width: 0;
+  }
+  td:last-child,
+  .cg-status {
+    white-space: normal;
+  }
 }
 </style>

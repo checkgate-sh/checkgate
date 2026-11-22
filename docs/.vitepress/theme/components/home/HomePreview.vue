@@ -1,8 +1,11 @@
 <script setup lang="ts">
 // A real screenshot of the dashboard (assets/screenshots, captured from a
 // running server with example data by dashboard/scripts/capture-screenshots.mjs).
+// The WebP files are resized copies of 01-dashboard.png (ImageMagick, quality 82),
+// so phones do not download the full 1440 px PNG.
 import { withBase } from 'vitepress'
-import shot from '../../../../../assets/screenshots/01-dashboard.png'
+import shot1440 from '../../../../../assets/screenshots/web/01-dashboard-1440.webp'
+import shot720 from '../../../../../assets/screenshots/web/01-dashboard-720.webp'
 </script>
 
 <template>
@@ -13,7 +16,9 @@ import shot from '../../../../../assets/screenshots/01-dashboard.png'
         <p>localhost:3000</p>
       </div>
       <img
-        :src="shot"
+        :src="shot1440"
+        :srcset="`${shot720} 720w, ${shot1440} 1440w`"
+        sizes="(max-width: 1120px) calc(100vw - 32px), 1070px"
         width="1440"
         height="1000"
         alt="The Checkgate dashboard overview: flag counts, rollout status by environment and recent activity, with example data"

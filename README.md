@@ -79,7 +79,10 @@ In your own code:
 ```typescript
 import { CheckgateClient } from '@checkgate/node'
 
-const client = new CheckgateClient({ serverUrl: 'http://localhost:3000', sdkKey: process.env.CHECKGATE_SDK_KEY })
+const client = new CheckgateClient({
+  serverUrl: 'http://localhost:3000',
+  sdkKey: process.env.CHECKGATE_SDK_KEY!,
+})
 await client.connect()
 
 client.isEnabled('new-checkout', 'user-123', { plan: 'pro' }) // local: no network request
@@ -101,7 +104,7 @@ client.isEnabled('new-checkout', 'user-123', { plan: 'pro' }) // local: no netwo
 
 ## SDKs and integrations
 
-| | Package | Status |
+| Runtime | Package | Status |
 |---|---|---|
 | Node.js | [`@checkgate/node`](docs/sdks/nodejs.md) (NAPI) | npm 0.1.31 |
 | Browser | [`@checkgate/web`](docs/sdks/web.md) (WebAssembly) | npm 0.1.31 |

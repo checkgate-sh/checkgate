@@ -53,7 +53,7 @@ export const packages: Package[] = [
     registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install @checkgate/node', group: 'sdk',
     limits: 'Node.js runtime only (not edge runtimes). getDetails(), getHealth() and onStatusChange() arrive in 0.2.0.' },
   { id: 'python', name: 'checkgate', platform: 'Python', binding: 'PyO3', doc: '/sdks/python', since: '0.2.0',
-    registry: { kind: 'source', note: 'Not on PyPI yet: build from the repository (needs Rust). Do not install a `checkgate` package from PyPI until the project announces it.' },
+    registry: { kind: 'source', note: 'Not on PyPI yet: build from the repository (needs Rust). Do not install a package named checkgate from PyPI until the project announces it.' },
     group: 'sdk', limits: 'CPython 3.11+. No impression reporting or track() yet.' },
   { id: 'web', name: '@checkgate/web', platform: 'Browser', binding: 'WebAssembly', doc: '/sdks/web', since: '0.1.0',
     registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install @checkgate/web', group: 'sdk' },

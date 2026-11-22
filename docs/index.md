@@ -158,7 +158,7 @@ const enabled = await client.getBooleanValue('new-checkout', false, {
 </template>
 </StackSelector>
 
-<p class="cg-home-note">Also: <a href="./sdks/node-frameworks.html">Express, Fastify and NestJS</a>, <a href="./ecosystem/ssr.html">SSR bootstrap</a>, <a href="./ecosystem/edge.html">edge runtimes</a>, <a href="./ecosystem/terraform.html">Terraform</a>, <a href="./ecosystem/kubernetes.html">Kubernetes</a> and <a href="./ecosystem/mcp.html">AI agents over MCP</a>. <a href="./sdks/">Compare every SDK and its status →</a></p>
+<p class="cg-home-note">Also: <a href="./sdks/node-frameworks.html">Express, Fastify and NestJS</a>, <a href="./ecosystem/ssr.html">SSR bootstrap</a>, <a href="./ecosystem/edge.html">edge runtimes</a>, <a href="./ecosystem/terraform.html">Terraform</a>, <a href="./ecosystem/kubernetes.html">Kubernetes</a> and <a href="./ecosystem/mcp.html">AI agents over MCP</a>. <a href="./sdks/#status-by-package">Compare every SDK and its status</a>.</p>
 
 </HomeSection>
 

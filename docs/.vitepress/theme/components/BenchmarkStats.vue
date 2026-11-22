@@ -25,7 +25,7 @@ const tiles = [
     detail: `${fmtInt(b.throughput.concurrency)} concurrent clients; ${fmtSig(b.throughput.cpuMsPerRequest)} ms of server CPU per request; peak RSS ${Math.round(b.throughput.rssPeakMib)} MiB.`,
   },
   {
-    label: 'Change → visible in every SDK',
+    label: 'Flag change reaching every SDK',
     stat: 'p50',
     num: String(Math.round(b.propagation.p50Ms)),
     unit: 'ms',

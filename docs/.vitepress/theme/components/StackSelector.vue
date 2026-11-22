@@ -7,6 +7,7 @@
 //   </StackSelector>
 import { ref, computed, nextTick } from 'vue'
 import { withBase } from 'vitepress'
+import { ArrowRight } from '@lucide/vue'
 import { pkg, statusLabel } from '../../data/release'
 
 const props = defineProps<{ tabs: { id: string; label: string; pkg: string }[] }>()
@@ -68,7 +69,7 @@ function onKey(e: KeyboardEvent, i: number) {
     <div class="cg-stack-meta">
       <span class="cg-pkg"><code>{{ current.name }}</code></span>
       <span class="cg-status" :class="published ? 'ok' : 'pending'">{{ statusLabel(current) }}</span>
-      <a class="cg-doc-link" :href="docHref">{{ current.platform }} docs →</a>
+      <a class="cg-doc-link" :href="docHref">{{ current.platform }} docs <ArrowRight :size="14" aria-hidden="true" /></a>
     </div>
   </div>
 </template>
@@ -147,6 +148,9 @@ function onKey(e: KeyboardEvent, i: number) {
   border-color: rgba(129, 140, 248, 0.35);
 }
 .cg-doc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   font-weight: 600;
   color: var(--cg-accent);
