@@ -59,7 +59,7 @@ function statusError(status, headers) {
     case 403:
       return new ApiError(
         'forbidden',
-        'Not allowed (HTTP 403). The token\'s scope or its owner\'s project role does not permit this. A "propose" token can only read, propose changes for review, create disabled flags and withdraw its own pending change requests.',
+        'Not allowed (HTTP 403). The token\'s scope or its owner\'s project role does not permit this. A "propose" token can only read, propose changes for review and withdraw its own pending change requests (it cannot create flags).',
         { status },
       )
     case 404:

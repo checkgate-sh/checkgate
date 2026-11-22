@@ -27,7 +27,10 @@ class SSEParser:
 
     def __init__(self, max_event_bytes: int = MAX_EVENT_BYTES) -> None:
         self._max = max_event_bytes
-        self._buf = b""
+        # bytearray: appending a fragment is amortized O(1). With bytes, each
+        # fragment of a long line copied the whole buffer (quadratic up to
+        # the 16 MiB cap).
+        self._buf = bytearray()
         self._first = True
         self._skip_lf = False
         self._event = ""
@@ -59,7 +62,7 @@ class SSEParser:
                 self._skip_lf = True
             self._line(line, events)
             pos = match.end()
-        self._buf = buf[pos:]
+        self._buf = bytearray(buf[pos:])
         if len(self._buf) > self._max:
             raise SSEError("event-stream line exceeds the size limit")
         return events

@@ -60,6 +60,23 @@ def test_a_frame_cut_mid_way_is_never_dispatched() -> None:
     assert p.feed(b"") == []  # the connection ended here: nothing more arrives
 
 
+def test_long_line_in_small_fragments_is_linear() -> None:
+    # A line arriving in thousands of small writes (a slow or hostile
+    # server) used to copy the whole buffer on every fragment: 15 MiB in
+    # 4 KiB pieces took ~12 s of GIL-holding CPU. Appending in place keeps it
+    # linear; the bound is generous so a slow CI runner does not flake.
+    import time
+
+    p = SSEParser()
+    start = time.perf_counter()
+    assert p.feed(b"data: ") == []
+    for _ in range(15 * 256):
+        assert p.feed(b"x" * 4096) == []
+    events = p.feed(b"\n\n")
+    assert time.perf_counter() - start < 3.0
+    assert len(events) == 1 and len(events[0][1]) == 15 * 1024 * 1024
+
+
 def test_size_limit() -> None:
     p = SSEParser(max_event_bytes=100)
     with pytest.raises(SSEError):

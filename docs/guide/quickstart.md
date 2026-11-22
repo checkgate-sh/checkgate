@@ -77,6 +77,7 @@ restart. Then open **Playground** in the sidebar and evaluate `new-checkout` for
 |---|---|
 | `The Docker daemon is not running` | Start Docker Desktop (or `sudo systemctl start docker`) and run the script again. |
 | `Port 3000 is already in use` | `CHECKGATE_PORT=3001 ./quickstart/start.sh --seed` (the examples read `CHECKGATE_PORT` from `.env`). |
+| The dashboard is not reachable from another machine | By design: the quickstart listens on `127.0.0.1` only (it is plain HTTP for local development). `CHECKGATE_BIND=0.0.0.0 ./quickstart/start.sh` exposes it to your network; on Linux, Docker's port rules bypass ufw/firewalld. |
 | `did not become ready within 2 minutes` | The script prints the container logs. A slow first image pull is the usual cause on a slow network; run it again. |
 | Setup fails with `HTTP 409` or `403` | The instance was already set up. `./quickstart/start.sh --down` starts over. |
 | The SDK logs `rejected the SDK key (HTTP 401)` | `CHECKGATE_SDK_KEY` is missing or from an older run: re-run with `--seed` after `--down`, or create a key in project settings. |

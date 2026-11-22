@@ -86,6 +86,26 @@ adds a network request per evaluation.
   change request that a different editor or admin must approve; rejection
   leaves no flag. Inert creations still apply at once. Regression tests:
   `server/tests/governance.rs`.
+- **Python SDK:** an event-stream line that arrives in many small writes no
+  longer costs quadratic CPU (a 15 MiB line in 4 KiB pieces took ~12 s of
+  GIL-holding time; now milliseconds). The 16 MiB line/event bound is
+  unchanged.
+- **Quickstart** publishes its port on `127.0.0.1` only (it is plain HTTP with
+  `COOKIE_SECURE=false`); `CHECKGATE_BIND=0.0.0.0` restores network access.
+- **`@checkgate/mcp-server`** warns at start when `CHECKGATE_URL` is plain
+  `http://` to a host other than this machine (the token travels in clear),
+  and its 403 explanation no longer says a `propose` token can create
+  disabled flags (it cannot, since F-01).
+
+### Fixed
+
+- Release tooling: `scripts/bump-version.sh` failed on Linux (GNU sed) at its
+  first edit, and left npm lockfiles at the old version.
+- Benchmarks: the Criterion suite panicked on 1-, 2- and 4-CPU hosts
+  (duplicate benchmark ID), so the public benchmark workflow on GitHub's
+  4-vCPU runners produced no Rust core results while reporting success. CI
+  now runs every benchmark once, and the workflow fails when a run fails.
+- Server tests: a port race in the test harness (`reliability::g2`).
 
 ### Changed
 

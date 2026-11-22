@@ -51,6 +51,12 @@ function trackRequests(transport) {
 }
 
 /** Run the stdio server until stdin closes or a termination signal arrives. */
+/** True for http:// to anything but a loopback host (the token is sent in clear). */
+export function cleartextToRemote(url) {
+  const u = new URL(url)
+  return u.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+}
+
 export async function main(env = process.env) {
   let config
   try {
@@ -62,6 +68,9 @@ export async function main(env = process.env) {
     return
   }
   const log = makeLogger(config.token)
+  if (cleartextToRemote(config.url)) {
+    log('warning: CHECKGATE_URL is plain http:// to a host that is not this machine; the token travels unencrypted. Use https://.')
+  }
   const { server, registered } = buildServer(config, { log })
   const transport = new StdioServerTransport()
 

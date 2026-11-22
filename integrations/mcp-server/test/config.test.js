@@ -64,3 +64,12 @@ test('redactUrl strips userinfo, query and fragment', () => {
   assert.equal(redactUrl('https://u:p@h.example/x?t=1#y'), 'https://h.example/x')
   assert.equal(redactUrl('::nope'), '<unparseable URL>')
 })
+
+test('plain http:// is flagged only for hosts other than this machine', async () => {
+  const { cleartextToRemote } = await import('../src/index.js')
+  assert.equal(cleartextToRemote('http://flags.example.com'), true)
+  assert.equal(cleartextToRemote('http://10.0.0.5:3000'), true)
+  for (const local of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000', 'https://flags.example.com']) {
+    assert.equal(cleartextToRemote(local), false, local)
+  }
+})
