@@ -35,7 +35,7 @@ HERE = os.path.join(ROOT, "bench", "public")
 with open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8") as _f:
     VERSION = re.search(r'^version = "([^"]+)"', _f.read(), re.M).group(1)
 RESULTS = os.path.join(ROOT, "docs", "performance", "results", f"v{VERSION}")
-SECTIONS = ("Architecture & Performance", "Infrastructure Cost & Savings")
+SECTIONS = ("Performance", "Infrastructure cost")
 ASSETS = os.path.join(ROOT, "assets", "benchmarks")
 DOCS = [os.path.join(ROOT, "docs", "performance", "benchmarks.md"),
         os.path.join(ROOT, "docs", "performance", "cost-efficiency.md"), os.path.join(HERE, "README.md")]
