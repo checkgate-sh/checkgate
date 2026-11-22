@@ -136,8 +136,10 @@ Measured on a v0.1.31 release candidate (commit `66cbfec`) on a 4-core Intel lap
 with the server in Docker limited to 1 vCPU / 512 MiB; v0.1.30 was measured in the same session
 with runs alternated. 3 runs per measurement, 6 for propagation. The pooled p99 of 198 ms includes
 two runs made while the host was still loaded; the methodology explains why. These figures describe
-that machine and workload, not a guarantee for yours. v0.2.0 has not been re-benchmarked on
-dedicated hardware.
+that machine and workload, not a guarantee for yours. v0.2.0 was compared with v0.1.31 in a
+controlled A/B on a 6-CPU Linux workstation: no measured regression above 10 %; Rust-core rule
+matching and weighted variants are 2.7–4.6 % slower (2–10 ns per evaluation), everything else
+unchanged ([CHANGELOG](CHANGELOG.md#performance)).
 Methodology, every run and the raw data: [Public benchmarks](docs/performance/benchmarks.md).
 
 ## Infrastructure cost

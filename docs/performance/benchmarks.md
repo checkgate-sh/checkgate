@@ -59,6 +59,33 @@ propagation ran 6 times per version (why 6: [below](#3-flag-update-propagation))
 How results are combined was fixed before the runs
 ([below](#how-results-are-combined)).
 
+## v0.2.0 regression check
+
+Before release, 0.2.0 (candidate `ca3dcc7`) was compared with v0.1.31 (`33b9d5f`) using
+the dedicated-host A/B harness in
+[`scripts/release-benchmarks/`](https://github.com/checkgate-sh/checkgate/tree/main/scripts/release-benchmarks).
+The run used a 6-CPU Linux workstation with an idle-host check before every run. A metric
+passes only if its 95 % bootstrap interval excludes a regression of more than 10 %. This is a
+release check against the previous version, not a new set of public figures; the figures on
+this page are still the v0.1.31 measurements.
+
+| Metric (median of runs) | v0.1.31 | 0.2.0 | Ratio [95 % CI] |
+|---|---|---|---|
+| Core boolean | 52.9 ns | 52.1 ns | 0.986 [0.984, 1.003] |
+| Core targeting, 1 rule | 79.9 ns | 82.1 ns | 1.027 [1.014, 1.041] |
+| Core targeting, 10 rules | 228.4 ns | 238.8 ns | 1.046 [1.031, 1.055] |
+| Core weighted multivariate | 119.7 ns | 123.3 ns | 1.030 [1.026, 1.037] |
+| Node.js `isEnabled` boolean | 331 ns | 330 ns | 0.996 [0.948, 1.029] |
+| Snapshot throughput, 100 concurrent | 2,076 req/s | 2,077 req/s | 1.001 [0.985, 1.012] |
+| SSE p99 propagation, 1,000 clients | 26.36 ms | 25.94 ms | 0.984 [0.961, 1.013] |
+| SSE-suite peak RSS | 43.8 MiB | 43.8 MiB | 1.001 [0.989, 1.016] |
+
+Every metric passed. Rule matching and weighted-variant selection in the Rust core are
+measurably slower, by 2.7–4.6 % (2–10 ns per evaluation). The slowdown is not visible through
+the Node.js SDK or in any server metric. It is tracked in
+[#72](https://github.com/checkgate-sh/checkgate/issues/72) and
+[#73](https://github.com/checkgate-sh/checkgate/issues/73).
+
 ## Environment
 
 | | |

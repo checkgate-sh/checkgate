@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="../assets/logo.svg" alt="Checkgate" width="64" />
+  <img src="https://raw.githubusercontent.com/checkgate-sh/checkgate/main/assets/logo.svg" alt="Checkgate" width="64" />
   <h1>@checkgate/cli</h1>
   <p>Generate <strong>type-safe flag accessors</strong> for TypeScript, Dart, and Rust from your Checkgate flag definitions.</p>
 </div>
@@ -9,20 +9,26 @@ definitions — straight from a running server or a local JSON export — and em
 typed module so a wrong key or a mis-typed value is a **compile error**, not a
 production surprise.
 
+**Current version: 0.2.0.** The commands, options, exit codes and `--json` report are the same
+as in 0.1.31; only the version changed. What changed across Checkgate:
+[CHANGELOG](https://github.com/checkgate-sh/checkgate/blob/main/CHANGELOG.md).
+
 ## Installation
 
 ```bash
-npm install -g @checkgate/cli
+npm install -g @checkgate/cli@0.2.0
+# or as a dev dependency of your project:
+npm install -D @checkgate/cli@0.2.0
 # or run without installing:
-npx @checkgate/cli typegen --help
+npx @checkgate/cli@0.2.0 typegen --help
 ```
 
-Requires Node 18+ (uses the built-in `fetch`). Zero runtime dependencies.
+The package installs one command, `checkgate`, and has zero runtime dependencies.
 
 ## Usage
 
 ```bash
-checkgate typegen --lang <langs> [source] [output]
+checkgate typegen --lang <langs> [source options] [output options]
 ```
 
 ### Pick a source
@@ -37,14 +43,19 @@ checkgate typegen --lang ts \
   --out src/flags.ts
 ```
 
-Or from a local JSON file (e.g. a `/flags` API export), which needs no network — ideal for CI:
+Or from a local JSON file (e.g. a `/flags` API export), which needs no network and suits CI:
 
 ```bash
 checkgate typegen --lang ts,dart,rust --input flags.json --out-dir ./generated
 ```
 
 Server connection details can also come from the environment:
-`CHECKGATE_URL`, `CHECKGATE_ENV`, `CHECKGATE_TOKEN`.
+`CHECKGATE_URL`, `CHECKGATE_ENV`, `CHECKGATE_TOKEN` (and `CHECKGATE_TIMEOUT`). A command-line
+option wins over its environment variable. The CLI reads `GET /api/environments/{id}/flags`,
+500 flags per page, until it has them all.
+
+`typegen` is the only command. `checkgate` with no command prints the help to stderr and exits
+`2`; `--help` prints it to stdout and exits `0`.
 
 ### Options
 
@@ -61,7 +72,7 @@ Server connection details can also come from the environment:
 | `--check` | | Write nothing; exit `3` if an output file is missing or stale. Needs `--out`/`--out-dir`. |
 | `--json` | | Print one JSON result object on stdout. Needs `--out`/`--out-dir`. |
 | `--help` | `-h` | Show help. |
-| `--version` | | Show version. |
+| `--version` | | Print the installed version (read from the package's `package.json`) and exit `0`. |
 
 ## Use in CI: fail the build when generated files are stale
 
@@ -117,7 +128,7 @@ jobs:
           CHECKGATE_ENV: ${{ vars.CHECKGATE_ENV }}
           CHECKGATE_TOKEN: ${{ secrets.CHECKGATE_TOKEN }}
         run: >
-          npx --yes @checkgate/cli@0.1.31 typegen --lang ts -o src/flags.ts
+          npx --yes @checkgate/cli@0.2.0 typegen --lang ts -o src/flags.ts
           --check --json > checkgate-typegen.json
       - name: Keep the report
         if: always()
@@ -134,7 +145,7 @@ jobs:
   ("Missing access token"). If you take fork PRs, commit a flags export and check against it
   with `--input flags.json` instead of `--url`.
 - The step's log names the stale files (stderr); the JSON report is the artifact.
-- Pin the CLI version (`@0.1.31` above) so generated output only changes when you bump it.
+- Pin the CLI version (`@0.2.0` above) so generated output only changes when you bump it.
 
 ## JSON result (`--json`)
 
@@ -145,7 +156,7 @@ cannot share stdout.
 ```json
 {
   "schema_version": 1,
-  "tool": { "name": "@checkgate/cli", "version": "0.1.31" },
+  "tool": { "name": "@checkgate/cli", "version": "0.2.0" },
   "command": "typegen",
   "mode": "check",
   "status": "out_of_date",
@@ -232,7 +243,7 @@ import { typedFlags } from './flags'
 const flags = typedFlags(new CheckgateClient({ /* … */ }))
 
 const color = flags.getValue('checkout-color', userId) // typed as string
-flags.getValue('chekout-color', userId)                // ❌ compile error — typo caught
+flags.getValue('chekout-color', userId)                // compile error: typo caught
 ```
 
 ### Dart
@@ -272,6 +283,33 @@ let fallback = defaults::CHECKOUT_COLOR;   // "blue"
 - Keys that aren't valid identifiers (hyphens, leading digits) are converted safely
   and de-duplicated per language.
 
----
+## Runtime compatibility
 
-Part of [Checkgate](https://github.com/checkgate-sh/checkgate) — the self-hosted feature-flag platform.
+- Node.js 18 or later (`engines: >=18`; it uses the built-in `fetch`). CI tests it on Node.js 22.
+  Node.js 18 and 20 are past end of life, so prefer 22 or later.
+- Runs anywhere Node.js does; it needs network access only when it reads from a server.
+- Generated files import no SDK. The TypeScript wrapper takes any client with `getValue()` and
+  `isEnabled()`, such as `@checkgate/node` or `@checkgate/web`; the Dart wrapper takes the client
+  as `dynamic`; the Rust module is dependency-free.
+
+## Security
+
+- Use a token that can only read the environment. A personal access token with scope
+  `read_only` works for any environment its owner can see; an SDK key works only for its own
+  environment.
+- The token is sent only as an `Authorization: Bearer` header. It never appears in the
+  `--json` report, in error messages or in generated files.
+- A `--url` with `user:password@` is refused (exit `2`) without printing the password. URLs shown
+  in messages, reports and the generated `// Source:` line have credentials and query strings
+  removed.
+
+## Documentation
+
+- [Typed flags (CLI) guide](https://checkgate-sh.github.io/checkgate/ecosystem/cli)
+- [Personal access tokens](https://checkgate-sh.github.io/checkgate/api-reference#personal-access-tokens)
+- [Changelog](https://github.com/checkgate-sh/checkgate/blob/main/CHANGELOG.md)
+
+## License
+
+Apache-2.0. Part of [Checkgate](https://github.com/checkgate-sh/checkgate), the self-hosted
+feature-flag platform.

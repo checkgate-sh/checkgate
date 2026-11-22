@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "browser"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "checkgate-core",
  "console_error_panic_hook",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "checkgate-bench"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "checkgate-core",
  "criterion",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "checkgate-core"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "dashmap",
  "murmur3",
@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "checkgate-python"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "checkgate-core",
  "pyo3",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "flutter"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "checkgate-core",
  "serde_json",
@@ -1646,7 +1646,7 @@ dependencies = [
 
 [[package]]
 name = "nodejs"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "checkgate-core",
  "napi",
@@ -2224,7 +2224,7 @@ dependencies = [
 
 [[package]]
 name = "react-native"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "checkgate-core",
  "serde_json",
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.31"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "async-stream",

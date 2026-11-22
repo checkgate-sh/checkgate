@@ -33,6 +33,12 @@ jobs:
       - name: No generated or machine-specific files are tracked
         run: scripts/check-tracked-artifacts.sh
 
+      # Every discovered package (Cargo, npm, PyPI, pub.dev) carries the
+      # workspace version, internal ranges accept it, lockfiles agree, and
+      # release.yml publishes each publishable package. Node built-ins only.
+      - name: Release versions are consistent
+        run: node scripts/check-versions.mjs
+
   # ---------------------------------------------------------------------------
   # Published benchmarks — schema, deterministic graphic, links, documented
   # commands. Runs no benchmark (those are manual: public-benchmarks.yml).

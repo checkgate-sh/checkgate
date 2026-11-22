@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "checkgate"
-version = "0.1.31"
+version = "0.2.0"
 description = "Checkgate feature flags for Python: local evaluation with the Rust engine, kept in sync over SSE"
 readme = "README.md"
 requires-python = ">=3.11"
