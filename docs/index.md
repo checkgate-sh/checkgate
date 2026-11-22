@@ -71,7 +71,7 @@ const enabled = client.isEnabled('new-checkout', 'user-123', { plan: 'pro' })
 <template #python>
 
 ```python
-# Not on PyPI yet: build from the repository (see the Python SDK docs)
+# pip install checkgate
 import os
 from checkgate import CheckgateClient
 

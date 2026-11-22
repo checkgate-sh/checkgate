@@ -49,5 +49,5 @@ Setup complete (development only).
 
 Next:
   (cd quickstart/node && npm install && node --env-file=../.env index.mjs)
-  Python (not on PyPI yet; builds from this checkout): see docs/guide/quickstart.md
+  Python: see docs/guide/quickstart.md (pip install checkgate)
 `);

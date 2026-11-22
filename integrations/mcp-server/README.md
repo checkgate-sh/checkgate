@@ -3,7 +3,7 @@
 A [Model Context Protocol](https://modelcontextprotocol.io) server (stdio) that lets AI agents
 read Checkgate feature flags and **propose** changes that a person approves.
 
-**Current version: 0.2.0.** This is the package's first release; it publishes to npm together with
+**Current version: 0.2.0.** This is the package's first release, shipped with
 Checkgate 0.2.0. It needs a **Checkgate 0.2.0 server**: the `propose` token scope it relies on does
 not exist on 0.1.x. What changed: [CHANGELOG](https://github.com/checkgate-sh/checkgate/blob/main/CHANGELOG.md).
 

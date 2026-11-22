@@ -18,7 +18,7 @@ This document outlines the vision and future development priorities for Checkgat
 Every new SDK wraps the **same shared Rust evaluation core** in [`core/`](https://github.com/checkgate-sh/checkgate/tree/main/core) — exactly how the existing Node.js (NAPI), Web (WASM), React Native (JSI), and Flutter (FFI) SDKs do — so local, in-process evaluation and flag semantics (rules, rollouts, segments, prerequisites, weighted variants) stay **identical across every language**. Each also inherits the shared resilience layer: SSE streaming with backoff, offline persistence, and the `/flags/snapshot` poll fallback.
 
 **Server-side languages** (backend/local evaluation)
-- [x] **Python SDK** *(implemented for 0.2.0, not yet released; not on PyPI)*: PyO3 bindings to the core — Django / FastAPI / Flask apps and data/ML services. See [Python SDK](/sdks/python).
+- [x] **Python SDK** *(released in 0.2.0, on PyPI)*: PyO3 bindings to the core — Django / FastAPI / Flask apps and data/ML services. See [Python SDK](/sdks/python).
 - [ ] **Go SDK**: A cgo-FFI **local-evaluation** SDK, complementing the existing [`checkgate-go`](https://github.com/checkgate-sh/checkgate/tree/main/integrations/checkgate-go) *management* client that already backs the Terraform provider and Kubernetes operator.
 - [ ] **Java / Kotlin (JVM) SDK**: JNI bindings — Spring Boot and other JVM backends.
 - [ ] **Ruby SDK**: Rails apps and Sidekiq workers.
@@ -31,7 +31,7 @@ Every new SDK wraps the **same shared Rust evaluation core** in [`core/`](https:
 - [ ] **Kotlin Multiplatform / Android SDK**: JNI over the core, sharing logic with the JVM SDK for Android apps.
 
 **Standards & interop**
-- [ ] **OpenFeature providers**: Official [OpenFeature](https://openfeature.dev) provider(s) so Checkgate drops into any OpenFeature-instrumented app. High leverage — implement one spec, plug into many language ecosystems at once. The Node.js server provider is implemented for 0.2.0 (not yet released; [docs](/sdks/openfeature)); other languages are planned.
+- [ ] **OpenFeature providers**: Official [OpenFeature](https://openfeature.dev) provider(s) so Checkgate drops into any OpenFeature-instrumented app. High leverage — implement one spec, plug into many language ecosystems at once. The Node.js server provider shipped in 0.2.0 ([docs](/sdks/openfeature)); other languages are planned.
 
 ---
 

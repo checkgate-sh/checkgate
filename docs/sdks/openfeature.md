@@ -19,8 +19,7 @@ npm install @checkgate/openfeature-provider @checkgate/node @openfeature/server-
 ```
 
 Requires Node.js 22 or later (CI tests 22, 24 and 26), `@openfeature/server-sdk` 1.17 or later
-(tested with 1.23) and `@checkgate/node` 0.2. Until 0.2.0 is published, install both Checkgate
-packages from a checkout of the repository.
+(tested with 1.23) and `@checkgate/node` 0.2.
 
 ## Quick start
 

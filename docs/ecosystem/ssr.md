@@ -27,32 +27,23 @@ npm install @checkgate/ssr @checkgate/edge @checkgate/web
 
 ### 1. Server — build the payload
 
-```ts
-// lib/checkgate-server.ts
+```js
+// lib/checkgate-server.js
 import { CheckgateEdge } from '@checkgate/edge'
 import { buildBootstrap } from '@checkgate/ssr'
 import { createWasmCore } from '@checkgate/web/core'
 
-let edge: CheckgateEdge | null = null
+let edge = null
 
-export async function getBootstrap(userKey: string, keys: string[]) {
-  if (!edge) {
-    edge = new CheckgateEdge({
-      serverUrl: process.env.CHECKGATE_URL!,
-      sdkKey: process.env.CHECKGATE_SDK_KEY!,
-      core: await createWasmCore(),
-      ttlSeconds: 30,
-    })
-  }
-  await edge.ensureFresh()
-  // buildBootstrap re-loads the snapshot into a core and resolves `keys` for the
-  // user; pass the same snapshot the edge client is holding.
-  return buildBootstrap({
+export async function getBootstrap(userKey, attributes, keys) {
+  edge ??= new CheckgateEdge({
+    serverUrl: process.env.CHECKGATE_URL,
+    sdkKey: process.env.CHECKGATE_SDK_KEY,
     core: await createWasmCore(),
-    snapshot: edge.snapshotFlags(),
-    userKey,
-    keys,
+    ttlSeconds: 30,
   })
+  await edge.ensureFresh()
+  return buildBootstrap({ core: await createWasmCore(), snapshot: edge.snapshotFlags(), userKey, attributes, keys })
 }
 ```
 
@@ -63,15 +54,15 @@ render and the first client render then read the same values (no hydration
 mismatch). Keep the user's attributes next to it so the live client evaluates
 with the same inputs as the server.
 
-```tsx
-// app/layout.tsx (Server Component)
-import { getBootstrap } from '@/lib/checkgate-server'
+```jsx
+// app/layout.jsx (Server Component)
+import { getBootstrap } from '../lib/checkgate-server'
 import { FlagsProvider } from './flags-provider'
 
 export default async function RootLayout({ children }) {
-  const userKey = /* cookie/session id */ 'anonymous'
-  const attributes = { plan: 'free' }  // the same attributes passed to buildBootstrap
-  const payload = await getBootstrap(userKey, ['new-homepage', 'checkout-color'])
+  const userKey = 'anonymous'          // from your session or cookie
+  const attributes = { plan: 'free' }  // the same attributes for server and client
+  const payload = await getBootstrap(userKey, attributes, ['new-homepage', 'checkout-color'])
   return (
     <html>
       <body>
@@ -90,25 +81,25 @@ Outside React (or with a streaming template), embed it instead with
 
 One `CheckgateWeb` client for the whole app, seeded from the same payload:
 
-```tsx
+```jsx
+// app/flags-provider.jsx
 'use client'
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { BootstrapValues } from '@checkgate/ssr'
 import { CheckgateWeb } from '@checkgate/web'
 
-type Read = (key: string) => boolean
-const FlagsContext = createContext<Read>(() => false)
+const FlagsContext = createContext(() => false)
 
 export function FlagsProvider({ payload, attributes = {}, children }) {
   const initial = useMemo(() => new BootstrapValues(payload), [payload])
-  const [client, setClient] = useState<CheckgateWeb | null>(null)
+  const [client, setClient] = useState(null)
   const [, setVersion] = useState(0)
 
   useEffect(() => {
     const live = new CheckgateWeb({
-      serverUrl: process.env.NEXT_PUBLIC_CHECKGATE_URL!,
-      sdkKey: process.env.NEXT_PUBLIC_CHECKGATE_SDK_KEY!,
-      bootstrap: payload,               // live-ready without waiting for SSE
+      serverUrl: process.env.NEXT_PUBLIC_CHECKGATE_URL,
+      sdkKey: process.env.NEXT_PUBLIC_CHECKGATE_SDK_KEY,
+      bootstrap: payload,
     })
     const off = live.onChange(() => setVersion((v) => v + 1))
     live.connect().then(() => setClient(live)).catch(() => {})
@@ -116,14 +107,12 @@ export function FlagsProvider({ payload, attributes = {}, children }) {
   }, [payload])
 
   // Server-resolved values until the live client is ready, then live ones.
-  const read: Read = (key) =>
-    client && initial.userKey
-      ? client.isEnabled(key, initial.userKey, attributes)
-      : initial.isEnabled(key)
+  const read = (key) =>
+    client && initial.userKey ? client.isEnabled(key, initial.userKey, attributes) : initial.isEnabled(key)
   return <FlagsContext.Provider value={read}>{children}</FlagsContext.Provider>
 }
 
-export const useFlag = (key: string) => useContext(FlagsContext)(key)
+export const useFlag = (key) => useContext(FlagsContext)(key)
 ```
 
 **Remix / SvelteKit** follow the same three steps — build the payload in the `loader` / `+page.server`, inject the script into the document template, and read it in a client component or store.
