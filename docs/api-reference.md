@@ -1471,7 +1471,7 @@ A token acts as its owning user — same workspace role, same project membership
 | Scope | Reads | Writes |
 |---|---|---|
 | `read_only` | everything the owner can read | none |
-| `propose` | everything the owner can read | only: `PATCH` a flag → always a pending change request (`202`), in every environment; `DELETE` the owner's own pending change request. Everything else (creating a flag, approve, reject, delete, promote, archive, segments, environments, keys, users, webhooks, revoking tokens, analytics ingest) is `403`. |
+| `propose` | everything the owner can read | only: `PATCH` a flag → always a pending change request (`202`), in every environment; `DELETE` the owner's own pending change request; `POST /api/tokens` for a `propose` or `read_only` token (never `read_write`). Everything else (creating a flag, approve, reject, delete, promote, archive, segments, environments, keys, users, webhooks, revoking tokens, analytics ingest) is `403`. |
 | `read_write` | everything the owner can read | everything the owner can do |
 
 `propose` is meant for AI agents and other automation that should suggest changes but never apply,

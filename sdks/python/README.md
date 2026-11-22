@@ -18,11 +18,9 @@ current over Server-Sent Events, with a polling fallback.
 
 ## Install
 
-```bash
-# Not on PyPI yet — do not install a `checkgate` package from PyPI until the
-# project announces it. Build from a checkout instead (see Development below).
-pip install checkgate
-```
+**Not on PyPI yet.** Do not install a `checkgate` package from PyPI until the project announces
+it. Build from a checkout instead (needs Rust and Python 3.11+; see [Development](#development)).
+Once published, it will install with `pip install checkgate`.
 
 ## Quick start
 
@@ -175,13 +173,14 @@ the last known flags instead of defaults (`get_health()["source"] ==
 | Platform | Wheel built by | Test suite run by |
 |---|---|---|
 | Linux x86_64 (manylinux) | release workflow, CI | CI `sdk-python` (Python 3.11 and 3.13), release workflow |
-| Linux aarch64 (manylinux) | release workflow (cross) | nothing yet |
+| Linux aarch64 (manylinux) | release workflow (cross) | python-wheels workflow, on a native build (Python 3.11) |
 | macOS arm64 | release workflow | release workflow |
-| macOS x86_64 | release workflow (cross) | by hand (Python 3.11 and 3.13) |
+| macOS x86_64 | release workflow (cross) | python-wheels workflow, on a native build (Python 3.11) |
 | Windows x86_64 | release workflow | release workflow (fork tests skip) |
 
-The workflows are new with this SDK: until they have run, only the macOS
-x86_64 wheel has been built and tested.
+The python-wheels workflow builds and tests a wheel natively on each platform for pull requests
+that touch the engine or this SDK. No workflow publishes wheels yet: the release workflow builds
+them but neither uploads them to PyPI nor attaches them to the GitHub release.
 
 ## Development
 

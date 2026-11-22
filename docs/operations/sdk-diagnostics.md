@@ -3,7 +3,14 @@ title: "SDK Diagnostics — Is Every SDK Initialized, Connected and Current?"
 description: "Read Checkgate SDK health locally with getHealth(), and tell server-observed connections apart from what an SDK has actually applied."
 ---
 
-# SDK diagnostics
+# SDK diagnostics <Since v="0.2.0" />
+
+::: info What needs 0.2.0
+`getHealth()` and `onStatusChange()` are in the 0.2.0 Node.js and Python SDKs (the Web, React
+Native and Flutter SDKs offer `getStatus()` / `status` only). Per-stream `last_delivered_revision`
+and `GET /api/health/environments` need a 0.2.0 server. The SDK Health page and the `/metrics`
+connection gauges exist in 0.1.31.
+:::
 
 A Checkgate SDK keeps serving the last flags it has when the server is unreachable. That is
 what you want for availability, and it is also why "the app is up" says nothing about whether
@@ -13,7 +20,7 @@ questions:
 | Observation | Where | Answers |
 |---|---|---|
 | **Local SDK state** | `getHealth()` in the process | Is *this* SDK initialized, connected, and how old are its flags? |
-| **Server-observed connections** | [SDK Health](../guide/dashboard) page, `/metrics` | Which streams does a server instance hold? |
+| **Server-observed connections** | [SDK Health](../guide/dashboard#sdk-health) page, `/metrics` | Which streams does a server instance hold? |
 | **Configuration convergence** | compare `lastAppliedRevision` with the flag revisions in the dashboard | Has an SDK applied the latest change? |
 
 A server accepting a connection does not prove the SDK applied anything, and a missing

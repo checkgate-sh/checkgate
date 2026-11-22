@@ -3,7 +3,9 @@ title: "Express, Fastify and NestJS — Checkgate Feature Flags in Node.js Frame
 description: "Use Checkgate feature flags in Express, Fastify and NestJS with @checkgate/node-integrations: per-request flag evaluation bound to the current user, startup with a timeout policy, graceful shutdown, and test doubles."
 ---
 
-# Express, Fastify and NestJS
+# Express, Fastify and NestJS <Since v="0.2.0" />
+
+<ReleaseNotice pkg="node-integrations" />
 
 `@checkgate/node-integrations` connects the [Node.js SDK](/sdks/nodejs) to a web
 framework. It gives every request a small evaluator bound to that request's
@@ -91,10 +93,11 @@ set and then follows `onTimeout`:
 
 | | The server answers in time | It does not | It rejects the SDK key (401/403) |
 |---|---|---|---|
-| `onTimeout: 'continue'` (default) | starts with live flags | starts anyway, logs a warning, serves the [offline cache](/sdks/nodejs#resilience-offline) if the client has a `storage` adapter with flags, else defaults, and keeps syncing in the background | startup fails with `CheckgateAuthError` |
+| `onTimeout: 'continue'` (default) | starts with live flags | starts anyway, logs a warning, serves the [offline cache](/sdks/nodejs#resilience-offline) if the client has a `storage` adapter with flags, else defaults, and keeps syncing in the background | startup fails with `CheckgateAuthError` if the rejection arrives within `readyTimeoutMs`; a later rejection is logged and the app keeps serving cached flags or defaults |
 | `onTimeout: 'fail'` | starts with live flags | startup fails with `CheckgateStartupTimeoutError`; the client is disconnected | startup fails with `CheckgateAuthError` |
 
-A rejected key always fails startup: it does not fix itself by waiting. On
+A key rejected before the timeout fails startup: it does not fix itself by waiting. Watch
+`client.getStatus()` (or `getHealth()`) to catch a rejection that arrives later. On
 shutdown each adapter calls `client.disconnect()` exactly once, however many
 times close runs.
 

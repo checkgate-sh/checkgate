@@ -1,6 +1,6 @@
 ---
 title: "What is Checkgate? — Feature Flags Without the Round-Trip"
-description: "Learn how Checkgate eliminates per-evaluation network latency by running the flag decision in-process, and how it compares to LaunchDarkly and Statsig."
+description: "Learn how Checkgate eliminates per-evaluation network latency by running the flag decision in-process, and how local evaluation differs from remote evaluation."
 ---
 
 # What is Checkgate?
@@ -9,9 +9,9 @@ Checkgate is a **self-hosted, open-source feature flag engine** built for teams 
 
 ## The Problem
 
-Most feature flag services evaluate flags on their servers — meaning every `isEnabled()` call is a network request. This introduces:
+When flags are evaluated by a remote service, every `isEnabled()` call is a network request. This introduces:
 
-- **Latency** — even a fast remote call adds 5–50ms per flag check
+- **Latency** — each flag check waits for a network round trip
 - **Reliability risk** — if the flag service is down, your flag evaluation breaks
 - **Vendor lock-in** — migrating away is painful and expensive
 - **Data privacy concerns** — user attributes are sent to an external service
@@ -25,7 +25,7 @@ Checkgate takes a different approach: **local evaluation**.
 3. All evaluation happens **in-process, in memory** — no network calls
 4. When flags change, the server pushes deltas via SSE, typically within tens of milliseconds
 
-The result: **in-process flag evaluation** (well under a microsecond in the Rust core) with real-time updates and zero external dependencies at evaluation time.
+The result: **in-process flag evaluation** (84–456 ns median in the Rust core, 0.8–4 µs through the Node.js SDK, in the [v0.1.31 benchmarks](/performance/benchmarks)) with real-time updates and no network dependency at evaluation time.
 
 ## What You Get
 
@@ -35,21 +35,25 @@ Checkgate is a complete feature-flag platform, not just a toggle store:
 - **Targeting & rollouts** — attribute-based [targeting rules](/guide/concepts#targeting-rules) (string and numeric operators), reusable [segments](/guide/segments), sticky percentage rollouts, and [prerequisite flags](/guide/concepts#prerequisite-flags).
 - **Analytics & experimentation** — impression tracking, [exposure dashboards](/guide/experimentation#exposure-dashboards), and an [A/B testing beta](/guide/experimentation#a-b-testing) that measures conversion goals and reports statistical significance.
 - **Governance** — [RBAC](/guide/concepts#users-and-roles), an [audit log](/guide/governance#audit-log), [change-request approvals](/guide/governance#change-requests-approvals), [scheduled changes](/guide/governance#scheduled-changes), and personal access tokens.
-- **A full ecosystem** — native SDKs (Node.js, Web/WASM, React Native, Flutter), a [type-safe codegen CLI](/ecosystem/cli), [edge evaluation](/ecosystem/edge), [SSR/bootstrap helpers](/ecosystem/ssr), and infrastructure-as-code via a [Terraform provider](/ecosystem/terraform) and [Kubernetes operator](/ecosystem/kubernetes).
+- **A full ecosystem** — native SDKs (Node.js, Web/WASM, React Native, Flutter; Python, OpenFeature and Express/Fastify/NestJS integrations <Since v="0.2.0" />), a [type-safe codegen CLI](/ecosystem/cli), [edge evaluation](/ecosystem/edge), [SSR/bootstrap helpers](/ecosystem/ssr), and infrastructure-as-code via a [Terraform provider](/ecosystem/terraform) and [Kubernetes operator](/ecosystem/kubernetes).
 
-## How It Compares
+## Local versus remote evaluation
 
-| | Checkgate | LaunchDarkly / Statsig |
+This compares two architectures, not products: many hosted services also offer local-evaluation
+SDKs. Check any vendor's current documentation before comparing it with Checkgate.
+
+| | Checkgate (local evaluation) | Remote evaluation |
 |---|---|---|
-| Evaluation location | In-process (local) | Remote HTTP / local with proprietary SDK |
-| Evaluation latency | 0.1–0.5 µs in the Rust core, a few µs through the Node.js SDK ([benchmarks](/performance/benchmarks)) | A network round trip per check when evaluated remotely |
-| Update propagation | SSE push: p50 12–39 ms for 1–1,000 clients; p99 55–198 ms pooled, 84 ms median run at 1,000 ([benchmarks](/performance/benchmarks)) | Polling or streaming, depending on the SDK |
-| Self-hosted | Yes | No (or enterprise-only) |
-| Open source | Apache 2.0 | Closed source |
-| Vendor lock-in | None | High |
-| A/B testing | Beta (goal events + significance) | Yes |
-| Infrastructure as code | Terraform + Kubernetes operator | Terraform (managed) |
-| Pricing | Free — your infra cost only | Per-seat / per-MAU |
+| Where a flag is decided | In your process, from an in-memory copy | On the flag service, per request |
+| Cost of one check | 84–456 ns median in the Rust core, 0.8–4 µs through the Node.js SDK ([v0.1.31 benchmarks](/performance/benchmarks)) | A network round trip |
+| When the flag server is unreachable | Last known flags keep answering | Depends on the client's fallback |
+| How changes arrive | SSE push: p50 12–39 ms for 1–1,000 clients; p99 55–198 ms pooled, 84 ms median run at 1,000 ([benchmarks](/performance/benchmarks)) | Next request sees the change |
+| What clients receive | The environment's rules (browser and mobile SDKs too) | Only the answers |
+| Hosting | Self-hosted, Apache 2.0 | Varies |
+
+Checkgate's own limits: experiments are a beta (goal events and a two-proportion significance
+test), React Native's iOS build is not certified, the Flutter SDK ships no compiled engine, and
+several 0.2.0 packages are not published yet — see [Which SDK do I need?](/sdks/#status-by-package).
 
 ## What Checkgate Is Not
 

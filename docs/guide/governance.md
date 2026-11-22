@@ -99,7 +99,8 @@ only reach the SDK endpoints (stream, snapshot, reading flags, impressions and e
 - A token cannot mint a more-privileged replacement for itself (`read_only` < `propose` <
   `read_write`).
 
-Manage tokens under **Settings → Access Tokens**, or via the
+Manage tokens under **Settings → Personal access tokens** (the Settings entry is in the sidebar for
+admins; other users open `/settings` directly), or via the
 [Personal Access Tokens API](/api-reference#personal-access-tokens).
 
 ## See also
