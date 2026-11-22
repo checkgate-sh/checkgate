@@ -14,16 +14,29 @@ adds a network request per evaluation.
 
 ### Upgrading from 0.1.31
 
-- **One database migration** (`20261121000029_pat_propose_scope`): it widens
-  the personal-access-token scope check to allow `propose`. It is additive and
-  applies on start. **A 0.1.31 binary will not start against a database that
-  has it** (the migrator reports an applied migration it does not know), so
-  there is no rolling mixed-version upgrade: replace all instances.
+- **Two database migrations**, both additive, applied on start:
+  `20261121000029_pat_propose_scope` widens the personal-access-token scope
+  check to allow `propose`; `20261122000030_change_request_create` adds
+  `change_requests.action` (`update` for every existing row) and a unique
+  index allowing one pending creation per key. **A 0.1.31 binary will not
+  start against a database that has them** (the migrator reports an applied
+  migration it does not know), so there is no rolling mixed-version upgrade:
+  replace all instances.
+- **Creating a flag in an environment that requires approval now needs
+  approval** unless the flag is inert (disabled, no `disabled_value`). An
+  enabled create there used to apply at once; it now answers `202 Accepted`
+  with a pending change request (`action: "create"`) — the same contract as a
+  queued PATCH — and the flag exists only after someone else approves it.
+  Scripts that POST enabled flags into such an environment and expect `200`
+  must handle `202` (the Go client, Terraform provider and Kubernetes operator
+  report it as `ErrApprovalRequired`). Environments without approval are
+  unchanged.
 - **Create no `propose` tokens while any 0.1.31 instance is still serving**:
   0.1.31 does not know the scope and would let such a token create a
   `read_write` token.
-- **Rollback:** stop 0.2.0, delete every `propose` token, delete the
-  migration's row from `_sqlx_migrations`, start 0.1.31 (tested). Details:
+- **Rollback:** stop 0.2.0, delete every `propose` token, cancel pending
+  flag creations, delete both migrations' rows from `_sqlx_migrations`, start
+  0.1.31. Take a database backup before upgrading. Details:
   docs/operations/upgrading-to-0-2-0.md.
 - No configuration change is required. The SDK protocol (`/stream`,
   `/flags/snapshot`) is unchanged, so 0.1.31 SDKs work with a 0.2.0 server and
@@ -63,6 +76,36 @@ adds a network request per evaluation.
 - **Quickstart:** `quickstart/start.sh --seed` (local, development only) with
   Node.js and Python examples; first-run snippets in the setup wizard and an
   empty-environment checklist on the dashboard.
+
+### Security
+
+- **Approval-required environments: flag creation is governed** (inherited
+  from 0.1.x, found in the 0.2.0 security review). A project editor could
+  create an *enabled* flag directly in an environment that requires approval,
+  and SDKs were served it with no review. Such a creation is now a pending
+  change request that a different editor or admin must approve; rejection
+  leaves no flag. Inert creations still apply at once. Regression tests:
+  `server/tests/governance.rs`.
+- **Python SDK:** an event-stream line that arrives in many small writes no
+  longer costs quadratic CPU (a 15 MiB line in 4 KiB pieces took ~12 s of
+  GIL-holding time; now milliseconds). The 16 MiB line/event bound is
+  unchanged.
+- **Quickstart** publishes its port on `127.0.0.1` only (it is plain HTTP with
+  `COOKIE_SECURE=false`); `CHECKGATE_BIND=0.0.0.0` restores network access.
+- **`@checkgate/mcp-server`** warns at start when `CHECKGATE_URL` is plain
+  `http://` to a host other than this machine (the token travels in clear),
+  and its 403 explanation no longer says a `propose` token can create
+  disabled flags (it cannot, since F-01).
+
+### Fixed
+
+- Release tooling: `scripts/bump-version.sh` failed on Linux (GNU sed) at its
+  first edit, and left npm lockfiles at the old version.
+- Benchmarks: the Criterion suite panicked on 1-, 2- and 4-CPU hosts
+  (duplicate benchmark ID), so the public benchmark workflow on GitHub's
+  4-vCPU runners produced no Rust core results while reporting success. CI
+  now runs every benchmark once, and the workflow fails when a run fails.
+- Server tests: a port race in the test harness (`reliability::g2`).
 
 ### Changed
 

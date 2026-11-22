@@ -117,11 +117,21 @@ export const api = {
     })
   },
 
-  createFlag(envId: string, flag: Flag): Promise<Flag> {
-    return request(`/api/environments/${envId}/flags`, {
-      method: 'POST',
-      body: JSON.stringify(flag),
-    })
+  // Returns { applied: true, flag } when the flag was created, or
+  // { applied: false, changeRequest } when the environment requires approval
+  // and the creation was queued instead (202 Accepted) — anything but a
+  // disabled flag serving the built-in `false` is, there.
+  async createFlag(
+    envId: string,
+    flag: Flag,
+  ): Promise<{ applied: true; flag: Flag } | { applied: false; changeRequest: ChangeRequest }> {
+    const { status, body } = await requestRaw<Flag | ChangeRequest>(
+      `/api/environments/${envId}/flags`,
+      { method: 'POST', body: JSON.stringify(flag) },
+    )
+    return status === 202
+      ? { applied: false, changeRequest: body as ChangeRequest }
+      : { applied: true, flag: body as Flag }
   },
 
   // Returns { applied: true, flag } when the patch took effect immediately,
@@ -479,6 +489,8 @@ export interface ChangeRequest {
   id: number
   environment_id: string
   flag_key: string
+  /** `update`: `patch` is merged onto the flag. `create`: `patch` is the new flag. */
+  action: 'update' | 'create'
   patch: Record<string, unknown>
   requested_by: string
   status: ChangeRequestStatus

@@ -37,13 +37,13 @@ where
 async fn delivered_revisions_converge_and_are_counted() {
     let Some(env) = test_env() else { return };
     let db = env.fresh_database("cg_sdk_diag").await;
-    let metrics_addr = format!("127.0.0.1:{}", free_port());
     let server = Server::spawn(
         &db,
         &env.redis_url,
-        &[("METRICS_ADDR", Some(&metrics_addr))],
+        &[("METRICS_ADDR", Some("127.0.0.1:0"))],
     )
     .await;
+    let metrics_addr = server.metrics_addr();
     let (admin, sdk_key, env_id) = complete_setup(&server).await;
     let flags_url = server.url(&format!("/api/environments/{env_id}/flags"));
     request(

@@ -116,6 +116,25 @@ func TestUpdateFlagApprovalRequired(t *testing.T) {
 	}
 }
 
+func TestCreateFlagApprovalRequired(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s", r.Method)
+		}
+		// Environment requires approval → 202 + a `create` change request;
+		// the body must not be mistaken for the created flag.
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]any{"id": 8, "action": "create", "status": "pending", "flag_key": "f"})
+	})
+	got, err := c.CreateFlag(context.Background(), "env1", &Flag{Key: "f", IsEnabled: true})
+	if err != ErrApprovalRequired {
+		t.Fatalf("expected ErrApprovalRequired, got %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected no flag, got %+v", got)
+	}
+}
+
 func TestUpdateFlagApplied(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Flag{Key: "f", IsEnabled: false, FlagType: "boolean"})

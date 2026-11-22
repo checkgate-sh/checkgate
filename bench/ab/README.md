@@ -12,6 +12,7 @@ in Docker; these compare two builds side by side on one host.
 | `node-apply-ab.cjs` | Node SDK configuration application: a complete set (replay, `?v=2` poll) and a live event, with the native engine, alternating | Both SDKs' addons built |
 | `node-differential.cjs` | Every `isEnabled`/`getValue`/`getVariant` result of two Node addons over 300 generated flags × 400 generated contexts | Both addons built |
 | `upgrade-rollback.sh` | Upgrade, mixed-version (rolling) and rollback on one database | Release server binaries of both versions, the same containers |
+| `upgrade_rollback_020.py` | 0.1.31 → 0.2.0: upgrade (snapshot, stream, tokens, pending requests), mixed versions refused, documented SQL rollback and re-upgrade, restore from `pg_dump`, an upgrade killed mid-migration (35 PASS/FAIL steps) | `OLD_BIN`, `NEW_BIN`, the same containers, Node.js for `seed.mjs` |
 
 The baseline is usually a detached worktree of the previous release tag, built
 into its **own** `CARGO_TARGET_DIR`. Worktrees that share a target dir reuse
@@ -27,6 +28,7 @@ docker run -d --name cg-gate-redis -p 56379:6379 redis:7-alpine
 
 BASE_BIN=/tmp/cg-base-target/release/server bench/ab/snapshot-ab.sh
 OLD_BIN=/tmp/cg-base-target/release/server bench/ab/upgrade-rollback.sh
+OLD_BIN=/tmp/cg-base-target/release/server NEW_BIN=target/release/server python3 bench/ab/upgrade_rollback_020.py
 BASE_SDK=../checkgate-base/sdks/nodejs/index.js bench/ab/node-eval-ab.sh
 ```
 

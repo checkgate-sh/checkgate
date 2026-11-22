@@ -562,8 +562,15 @@ export default function FlagForm({
         }
         onSaved(result.flag, 'updated')
       } else {
-        const created = await api.createFlag(activeEnv.id, payload)
-        onSaved(created, 'created')
+        const result = await api.createFlag(activeEnv.id, payload)
+        if (!result.applied) {
+          // Environment requires approval — the flag was not created; a
+          // reviewer must approve the creation first.
+          setPendingApproval(true)
+          setSaving(false)
+          return
+        }
+        onSaved(result.flag, 'created')
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed')
@@ -594,7 +601,7 @@ export default function FlagForm({
 
         {pendingApproval && (
           <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
-            This environment requires approval — your change was queued instead of applied.{' '}
+            This environment requires approval — your {isEdit ? 'change' : 'new flag'} was queued for review instead of applied.{' '}
             <Link to="/change-requests" className="font-bold underline">View change requests</Link>
           </div>
         )}

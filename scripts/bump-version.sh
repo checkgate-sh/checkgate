@@ -21,8 +21,14 @@ fi
 
 echo "Bumping all packages to $VERSION"
 
-# BSD sed (macOS) requires an explicit backup extension with -i; passing '' means no backup file.
-SED_INPLACE() { sed -i '' "$@"; }
+# In-place sed without a backup file: BSD sed (macOS) needs an explicit empty
+# extension (`-i ''`); GNU sed (Linux) takes `-i` alone and would read '' as
+# the script, failing on the first edit.
+if sed --version >/dev/null 2>&1; then
+  SED_INPLACE() { sed -i "$@"; }
+else
+  SED_INPLACE() { sed -i '' "$@"; }
+fi
 
 # --- Rust workspace (source of truth) ---
 SED_INPLACE "s/^version = \".*\"$/version = \"$VERSION\"/" "$ROOT/Cargo.toml"
@@ -54,6 +60,25 @@ echo "  updated sdks/python/pyproject.toml and checkgate/_client.py __version__"
 # --- Dashboard ---
 SED_INPLACE "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$ROOT/dashboard/package.json"
 echo "  updated dashboard/package.json"
+
+# --- npm lockfiles: only the package's own version (top level and
+# packages[""]); a sed over a lockfile would rewrite every dependency's
+# version too. Lockfiles left at the old version made `npm ci` trees report a
+# version the package no longer has.
+for dir in sdks/nodejs sdks/web sdks/react-native sdks/openfeature-provider \
+           sdks/node-integrations integrations/mcp-server cli edge ssr dashboard; do
+  LOCK="$ROOT/$dir/package-lock.json"
+  [ -f "$LOCK" ] || continue
+  node -e '
+    const fs = require("fs");
+    const [file, version] = process.argv.slice(1);
+    const lock = JSON.parse(fs.readFileSync(file, "utf8"));
+    lock.version = version;
+    if (lock.packages && lock.packages[""]) lock.packages[""].version = version;
+    fs.writeFileSync(file, JSON.stringify(lock, null, 2) + "\n");
+  ' "$LOCK" "$VERSION"
+  echo "  updated $dir/package-lock.json"
+done
 
 # --- Flutter / Dart ---
 SED_INPLACE "s/^version: .*/version: $VERSION/" "$ROOT/sdks/flutter/dart/pubspec.yaml"

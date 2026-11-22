@@ -27,16 +27,21 @@ incident ("what changed right before this broke?"). See the
 
 Each environment has a **`require_approval`** toggle. When it's on, a flag `PATCH` is **not**
 applied immediately — it's captured as a pending **change request** that a *different* editor or
-admin must review (self-approval is blocked).
+admin must review (self-approval is blocked). Since 0.2.0 the same goes for **creating** a flag
+that would serve anything: an enabled flag, or a disabled one with its own off value, becomes a
+pending `create` request, and nothing reaches SDKs until it is approved.
 
 - **Approve** applies the original patch atomically against whatever the flag's current state is
   at approval time — so an approval always lands cleanly on top of the latest data, not a stale
   snapshot. If the update fails, the request remains pending and can be retried.
-- **Reject** / **withdraw** never touch the flag.
+- **Approving a creation** inserts the flag then; the audit log names the reviewer as actor and
+  keeps the requester. If the key was created in the meantime, approval returns `409` and the
+  request stays pending.
+- **Reject** / **withdraw** never touch the flag (a rejected creation leaves no flag at all).
 - It's scoped per environment, so Production can require review while Development stays
   frictionless.
 
-Replacing an existing flag through POST, deleting a flag, promoting into a protected environment, scheduling a change, and editing segments return `409 Conflict` while approval is enabled. Submit a flag PATCH for review instead. Creating a new flag is still allowed.
+Replacing an existing flag through POST, deleting a flag, promoting into a protected environment, scheduling a change, and editing segments return `409 Conflict` while approval is enabled. Submit a flag PATCH for review instead. Creating an **inert** flag — disabled, with no `disabled_value` (it serves the built-in `false`) — still applies at once, so teams can add a flag and then propose turning it on. Before 0.2.0 any new flag, enabled ones included, applied at once.
 
 This gives you a pull-request-style gate on your highest-risk changes. See the
 [Change Requests API](/api-reference#change-requests).
@@ -47,7 +52,8 @@ your reviewers already watch.
 
 ::: warning Automation & approvals
 If an environment requires approval, programmatic updates (Terraform, the operator, scripts) can't
-apply synchronously — the change is queued for review. Point infrastructure-as-code at a
+apply synchronously — the change is queued for review. Since 0.2.0 that includes creating a flag
+that is not inert (the Go client returns `ErrApprovalRequired`). Point infrastructure-as-code at a
 non-gated environment, or approve out of band. The [Terraform provider](/ecosystem/terraform)
 surfaces this explicitly rather than hanging.
 :::

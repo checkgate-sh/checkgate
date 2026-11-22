@@ -6,8 +6,11 @@
 services:
   checkgate:
     image: ${CHECKGATE_IMAGE:-ghcr.io/checkgate-sh/checkgate:latest}
+    # Loopback only by default: this is a development instance on plain HTTP
+    # with COOKIE_SECURE=false. CHECKGATE_BIND=0.0.0.0 exposes it to your
+    # network (and on Linux, Docker's port rules bypass ufw/firewalld).
     ports:
-      - "${CHECKGATE_PORT:-3000}:3000"
+      - "${CHECKGATE_BIND:-127.0.0.1}:${CHECKGATE_PORT:-3000}:3000"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run quickstart/start.sh to create .env}
       SESSION_SECRET: ${SESSION_SECRET:?run quickstart/start.sh to create .env}

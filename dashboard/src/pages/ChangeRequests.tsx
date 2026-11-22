@@ -43,7 +43,6 @@ function PatchSummary({ patch }: { patch: Record<string, unknown> }) {
 export default function ChangeRequests() {
   const { activeEnv } = useEnvironment()
   const { session } = useAuth()
-  const isAdmin = session?.user.role === 'admin'
   const [status, setStatus] = useState<ChangeRequestStatus | ''>('pending')
   const [requests, setRequests] = useState<ChangeRequest[]>([])
   const [loading, setLoading] = useState(false)
@@ -144,8 +143,10 @@ export default function ChangeRequests() {
             <p className="text-center text-gray-400 text-sm py-6">No {status || ''} change requests.</p>
           ) : (
             requests.map(cr => {
-              const canReview = isAdmin || session?.user.email !== cr.requested_by
+              // Nobody reviews their own request — the server refuses it for
+              // admins too, so the buttons are not offered.
               const isSelf = session?.user.email === cr.requested_by
+              const canReview = !isSelf
               return (
                 <div key={cr.id} className="p-4 rounded-xl bg-white border border-gray-100 shadow-sm space-y-2.5">
                   <div className="flex items-start justify-between gap-3">
@@ -153,6 +154,11 @@ export default function ChangeRequests() {
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-sm text-gray-900 font-medium">{cr.flag_key}</span>
                         <StatusBadge status={cr.status} />
+                        {cr.action === 'create' && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wide border bg-sky-50 text-sky-700 border-sky-100">
+                            New flag
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
                         Requested by {cr.requested_by} · {new Date(cr.created_at).toLocaleString()}
@@ -194,7 +200,7 @@ export default function ChangeRequests() {
                             </button>
                           </>
                         )}
-                        {isSelf && !isAdmin && (
+                        {isSelf && (
                           <span className="flex items-center gap-1 text-xs text-gray-400" title="You requested this — someone else must review it">
                             <Clock className="w-3.5 h-3.5" /> awaiting reviewer
                           </span>

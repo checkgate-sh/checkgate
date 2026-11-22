@@ -920,13 +920,16 @@ async fn chat_integrations(ctx: &Ctx, env: &str) {
 
     // --- flag.created reaches both providers --------------------------------
 
+    // Production requires approval by now, so only an inert flag (disabled,
+    // serving the built-in `false`) is created at once; an enabled one would
+    // be a pending change request (see `governance.rs`).
     let r = ctx
         .sess
         .post(ctx.url(&format!("/api/environments/{env}/flags")))
         .header("X-Checkgate-Request", "true")
         .json(&json!({
             "key": "chat_notify",
-            "is_enabled": true,
+            "is_enabled": false,
             "flag_type": "boolean",
             "rollout_percentage": 25,
             "rules": [],
@@ -976,7 +979,7 @@ async fn chat_integrations(ctx: &Ctx, env: &str) {
         .sess
         .patch(ctx.url(&format!("/api/environments/{env}/flags/chat_notify")))
         .header("X-Checkgate-Request", "true")
-        .json(&json!({ "is_enabled": false }))
+        .json(&json!({ "is_enabled": true }))
         .send()
         .await
         .unwrap();
