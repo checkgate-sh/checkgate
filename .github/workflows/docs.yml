@@ -7,6 +7,7 @@ on:
       - 'docs/**'
       - 'assets/**'
       - 'scripts/check-docs-site.py'
+      - 'scripts/render-brand-assets.py'
       - '.github/workflows/docs.yml'
   # Pull requests build the site and check what it would publish; only a push
   # to main deploys.
@@ -16,6 +17,7 @@ on:
       - 'docs/**'
       - 'assets/**'
       - 'scripts/check-docs-site.py'
+      - 'scripts/render-brand-assets.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -46,6 +48,11 @@ jobs:
           node-version: '22.x'
           cache: pnpm
           cache-dependency-path: docs/pnpm-lock.yaml
+
+      # The README/social graphics are generated from assets/branding/tokens.json;
+      # a hand edit or a token change without a re-render fails here.
+      - name: Brand graphics are current
+        run: python3 scripts/render-brand-assets.py --check
 
       - name: Install dependencies
         working-directory: docs
