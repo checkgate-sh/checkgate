@@ -46,6 +46,20 @@ jobs:
         with:
           node-version: 22
 
+      # The tag must name the version the manifests already carry. The npm
+      # jobs set their version from the tag, but the wheels, the pub.dev
+      # package and the server binary are built from the manifests, so a tag
+      # that disagrees would publish mixed versions.
+      - name: Tag matches every release manifest
+        run: |
+          set -euo pipefail
+          node scripts/check-versions.mjs
+          WS="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml)"
+          if [ "v$WS" != "${{ github.ref_name }}" ]; then
+            echo "Error: tag ${{ github.ref_name }} but the manifests are at $WS (scripts/bump-version.sh)."
+            exit 1
+          fi
+
       - name: CLI — tests
         working-directory: cli
         run: node --test
@@ -295,11 +309,9 @@ jobs:
         run: dart pub publish --dry-run
 
   # Python wheels (sdks/python): abi3, one per platform for CPython 3.11+.
-  # VERIFY ONLY: the wheels are built (and, where the runner can run them,
-  # tested) and uploaded as workflow artifacts. There is no PyPI publish job
-  # yet, and this job is deliberately not in the publish jobs' `needs` until
-  # the Python SDK is released: a wheel failure must not block the npm,
-  # pub.dev and image releases before then.
+  # Built (and, where the runner can run them, tested) here; checked together
+  # in verify-python; published to PyPI by publish-pypi. Every publish job
+  # needs verify-python, so a broken wheel stops the whole release.
   build-python:
     name: Verify — Python wheel ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
@@ -359,6 +371,37 @@ jobs:
           path: sdks/python/dist/*.whl
           if-no-files-found: error
 
+  # All five wheels together: one per platform, the tag's version, and each
+  # passing the package check (tags, metadata, contents, RECORD hashes,
+  # version consistency) and `twine check`.
+  verify-python:
+    name: Verify — Python distribution
+    needs: [build-python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: python-wheel-*
+          merge-multiple: true
+          path: dist
+
+      - name: Check the wheels
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          ls -l dist
+          COUNT=$(ls dist/checkgate-"$VERSION"-*.whl | wc -l)
+          if [ "$COUNT" -ne 5 ]; then echo "Error: expected 5 wheels for $VERSION, found $COUNT."; exit 1; fi
+          python scripts/check-python-package.py dist --version "$VERSION"
+          python -m pip install "twine>=6.1,<7"
+          python -m twine check --strict dist/*.whl
+
   # Build the image without pushing, so a broken or vulnerable image blocks the
   # release instead of being discovered after the npm packages are already live.
   build-docker:
@@ -408,7 +451,7 @@ jobs:
 
   publish-node:
     name: Publish — @checkgate/node
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -477,7 +520,7 @@ jobs:
 
   publish-web:
     name: Publish — @checkgate/web
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -523,7 +566,7 @@ jobs:
 
   publish-cli:
     name: Publish — @checkgate/cli
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -550,7 +593,7 @@ jobs:
 
   publish-edge:
     name: Publish — @checkgate/edge
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -577,7 +620,7 @@ jobs:
 
   publish-ssr:
     name: Publish — @checkgate/ssr
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -604,7 +647,7 @@ jobs:
 
   publish-openfeature:
     name: Publish — @checkgate/openfeature-provider
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -631,7 +674,7 @@ jobs:
 
   publish-node-integrations:
     name: Publish — @checkgate/node-integrations
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -658,7 +701,7 @@ jobs:
 
   publish-mcp-server:
     name: Publish — @checkgate/mcp-server
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -685,7 +728,7 @@ jobs:
 
   publish-react-native:
     name: Publish — @checkgate/react-native
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -716,7 +759,7 @@ jobs:
 
   publish-flutter:
     name: Publish — checkgate_flutter (pub.dev)
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -756,7 +799,7 @@ jobs:
 
   publish-docker:
     name: Publish — Docker image
-    needs: [verify-js, build-native, build-web, verify-flutter, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -808,6 +851,32 @@ jobs:
         run: |
           cosign sign --yes ${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
 
+  # PyPI trusted publishing (OIDC): no stored token. Needs, once, on PyPI: a
+  # publisher for project `checkgate`, owner checkgate-sh, repository
+  # checkgate, workflow release.yml, environment `pypi`. The action attaches
+  # PEP 740 attestations to each file.
+  publish-pypi:
+    name: Publish — checkgate (PyPI)
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/checkgate/
+    permissions:
+      contents: read
+      id-token: write # OIDC token for PyPI trusted publishing and attestations
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: python-wheel-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
   # ===========================================================================
   # Final status — one green check that means "the whole release succeeded".
   # ===========================================================================
@@ -825,11 +894,13 @@ jobs:
       - publish-react-native
       - publish-flutter
       - publish-docker
+      - publish-pypi
     runs-on: ubuntu-latest
     steps:
       - name: Summary
         run: |
           echo "All packages published for ${{ github.ref_name }}:" >> $GITHUB_STEP_SUMMARY
-          echo "- npm: @checkgate/{node,web,cli,edge,ssr,react-native}" >> $GITHUB_STEP_SUMMARY
+          echo "- npm: @checkgate/{node,web,cli,edge,ssr,react-native,openfeature-provider,node-integrations,mcp-server}" >> $GITHUB_STEP_SUMMARY
           echo "- pub.dev: checkgate_flutter" >> $GITHUB_STEP_SUMMARY
+          echo "- PyPI: checkgate" >> $GITHUB_STEP_SUMMARY
           echo "- ghcr.io: ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY

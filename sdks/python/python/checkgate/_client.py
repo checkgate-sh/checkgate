@@ -51,7 +51,7 @@ from ._revisions import (
 from ._storage import Storage, cache_namespace
 from ._transport import Endpoint, PollRequest, Request, StreamRequest
 
-__version__ = "0.1.31"
+__version__ = "0.2.0"
 
 log = logging.getLogger("checkgate")
 

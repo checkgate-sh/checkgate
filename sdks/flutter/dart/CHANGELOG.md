@@ -1,3 +1,7 @@
+## 0.2.0 (2026-11-22)
+
+- Release 0.2.0. See https://github.com/checkgate-sh/checkgate/blob/main/CHANGELOG.md
+
 ## 0.1.31 (2026-11-21)
 
 - The library is in `lib/`, so `import 'package:checkgate_flutter/checkgate_flutter.dart'`
