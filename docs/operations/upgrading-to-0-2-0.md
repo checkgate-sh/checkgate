@@ -16,8 +16,9 @@ description: Upgrading a Checkgate server from 0.1.31 to 0.2.0 — two additive 
 | Mixed versions (rolling upgrade) | **Not supported.** Once a 0.2.0 instance has applied the migrations, a 0.1.31 instance refuses to start (`migration 20261121000029 was previously applied but is missing`). Instances already running keep running — see the token rule below |
 | Rollback to 0.1.31 | Needs one database step ([below](#rolling-back)) |
 
-All of this was tested on one database with release builds of 0.1.31 and a 0.2.0 candidate
-(`bench/ab/upgrade-rollback.sh`, then the rollback steps below).
+All of this was tested with release builds of 0.1.31 and a 0.2.0 candidate on real databases
+(`bench/ab/upgrade_rollback_020.py`: upgrade, mixed versions, the rollback below, re-upgrade,
+restore from a backup, and an upgrade killed half-way).
 
 ## Upgrade
 
@@ -62,6 +63,29 @@ To run 0.1.31 again on the same database:
    `propose` and its inserts get `action = 'update'`, so they are harmless. Upgrading again
    re-applies both migrations (they are idempotent).
 5. Start 0.1.31.
+
+### Rolling back by restoring the backup
+
+The SQL steps above keep everything 0.2.0 wrote (flags, approvals, audit entries). To return to
+exactly the pre-upgrade state instead — losing every change made since — stop all instances and
+restore the backup from upgrade step 1 into an empty database:
+
+```bash
+pg_restore --no-owner --dbname "$EMPTY_DATABASE_URL" checkgate-0.1.31.dump
+```
+
+Point 0.1.31 at that database. SDKs reconnect and receive the restored flags. Changes made under
+0.2.0 are gone; there is no merge.
+
+## If the upgrade is interrupted
+
+Each migration runs in its own transaction, so a 0.2.0 process killed during the upgrade leaves
+every migration either fully applied or not at all — never a half-applied one (tested by killing
+0.2.0 while migration 30 waited on a lock: 29 was applied, 30 was not, and the schema had no
+partial change). Starting 0.2.0 again applies whatever is missing and serves the same data. A
+0.1.31 instance refuses such a database as soon as one 0.2.0 migration is recorded; either finish
+the upgrade by starting 0.2.0, or roll back with the steps above (only the recorded rows need
+deleting).
 
 ## What else changes
 
