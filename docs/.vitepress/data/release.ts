@@ -1,16 +1,16 @@
 // Release status for the docs site, in one place.
 //
 // Pages never hard-code "unreleased" or "not on npm": they use <Since>,
-// <ReleaseNotice> and <SdkMatrix>, which read this file. When 0.2.0 is
-// published, set `latest` to '0.2.0', `next` to null, and update each
-// package's `registry` to what the registries actually serve (check with
-// `npm view`, PyPI and pub.dev; never assume a publish succeeded).
+// <ReleaseNotice> and <SdkMatrix>, which read this file. For a release, set
+// `latest` to its version, `next` to null (or the version in development),
+// and each package's `registry` to what the registries serve (check with
+// `npm view`, PyPI and pub.dev after publishing).
 
 export const release = {
   /** Newest version published to npm, pub.dev, ghcr.io and GitHub Releases. */
-  latest: '0.1.31',
+  latest: '0.2.0',
   /** The version in development on `dev`, or null when nothing is pending. */
-  next: '0.2.0' as string | null,
+  next: null as string | null,
   repo: 'https://github.com/checkgate-sh/checkgate',
 }
 
@@ -50,34 +50,34 @@ export interface Package {
 
 export const packages: Package[] = [
   { id: 'node', name: '@checkgate/node', platform: 'Node.js', binding: 'NAPI', doc: '/sdks/nodejs', since: '0.1.0',
-    registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install @checkgate/node', group: 'sdk',
-    limits: 'Node.js runtime only (not edge runtimes). getDetails(), getHealth() and onStatusChange() arrive in 0.2.0.' },
+    registry: { kind: 'npm', version: '0.2.0' }, install: 'npm install @checkgate/node', group: 'sdk',
+    limits: 'Node.js runtime only (not edge runtimes). getDetails(), getHealth() and onStatusChange() since 0.2.0.' },
   { id: 'python', name: 'checkgate', platform: 'Python', binding: 'PyO3', doc: '/sdks/python', since: '0.2.0',
-    registry: { kind: 'source', note: 'Not on PyPI yet: build from the repository (needs Rust). Do not install a package named checkgate from PyPI until the project announces it.' },
+    registry: { kind: 'pypi', version: '0.2.0' }, install: 'pip install checkgate',
     group: 'sdk', limits: 'CPython 3.11+. No impression reporting or track() yet.' },
   { id: 'web', name: '@checkgate/web', platform: 'Browser', binding: 'WebAssembly', doc: '/sdks/web', since: '0.1.0',
-    registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install @checkgate/web', group: 'sdk' },
+    registry: { kind: 'npm', version: '0.2.0' }, install: 'npm install @checkgate/web', group: 'sdk' },
   { id: 'react-native', name: '@checkgate/react-native', platform: 'React Native', binding: 'JSI', doc: '/sdks/react-native', since: '0.1.0',
-    registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install @checkgate/react-native', group: 'sdk',
+    registry: { kind: 'npm', version: '0.2.0' }, install: 'npm install @checkgate/react-native', group: 'sdk',
     limits: 'Android native build verified in CI; iOS not certified. Builds the Rust engine in your app build.' },
   { id: 'flutter', name: 'checkgate_flutter', platform: 'Flutter', binding: 'Dart FFI', doc: '/sdks/flutter', since: '0.1.0',
-    registry: { kind: 'pub', version: '0.1.31' }, install: 'flutter pub add checkgate_flutter', group: 'sdk',
+    registry: { kind: 'pub', version: '0.2.0' }, install: 'flutter pub add checkgate_flutter', group: 'sdk',
     limits: 'Bundles no compiled engine: you build and link the Rust engine yourself.' },
   { id: 'openfeature', name: '@checkgate/openfeature-provider', platform: 'OpenFeature (Node.js server)', binding: 'over @checkgate/node', doc: '/sdks/openfeature', since: '0.2.0',
-    registry: { kind: 'unpublished', note: 'Publishes to npm with 0.2.0; it needs @checkgate/node 0.2.' },
+    registry: { kind: 'npm', version: '0.2.0' },
     install: 'npm install @checkgate/openfeature-provider @openfeature/server-sdk', group: 'framework' },
   { id: 'node-integrations', name: '@checkgate/node-integrations', platform: 'Express · Fastify · NestJS', binding: 'over @checkgate/node', doc: '/sdks/node-frameworks', since: '0.2.0',
-    registry: { kind: 'unpublished', note: 'Publishes to npm with 0.2.0.' },
+    registry: { kind: 'npm', version: '0.2.0' },
     install: 'npm install @checkgate/node @checkgate/node-integrations', group: 'framework',
     limits: 'Node.js 22.12+; Express 5, Fastify 5, NestJS 12.' },
   { id: 'ssr', name: '@checkgate/ssr', platform: 'SSR / bootstrap', binding: 'with @checkgate/web', doc: '/ecosystem/ssr', since: '0.1.0',
-    registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install @checkgate/web @checkgate/ssr', group: 'framework' },
+    registry: { kind: 'npm', version: '0.2.0' }, install: 'npm install @checkgate/web @checkgate/ssr', group: 'framework' },
   { id: 'edge', name: '@checkgate/edge', platform: 'Edge runtimes', binding: 'with @checkgate/web', doc: '/ecosystem/edge', since: '0.1.0',
-    registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install @checkgate/edge @checkgate/web', group: 'framework' },
+    registry: { kind: 'npm', version: '0.2.0' }, install: 'npm install @checkgate/edge @checkgate/web', group: 'framework' },
   { id: 'cli', name: '@checkgate/cli', platform: 'Typed flag accessors', binding: 'dev dependency', doc: '/ecosystem/cli', since: '0.1.0',
-    registry: { kind: 'npm', version: '0.1.31' }, install: 'npm install -D @checkgate/cli', group: 'tooling' },
+    registry: { kind: 'npm', version: '0.2.0' }, install: 'npm install -D @checkgate/cli', group: 'tooling' },
   { id: 'mcp', name: '@checkgate/mcp-server', platform: 'AI agents (MCP)', binding: 'stdio', doc: '/ecosystem/mcp', since: '0.2.0',
-    registry: { kind: 'unpublished', note: 'Publishes to npm with 0.2.0; needs a 0.2.0 server.' }, group: 'tooling',
+    registry: { kind: 'npm', version: '0.2.0' }, install: 'npx -y @checkgate/mcp-server@0.2.0', group: 'tooling',
     limits: 'Read-only by default; can propose changes, never create, apply or approve.' },
   { id: 'terraform', name: 'terraform-provider-checkgate', platform: 'Terraform / OpenTofu', binding: 'Go', doc: '/ecosystem/terraform', since: '0.1.0',
     registry: { kind: 'source', note: 'Not on the Terraform Registry: build from source.' }, group: 'tooling' },

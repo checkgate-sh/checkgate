@@ -27,7 +27,7 @@ export interface CheckgateWebOptions {
   /**
    * SDK key. Browsers cannot set headers on `EventSource`, so the stream sends
    * it as a `?sdk_key=` query parameter; polls send it as `Authorization: Bearer`.
-   * SDK keys are public by design. Leave unset for open (dev-only) mode.
+   * SDK keys are public by design. Required: the server has no unauthenticated mode.
    */
   sdkKey?: string;
   /** Base SSE reconnect delay in milliseconds; grows exponentially. Default: 3000. */

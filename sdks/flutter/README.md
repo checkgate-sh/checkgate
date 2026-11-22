@@ -2,84 +2,21 @@
   <img src="../../assets/logo.svg" width="64" alt="Checkgate">
 </p>
 
-# checkgate_flutter
+# Checkgate Flutter SDK
 
-**Checkgate Flutter SDK (FFI)** — The official high-performance Dart client for Checkgate.
-Built fundamentally on top of Dart FFI (Foreign Function Interface), this SDK bypasses traditional asynchronous platform channels to access the Rust core evaluated completely synchronously in Dart memory.
+This directory holds the Flutter SDK, published to pub.dev as
+[`checkgate_flutter`](https://pub.dev/packages/checkgate_flutter). Flags are
+evaluated in-process by the Rust engine through Dart FFI and kept current over
+Server-Sent Events.
 
-## Installation
+The package bundles no compiled engine: you build the Rust engine and link it
+into your app yourself.
 
-```bash
-flutter pub add checkgate_flutter
-```
-
-The package does not bundle a compiled engine: build it and link it into
-your app as described in [Linking the native engine](https://checkgate-sh.github.io/checkgate/sdks/flutter#linking-the-native-engine).
-
-## Quick Start
-
-Initialize the `CheckgateClient` instance inside your main Dart entrypoint:
-
-```dart
-import 'package:checkgate_flutter/checkgate_flutter.dart';
-
-void main() async {
-  // Ensure Flutter engine is fully initialized natively 
-  WidgetsFlutterBinding.ensureInitialized();
-
-  final checkgate = CheckgateClient(
-    serverUrl: 'https://checkgate.your-company.com',
-    sdkKey: 'sk_live_xxxxxx',
-  );
-
-  // Bind to the Checkgate SSE stream to subscribe to global flag updates
-  await checkgate.connect();
-
-  runApp(MyApp(checkgate: checkgate));
-}
-
-class MyApp extends StatelessWidget {
-  final CheckgateClient checkgate;
-  
-  const MyApp({Key? key, required this.checkgate}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    // Synchronously evaluate flag targeting parameters locally!
-    final showMaterial3 = checkgate.isEnabled('material-3-design', 'user-12345', {
-      'plan': 'pro',
-    });
-
-    return MaterialApp(
-      theme: showMaterial3 ? ThemeData.useMaterial3() : ThemeData.light(),
-      home: Scaffold(...)
-    );
-  }
-}
-```
-
-## A/B testing: track conversions
-
-Record goal events with `track()` to measure how each flag variant converts. Pair
-a flag with a goal event in an **Experiment** in the dashboard to see per-variant
-conversion rates and statistical significance.
-
-```dart
-final variant = checkgate.getVariant('checkout-button-color', 'user_123');
-
-// …later, when the user converts:
-checkgate.track('checkout_complete', 'user_123', value: 49.99);
-```
-
-Events are buffered and reported asynchronously (best-effort), just like impressions.
-Use the **same `userKey`** you pass to `getVariant()`/`isEnabled()` so conversions
-attribute to the right variant.
-
-## Why Checkgate FFI?
-* **Synchronous FFI Evaluation:** You do not need to `await` flag resolution ever. The evaluation runs in Rust natively, avoiding Dart async blocking limits.
-* **Real-Time Propagation:** the client keeps an SSE stream open (in Dart) and applies flag changes as they arrive, falling back to polling if the stream cannot be established.
-
-The package bundles no compiled engine: build and link the Rust engine as described in
-[`dart/README.md`](dart/README.md) and the [Flutter SDK docs](https://checkgate-sh.github.io/checkgate/sdks/flutter).
-
-Review advanced patterns inside the [official Checkgate documentation](https://checkgate-sh.github.io/checkgate).
+- [`dart/README.md`](dart/README.md): the package README (installation,
+  usage, configuration, linking the engine, platform status). It is also the
+  pub.dev page, so it is the only copy.
+- [`dart/lib/`](dart/lib): the Dart client and FFI bindings.
+- [`dart/rust/`](dart/rust): the engine's C ABI, built as `libflutter`.
+- [`dart/test/`](dart/test): Dart unit tests (`flutter test`, no engine
+  needed).
+- Guide: https://checkgate-sh.github.io/checkgate/sdks/flutter

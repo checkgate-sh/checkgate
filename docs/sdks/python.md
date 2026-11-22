@@ -15,29 +15,28 @@ standard library — there is no asyncio inside the client, so it never blocks
 your event loop.
 
 ::: tip New in 0.2.0
-The release workflow builds wheels for Linux x86_64 and aarch64 (manylinux), macOS x86_64 and
-arm64, and Windows x86_64, for CPython 3.11 and newer (one abi3 wheel per platform). They are
-not published anywhere yet. See [Platform support](#platform-support) for what is tested.
+Wheels on PyPI for Linux x86_64 and aarch64 (manylinux), macOS x86_64 and arm64, and Windows
+x86_64, for CPython 3.11 and newer (one abi3 wheel per platform). See
+[Platform support](#platform-support) for what is tested.
 :::
 
 ## Installation
 
-The package (`checkgate`, Python 3.11+) is **not on PyPI yet**: until the release announces it,
-do not install a `checkgate` package from PyPI. Build it from a checkout of the repository. You need Rust and a Python 3.11+
-interpreter; if `python3 --version` prints an older one, use `python3.11` (or newer) below.
-Publishing to PyPI is planned; no release job publishes the wheels yet.
+```bash
+pip install checkgate==0.2.0   # Python 3.11 or newer
+```
+
+### Build from source
+
+For a platform without a wheel (for example Alpine/musl), or to test changes in a checkout. You
+need Rust and a Python 3.11+ interpreter; if `python3 --version` prints an older one, use
+`python3.11` (or newer) below.
 
 ```bash
 cd sdks/python
 python3 -m venv .venv          # Python 3.11 or newer
 .venv/bin/pip install "maturin>=1.9.4,<2"
 VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release   # installs checkgate into .venv
-```
-
-Once it is published (not yet):
-
-```bash
-pip install checkgate
 ```
 
 ## Quick Start

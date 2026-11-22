@@ -32,12 +32,9 @@ request. One Server-Sent Events connection per SDK delivers changes as they happ
 reconnects, a polling fallback and the last known flags if the server is unreachable. You run the
 server, PostgreSQL and Redis on your own infrastructure.
 
-> [!NOTE]
-> **0.2.0 is in development and not yet released.** The latest release is
-> [v0.1.31](https://github.com/checkgate-sh/checkgate/releases/latest). Items marked
-> *0.2.0* below are in this source tree but not yet published to npm, PyPI or the container
-> registry. Upgrading an existing server to 0.2.0 has
-> [rules to read first](docs/operations/upgrading-to-0-2-0.md) (two migrations, no rolling upgrade; back up the database first).
+> [!IMPORTANT]
+> Upgrading a 0.1.31 server to 0.2.0? Read [Upgrading to 0.2.0](docs/operations/upgrading-to-0-2-0.md)
+> first: two database migrations, no rolling upgrade, back up the database before you start.
 
 ## How it works
 
@@ -106,20 +103,20 @@ client.isEnabled('new-checkout', 'user-123', { plan: 'pro' }) // local: no netwo
 
 | Runtime | Package | Status |
 |---|---|---|
-| Node.js | [`@checkgate/node`](docs/sdks/nodejs.md) (NAPI) | npm 0.1.31 |
-| Browser | [`@checkgate/web`](docs/sdks/web.md) (WebAssembly) | npm 0.1.31 |
-| React Native | [`@checkgate/react-native`](docs/sdks/react-native.md) (JSI) | npm 0.1.31 · Android build verified in CI; iOS not certified |
-| Flutter | [`checkgate_flutter`](docs/sdks/flutter.md) (FFI) | pub.dev 0.1.31 · bundles no engine: you build and link it |
-| Python | [`checkgate`](docs/sdks/python.md) (PyO3) | *0.2.0* · build from source; **not on PyPI yet** |
-| OpenFeature | [`@checkgate/openfeature-provider`](docs/sdks/openfeature.md) (Node.js server) | *0.2.0* · not yet on npm |
-| Express · Fastify · NestJS | [`@checkgate/node-integrations`](docs/sdks/node-frameworks.md) | *0.2.0* · not yet on npm |
-| SSR / edge | [`@checkgate/ssr`](docs/ecosystem/ssr.md), [`@checkgate/edge`](docs/ecosystem/edge.md) | npm 0.1.31 |
-| Typed flags | [`@checkgate/cli`](docs/ecosystem/cli.md) | npm 0.1.31 |
-| AI agents | [`@checkgate/mcp-server`](docs/ecosystem/mcp.md) | *0.2.0* · not yet on npm · read-only by default; can propose, never apply or approve |
+| Node.js | [`@checkgate/node`](docs/sdks/nodejs.md) (NAPI) | npm 0.2.0 |
+| Browser | [`@checkgate/web`](docs/sdks/web.md) (WebAssembly) | npm 0.2.0 |
+| React Native | [`@checkgate/react-native`](docs/sdks/react-native.md) (JSI) | npm 0.2.0 · Android build verified in CI; iOS not certified |
+| Flutter | [`checkgate_flutter`](docs/sdks/flutter.md) (FFI) | pub.dev 0.2.0 · bundles no engine: you build and link it |
+| Python | [`checkgate`](docs/sdks/python.md) (PyO3) | PyPI 0.2.0 · new in 0.2.0; CPython 3.11+ |
+| OpenFeature | [`@checkgate/openfeature-provider`](docs/sdks/openfeature.md) (Node.js server) | npm 0.2.0 · new in 0.2.0 |
+| Express · Fastify · NestJS | [`@checkgate/node-integrations`](docs/sdks/node-frameworks.md) | npm 0.2.0 · new in 0.2.0 |
+| SSR / edge | [`@checkgate/ssr`](docs/ecosystem/ssr.md), [`@checkgate/edge`](docs/ecosystem/edge.md) | npm 0.2.0 |
+| Typed flags | [`@checkgate/cli`](docs/ecosystem/cli.md) | npm 0.2.0 |
+| AI agents | [`@checkgate/mcp-server`](docs/ecosystem/mcp.md) | npm 0.2.0 · new in 0.2.0 · read-only by default; can propose, never apply or approve |
 | Infrastructure as code | [Terraform / OpenTofu provider](docs/ecosystem/terraform.md), [Kubernetes operator](docs/ecosystem/kubernetes.md) | build from source |
 
 Every SDK runs the same evaluation engine and checks the same shared test vectors. Also new in
-*0.2.0*: the [evaluation playground](docs/guide/playground.md) (what an SDK would answer for a user,
+0.2.0: the [evaluation playground](docs/guide/playground.md) (what an SDK would answer for a user,
 and why) and [SDK diagnostics](docs/operations/sdk-diagnostics.md). Which packages your stack needs:
 [Which SDK do I need?](docs/sdks/index.md)
 

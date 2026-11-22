@@ -147,11 +147,11 @@ TypeScript: importing the module adds `checkgate: RequestFlags` to Express's
 
 ```js
 import Fastify from 'fastify'
-import checkgate from '@checkgate/node-integrations/fastify'
+import { checkgatePlugin } from '@checkgate/node-integrations/fastify'
 
 const app = Fastify()
 
-await app.register(checkgate, {
+await app.register(checkgatePlugin, {
   clientOptions: { serverUrl: process.env.CHECKGATE_URL, sdkKey: process.env.CHECKGATE_SDK_KEY },
   context: (request) => (request.user ? { key: request.user.id, attributes: { plan: request.user.plan } } : null),
   readyTimeoutMs: 5000,

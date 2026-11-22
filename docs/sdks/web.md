@@ -108,61 +108,60 @@ Closes the SSE connection.
 
 ## Usage with React
 
-```tsx
-// hooks/useFlag.ts
-import { useEffect, useState } from 'react'
-import { flags } from '../lib/flags' // shared client instance
+There is no separate React package. Create one client for the app, and re-render when
+`connect()` settles and on `onChange` (`onChange` does not fire for the initial load):
 
-export function useFlag(
-  key: string,
-  userId: string,
-  attributes: Record<string, string> = {}
-): boolean {
-  const [enabled, setEnabled] = useState(() =>
-    flags.isEnabled(key, userId, attributes)
-  )
+```js
+// lib/flags.js — one shared client
+import { CheckgateWeb } from '@checkgate/web'
 
+export const flags = new CheckgateWeb({ serverUrl: 'https://flags.example.com', sdkKey: 'sk_live_...' })
+export const flagsReady = flags.connect()
+```
+
+```jsx
+// hooks/useFlag.js
+import { useEffect, useReducer } from 'react'
+import { flags, flagsReady } from '../lib/flags'
+
+export function useFlag(flagKey, userKey, attributes) {
+  const [, rerender] = useReducer((n) => n + 1, 0)
   useEffect(() => {
-    // Re-evaluate when flags update
-    const unsubscribe = flags.onChange(() => {
-      setEnabled(flags.isEnabled(key, userId, attributes))
-    })
-    return unsubscribe
-  }, [key, userId])
-
-  return enabled
+    let active = true
+    const update = () => { if (active) rerender() }
+    flagsReady.then(update, update)
+    const off = flags.onChange(update)
+    return () => { active = false; off() }
+  }, [])
+  return flags.isEnabled(flagKey, userKey, attributes)
 }
 
 // Usage in a component
 function CheckoutButton({ user }) {
-  const newCheckout = useFlag('new-checkout-flow', user.id, {
-    plan: user.plan,
-  })
-
+  const newCheckout = useFlag('new-checkout-flow', user.id, { plan: user.plan })
   return newCheckout ? <NewCheckout /> : <LegacyCheckout />
 }
 ```
 
+For server-rendered React (Next.js and others), use [`@checkgate/ssr`](/ecosystem/ssr) so the first
+paint matches the server render.
+
 ## Usage with Vue
 
-```typescript
-// composables/useFlag.ts
+```js
+// composables/useFlag.js
 import { ref, onMounted, onUnmounted } from 'vue'
-import { flags } from '../lib/flags'
+import { flags, flagsReady } from '../lib/flags'
 
-export function useFlag(key: string, userId: string, attributes = {}) {
-  const enabled = ref(flags.isEnabled(key, userId, attributes))
-
-  let unsubscribe: (() => void) | null = null
-
+export function useFlag(flagKey, userKey, attributes = {}) {
+  const enabled = ref(flags.isEnabled(flagKey, userKey, attributes))
+  const update = () => { enabled.value = flags.isEnabled(flagKey, userKey, attributes) }
+  let off = null
   onMounted(() => {
-    unsubscribe = flags.onChange(() => {
-      enabled.value = flags.isEnabled(key, userId, attributes)
-    })
+    flagsReady.then(update, update)
+    off = flags.onChange(update)
   })
-
-  onUnmounted(() => unsubscribe?.())
-
+  onUnmounted(() => off?.())
   return enabled
 }
 ```

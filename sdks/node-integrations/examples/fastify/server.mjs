@@ -4,7 +4,7 @@
 //   curl -H 'x-user-id: alice' -H 'x-plan: pro' http://localhost:8080/
 
 import Fastify from 'fastify'
-import checkgate from '@checkgate/node-integrations/fastify'
+import { checkgatePlugin } from '@checkgate/node-integrations/fastify'
 
 const app = Fastify({ logger: { level: 'warn' } })
 
@@ -17,7 +17,7 @@ app.addHook('onRequest', async (request) => {
 
 // The plugin builds the client, connects while loading (up to 5 s; then the
 // app starts with cached or default values) and disconnects on close.
-await app.register(checkgate, {
+await app.register(checkgatePlugin, {
     clientOptions: {
         serverUrl: process.env.CHECKGATE_URL ?? 'http://localhost:3000',
         sdkKey: process.env.CHECKGATE_SDK_KEY,

@@ -51,7 +51,7 @@ export interface EvaluationDetails extends FlagEvaluation {
 export interface CheckgateClientOptions {
   /** Base URL of your Checkgate server. */
   serverUrl: string;
-  /** SDK key for authentication. Leave unset for open (dev-only) mode. */
+  /** SDK key for authentication. Required: the server has no unauthenticated mode. */
   sdkKey?: string;
   /** Base SSE reconnect delay in milliseconds; grows exponentially. Default: 3000. */
   reconnectDelayMs?: number;

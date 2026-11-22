@@ -78,9 +78,9 @@ your email. Someone else must approve them.
 
 ## 2. Configure your MCP client
 
-The package needs Node.js 22 or later (CI tests it on 22). Until it is published to npm, run it from a checkout of the
-repository (`cd integrations/mcp-server && npm ci`) and point `command`/`args` at
-`integrations/mcp-server/bin/checkgate-mcp.js`.
+The client starts the server with `npx`, so there is nothing to install beforehand. It needs
+Node.js 20 or later (CI tests it on 22). To run it from a checkout instead, use `node` with
+`integrations/mcp-server/bin/checkgate-mcp.js` as `command`/`args` after `npm ci` in that directory.
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
@@ -88,8 +88,8 @@ repository (`cd integrations/mcp-server && npm ci`) and point `command`/`args` a
 {
   "mcpServers": {
     "checkgate": {
-      "command": "node",
-      "args": ["/path/to/checkgate/integrations/mcp-server/bin/checkgate-mcp.js"],
+      "command": "npx",
+      "args": ["-y", "@checkgate/mcp-server@0.2.0"],
       "env": {
         "CHECKGATE_URL": "https://flags.example.com",
         "CHECKGATE_TOKEN": "pat_your_propose_token",
@@ -107,7 +107,7 @@ claude mcp add --transport stdio checkgate \
   --env CHECKGATE_URL=https://flags.example.com \
   --env CHECKGATE_TOKEN=pat_your_propose_token \
   --env CHECKGATE_MCP_WRITE=1 \
-  -- node /path/to/checkgate/integrations/mcp-server/bin/checkgate-mcp.js
+  -- npx -y @checkgate/mcp-server@0.2.0
 ```
 
 Leave out `CHECKGATE_MCP_WRITE` for a read-only assistant.

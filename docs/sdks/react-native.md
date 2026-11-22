@@ -206,7 +206,7 @@ from [Native setup](#native-setup-rust-toolchain).
 
 ## Platform Support
 
-| Platform | Architecture | Status in 0.1.31 |
+| Platform | Architecture | Status in 0.2.0 |
 |----------|-------------|--------|
 | Android | arm64-v8a, armeabi-v7a, x86_64, x86 | Native build and link verified in CI; not tested on a device or emulator for this release |
 | iOS | arm64 | **Not certified**: the iOS app build was not run for this release |

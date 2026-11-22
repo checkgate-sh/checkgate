@@ -52,18 +52,18 @@ node --env-file=../.env index.mjs
 
 **Python**
 
-The Python package is not on PyPI yet, so build it from this checkout (needs Rust). Use a Python
-3.11+ interpreter: if `python3 --version` prints an older one, write `python3.11` (or newer)
-instead of `python3` below.
+Use a Python 3.11+ interpreter: if `python3 --version` prints an older one, write `python3.11`
+(or newer) instead of `python3` below.
 
 ```bash
-cd sdks/python
-python3 -m venv .venv && .venv/bin/pip install "maturin>=1.9.4,<2"
-VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release
-cd ../../quickstart/python
+cd quickstart/python
+python3 -m venv .venv && .venv/bin/pip install "checkgate==0.2.0"
 set -a && . ../.env && set +a
-../../sdks/python/.venv/bin/python main.py
+.venv/bin/python main.py
 ```
+
+To run against SDK changes in this checkout instead, build the package from source (needs Rust):
+see [Python SDK: build from source](/sdks/python#build-from-source).
 
 Both print the flag for two users (`new-checkout: user-pro=true  user-free=false`; Python writes
 `True`/`False`): the flag is evaluated in your process by the Checkgate engine, with no network
@@ -99,7 +99,7 @@ restart. With a 0.2.0 server <Since v="0.2.0" />, open **Playground** in the sid
 | Setup fails with `HTTP 409` or `403` | The instance was already set up. `./quickstart/start.sh --down` starts over. |
 | The SDK logs `rejected the SDK key (HTTP 401)` | `CHECKGATE_SDK_KEY` is missing or from an older run: re-run with `--seed` after `--down`, or create a key in project settings. |
 | The SDK keeps logging `reconnecting` | The server is not reachable at `http://localhost:$CHECKGATE_PORT`; check `docker compose -f quickstart/compose.yml ps`. |
-| `pip install checkgate` finds nothing, or something unexpected | The Python package is **not on PyPI yet** — do not install a `checkgate` package from PyPI until the project announces it. Build it from the checkout: `cd sdks/python && python3 -m venv .venv && .venv/bin/pip install maturin && .venv/bin/maturin develop --release`, then run `main.py` with `sdks/python/.venv/bin/python`. |
+| `pip install checkgate` finds no matching distribution | No wheel for your platform or Python: wheels are for CPython 3.11+ on Linux (glibc) x86_64/aarch64, macOS x86_64/arm64 and Windows x86_64. Elsewhere (for example Alpine/musl), [build from source](/sdks/python#build-from-source). |
 
 ## What the script does not do
 

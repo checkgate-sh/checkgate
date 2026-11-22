@@ -23,7 +23,7 @@ Find your stack below — each section lists what's **required**, what's
 | **React Native** | `@checkgate/react-native` | `@checkgate/cli` |
 | **Flutter** | `checkgate_flutter` | `@checkgate/cli` |
 | **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/node-integrations`, `@checkgate/cli` |
-| **Python server** — FastAPI, Django, Flask | `checkgate` (0.2.0; build from source, not on PyPI yet) | — |
+| **Python server** — FastAPI, Django, Flask | `checkgate` (PyPI) | — |
 | **Edge** — Cloudflare Workers, Vercel Edge, middleware | `@checkgate/edge` + `@checkgate/web` | `@checkgate/cli` |
 
 `@checkgate/cli` is optional everywhere — it's a dev-time tool that generates
@@ -147,9 +147,8 @@ See the [Flutter SDK reference](/sdks/flutter).
 ### Python <Since v="0.2.0" />
 
 **One package**, `checkgate`: the Python client with the same Rust core compiled
-in through PyO3 (abi3, CPython 3.11+). It is **not on PyPI yet** — build it from
-the repository ([how](/sdks/python#installation)) and do not install a `checkgate`
-package from PyPI until the project announces it. Evaluation is synchronous and
+in through PyO3 (abi3, CPython 3.11+): `pip install checkgate`
+([installation](/sdks/python#installation)). Evaluation is synchronous and
 thread-safe; syncing runs on a background thread, so it works the same under
 WSGI and ASGI servers. Create one client per worker process.
 

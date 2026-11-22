@@ -28,7 +28,7 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/checkgate-sh/checkgate"
-Documentation = "https://github.com/checkgate-sh/checkgate/blob/main/docs/sdks/python.md"
+Documentation = "https://checkgate-sh.github.io/checkgate/sdks/python"
 Repository = "https://github.com/checkgate-sh/checkgate"
 
 [tool.maturin]
