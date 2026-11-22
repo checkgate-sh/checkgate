@@ -617,6 +617,44 @@ jobs:
         run: npm ci && npm run typecheck && npm test
 
   # ---------------------------------------------------------------------------
+  # npm packages added in 0.2.0 — the publishable tarballs, checked on every
+  # pull request rather than only on a version tag: every manifest path packed,
+  # no development files, versions and peer ranges consistent, then a clean
+  # consumer install (with @checkgate/node packed at the release version) that
+  # imports every entry point, type-checks the declarations and runs each
+  # package once. Nothing is published (scripts/check-npm-packages.mjs).
+  # ---------------------------------------------------------------------------
+  npm-packages:
+    name: npm packages (pack + clean install, not published)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the native addon (release, as published)
+        working-directory: sdks/nodejs
+        run: npm ci && npm run build
+
+      - name: Pack, inspect, install and smoke-test
+        run: node scripts/check-npm-packages.mjs --out "$RUNNER_TEMP/npm-packages"
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: npm-packages-report
+          path: ${{ runner.temp }}/npm-packages/report.json
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
   # Node framework integrations — @checkgate/node-integrations (Express,
   # Fastify, NestJS) over the REAL @checkgate/node and its native addon, with
   # sdks/conformance/fault-server.mjs as the Checkgate server. Every Node.js

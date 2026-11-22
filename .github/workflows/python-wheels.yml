@@ -14,6 +14,7 @@ on:
       - "core/**"
       - "sdks/python/**"
       - "sdks/conformance/vectors/**"
+      - "scripts/check-python-package.py"
       - ".github/workflows/python-wheels.yml"
   workflow_dispatch:
 
@@ -69,3 +70,59 @@ jobs:
           cd "$RUNNER_TEMP"
           "$GITHUB_WORKSPACE/$BIN/python" -c "import checkgate, sys; print(checkgate.__file__, sys.version)"
           "$GITHUB_WORKSPACE/$BIN/python" -m pytest "$GITHUB_WORKSPACE/sdks/python/tests" -q
+
+  # The publishable wheels, built exactly as release.yml builds them
+  # (maturin-action, manylinux) but without a version tag, so a packaging
+  # problem shows up in a pull request instead of in the release run. Nothing
+  # is published: each wheel is checked (scripts/check-python-package.py:
+  # tags, metadata, contents, RECORD hashes, version consistency; twine
+  # check; auditwheel), installed into a clean virtualenv and tested there,
+  # then kept as a workflow artifact.
+  release-artifacts:
+    name: Release wheel ${{ matrix.platform }} (not published)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, os: ubuntu-latest, target: x86_64 }
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64 }
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Build the wheel as release.yml does
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: sdks/python
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist
+
+      - name: Check the wheel
+        run: |
+          python scripts/check-python-package.py sdks/python/dist --json python-package-report.json
+          python -m pip install "twine>=6.1,<7" "auditwheel>=6.4,<7"
+          python -m twine check --strict sdks/python/dist/*.whl
+          python -m auditwheel show sdks/python/dist/*.whl
+
+      - name: Install into a clean environment and test
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/pip" install pytest
+          "$RUNNER_TEMP/clean/bin/pip" install --no-index --find-links sdks/python/dist checkgate
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/clean/bin/python" -c "import checkgate; print(checkgate.__version__, checkgate.__file__)"
+          "$RUNNER_TEMP/clean/bin/python" -m pytest "$GITHUB_WORKSPACE/sdks/python/tests" -q
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: python-release-wheel-${{ matrix.platform }}
+          path: |
+            sdks/python/dist/*.whl
+            python-package-report.json
+          if-no-files-found: error
