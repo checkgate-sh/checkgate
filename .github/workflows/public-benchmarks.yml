@@ -64,3 +64,20 @@ jobs:
             bench-results
             assets/benchmarks
           retention-days: 90
+      # run.sh keeps going when one benchmark run fails (its output lands in
+      # raw/failed/), so the job would stay green with results missing. After
+      # the upload, fail the job if any run failed: harness health is
+      # pass/fail, the measurements themselves are not.
+      - name: Every run completed
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          p = os.path.join(os.environ["OUT"], "raw", "runs.jsonl")
+          runs = [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+          failed = [f"{r['phase']} run {r['rep']}" for r in runs if r["status"] != "ok"]
+          print(f"{len(runs)} runs, {len(failed)} failed")
+          for f in failed:
+              print(f"::error::benchmark run failed: {f} (output in raw/failed/)")
+          sys.exit(1 if failed or not runs else 0)
+          PY

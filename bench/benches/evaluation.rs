@@ -312,7 +312,15 @@ fn concurrency(c: &mut Criterion) {
     let threads_available = std::thread::available_parallelism().map_or(4, |n| n.get());
     let mut g = c.benchmark_group("concurrent_evaluation_1000_flags");
     g.throughput(Throughput::Elements(1));
-    for threads in [1usize, 2, 4, threads_available] {
+    // Each count once: on a host with 1, 2 or 4 CPUs (GitHub's runners have
+    // 4) `threads_available` repeats one of the fixed counts, and Criterion
+    // panics on a duplicate benchmark ID, which ended the whole run before
+    // `readers_with_writer` and `sdk_apply_upsert_event`. Hosts with other
+    // CPU counts keep the same IDs as before.
+    let mut reader_counts = vec![1usize, 2, 4, threads_available];
+    reader_counts.sort_unstable();
+    reader_counts.dedup();
+    for threads in reader_counts {
         let store = Arc::new(store_with(1_000));
         g.bench_with_input(
             BenchmarkId::new("readers", threads),

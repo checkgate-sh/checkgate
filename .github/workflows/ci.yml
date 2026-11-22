@@ -87,6 +87,38 @@ jobs:
         run: cargo doc --no-deps --all-features
 
   # ---------------------------------------------------------------------------
+  # Benchmark harness smoke — every Criterion benchmark runs once (`--test`),
+  # so a broken harness fails CI instead of silently dropping results from a
+  # manual benchmark run. Measures nothing: timings on shared runners are not
+  # comparable, and pass/fail here is about the harness only. Runs pinned to
+  # 1, 2 and 4 CPUs because the concurrency group derives benchmark IDs from
+  # the CPU count (a duplicate ID made Criterion panic on 4-vCPU runners).
+  # ---------------------------------------------------------------------------
+  bench-smoke:
+    name: Benchmark harness (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the benchmarks
+        run: cargo bench -p checkgate-bench --no-run
+
+      - name: Run every benchmark once
+        run: |
+          set -euo pipefail
+          for cpus in 0 0-1 0-3; do
+            echo "== CPUs $cpus"
+            taskset -c "$cpus" cargo bench -p checkgate-bench --bench evaluation -- --test
+          done
+          cargo bench -p checkgate-bench --bench snapshot_decode -- --test
+
+  # ---------------------------------------------------------------------------
   # Supply chain — advisories, licenses, banned and duplicate crates.
   # `cargo deny` walks the resolved build graph; `cargo audit` reads Cargo.lock
   # and so also catches advisories on crates that are present but never built
