@@ -37,7 +37,7 @@ server, PostgreSQL and Redis on your own infrastructure.
 > [v0.1.31](https://github.com/checkgate-sh/checkgate/releases/latest). Items marked
 > *0.2.0* below are in this source tree but not yet published to npm, PyPI or the container
 > registry. Upgrading an existing server to 0.2.0 has
-> [rules to read first](docs/operations/upgrading-to-0-2-0.md) (one migration, no rolling upgrade).
+> [rules to read first](docs/operations/upgrading-to-0-2-0.md) (two migrations, no rolling upgrade; back up the database first).
 
 ## How it works
 

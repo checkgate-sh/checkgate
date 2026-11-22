@@ -109,6 +109,11 @@ adds a network request per evaluation.
 
 ### Changed
 
+- Documentation: new README and docs-site homepage, journey-based navigation,
+  release-status labels generated from one data file (packages not yet on
+  npm or PyPI say so), restyled benchmark graphics (same measurements; each
+  figure names its statistic), social preview image, sitemap and canonical
+  URLs.
 - Node.js SDK: on a stream's `ready` the client now marks itself ready before
   switching to `streaming`, so status listeners see `isReady()` on a first
   connection.
