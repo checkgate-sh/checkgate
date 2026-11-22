@@ -451,24 +451,20 @@ jobs:
           severity: 'CRITICAL'
 
   # Credentials preflight (workflow_dispatch only). Proves, without
-  # publishing, what the tag run will need: an npm identity that can publish
-  # in the @checkgate scope, parseable pub.dev credentials, and a PyPI trusted
-  # publisher matching this workflow and environment. Prints no secret.
+  # publishing, what the tag run will need from npm and pub.dev: an npm
+  # identity with read-write access in the @checkgate scope and parseable
+  # pub.dev credentials. Prints no secret.
   #
-  # The PyPI check exchanges this job's OIDC token for a short-lived upload
-  # token (discarded unused), exactly as publish-pypi will. If the publisher
-  # is still *pending* (project not yet on PyPI), that exchange creates the
-  # empty project `checkgate` under the account that registered it.
+  # PyPI cannot be checked here: the `pypi` environment only admits version
+  # tags, and the trusted publisher is bound to that environment. Instead,
+  # publish-pypi runs first in the tag run and every other publish job needs
+  # it, so a PyPI failure stops the release before anything is published.
   preflight-credentials:
     name: Preflight — publishing credentials
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/checkgate/
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/setup-node@v5
         with:
@@ -521,22 +517,6 @@ jobs:
               console.log("pub.dev credentials: refresh token present");
             });'
 
-      - name: PyPI — trusted publisher accepts this workflow
-        run: |
-          set -euo pipefail
-          AUD="$(curl -fsS https://pypi.org/_/oidc/audience | node -p 'JSON.parse(require("fs").readFileSync(0)).audience')"
-          OIDC="$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD" | node -p 'JSON.parse(require("fs").readFileSync(0)).value')"
-          echo "::add-mask::$OIDC"
-          RESP="$(curl -sS -X POST https://pypi.org/_/oidc/mint-token -H 'Content-Type: application/json' -d "{\"token\":\"$OIDC\"}")"
-          printf '%s' "$RESP" | node -e '
-            const r = JSON.parse(require("fs").readFileSync(0));
-            if (r.success && r.token) { console.log("PyPI trusted publishing: accepted (upload token minted and discarded)"); process.exit(0); }
-            console.error("Error: PyPI refused the trusted-publishing exchange:");
-            console.error(JSON.stringify({ message: r.message, errors: (r.errors || []).map((e) => e.code + ": " + e.description) }, null, 2));
-            process.exit(1);
-          '
-          echo "PyPI project page: $(curl -s -o /dev/null -w '%{http_code}' https://pypi.org/pypi/checkgate/json)"
-
   # ===========================================================================
   # PHASE 2 — PUBLISH. Every job below waits for *all* of phase 1.
   # ===========================================================================
@@ -544,7 +524,7 @@ jobs:
   publish-node:
     name: Publish — @checkgate/node
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -614,7 +594,7 @@ jobs:
   publish-web:
     name: Publish — @checkgate/web
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -661,7 +641,7 @@ jobs:
   publish-cli:
     name: Publish — @checkgate/cli
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -689,7 +669,7 @@ jobs:
   publish-edge:
     name: Publish — @checkgate/edge
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -717,7 +697,7 @@ jobs:
   publish-ssr:
     name: Publish — @checkgate/ssr
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -745,7 +725,7 @@ jobs:
   publish-openfeature:
     name: Publish — @checkgate/openfeature-provider
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -773,7 +753,7 @@ jobs:
   publish-node-integrations:
     name: Publish — @checkgate/node-integrations
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -801,7 +781,7 @@ jobs:
   publish-mcp-server:
     name: Publish — @checkgate/mcp-server
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -829,7 +809,7 @@ jobs:
   publish-react-native:
     name: Publish — @checkgate/react-native
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -861,7 +841,7 @@ jobs:
   publish-flutter:
     name: Publish — checkgate_flutter (pub.dev)
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -902,7 +882,7 @@ jobs:
   publish-docker:
     name: Publish — Docker image
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker]
+    needs: [verify-js, build-native, build-web, verify-flutter, verify-python, build-docker, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -954,6 +934,8 @@ jobs:
         run: |
           cosign sign --yes ${{ env.IMAGE_NAME }}@${{ steps.build-push.outputs.digest }}
 
+  # Runs before every other publish job (they all need it): it is the one
+  # credential the dispatch preflight cannot check (see preflight-credentials).
   # PyPI trusted publishing (OIDC): no stored token. Needs, once, on PyPI: a
   # publisher for project `checkgate`, owner checkgate-sh, repository
   # checkgate, workflow release.yml, environment `pypi`. The action attaches
