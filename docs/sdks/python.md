@@ -3,7 +3,9 @@ title: "Python SDK — Local Feature Flag Evaluation for FastAPI, Django and Fla
 description: "Use the Checkgate Python SDK to evaluate feature flags in-process with the shared Rust engine (PyO3, abi3 wheels for CPython 3.11+). Synchronous, thread-safe evaluation, a background sync thread, offline cache, and guidance for gunicorn and uWSGI workers."
 ---
 
-# Python SDK
+# Python SDK <Since v="0.2.0" />
+
+<ReleaseNotice pkg="python" />
 
 The Python SDK evaluates flags **in-process** with Checkgate's Rust engine
 (the same core as every other SDK and the server), compiled into a CPython
@@ -13,25 +15,26 @@ standard library — there is no asyncio inside the client, so it never blocks
 your event loop.
 
 ::: tip New in 0.2.0
-Wheels are built for Linux x86_64 and aarch64 (manylinux), macOS x86_64 and
-arm64, and Windows x86_64, for CPython 3.11 and newer (one abi3 wheel per
-platform). See [Platform support](#platform-support) for what is tested.
+The release workflow builds wheels for Linux x86_64 and aarch64 (manylinux), macOS x86_64 and
+arm64, and Windows x86_64, for CPython 3.11 and newer (one abi3 wheel per platform). They are
+not published anywhere yet. See [Platform support](#platform-support) for what is tested.
 :::
 
 ## Installation
 
 The package (`checkgate`, Python 3.11+) is **not on PyPI yet**: until the release announces it,
-do not install a `checkgate` package from PyPI. Build it from a checkout of the repository (needs
-Rust; the release will ship prebuilt wheels):
+do not install a `checkgate` package from PyPI. Build it from a checkout of the repository. You need Rust and a Python 3.11+
+interpreter; if `python3 --version` prints an older one, use `python3.11` (or newer) below.
+Publishing to PyPI is planned; no release job publishes the wheels yet.
 
 ```bash
 cd sdks/python
-python3 -m venv .venv
+python3 -m venv .venv          # Python 3.11 or newer
 .venv/bin/pip install "maturin>=1.9.4,<2"
 VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release   # installs checkgate into .venv
 ```
 
-Once published:
+Once it is published (not yet):
 
 ```bash
 pip install checkgate
@@ -187,7 +190,7 @@ share the directory.
 | Platform | Wheel | Test suite runs on it |
 |---|---|---|
 | Linux x86_64 | Yes | Yes (Python 3.11 and 3.13) |
-| Linux aarch64 | Yes (cross-compiled) | No |
+| Linux aarch64 | Yes (cross-compiled) | Yes, on a native build (Python 3.11) |
 | macOS arm64 | Yes | Yes |
-| macOS x86_64 | Yes (cross-compiled) | Verified by hand for 0.2.0 |
+| macOS x86_64 | Yes (cross-compiled) | Yes, on a native build (Python 3.11) |
 | Windows x86_64 | Yes | Yes (fork tests do not apply) |

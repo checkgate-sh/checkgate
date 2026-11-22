@@ -1,6 +1,6 @@
 ---
 title: "Enterprise Setup — Migrating from LaunchDarkly to Checkgate"
-description: "A production-ready guide for engineering teams migrating from LaunchDarkly to self-hosted Checkgate. Covers infrastructure provisioning, AWS deployment, dashboard onboarding, and SDK integration."
+description: "A guide for engineering teams migrating from LaunchDarkly to self-hosted Checkgate. Covers infrastructure provisioning, AWS deployment, dashboard onboarding, and SDK integration."
 ---
 
 # Enterprise Setup Guide: Migrating from LaunchDarkly
@@ -82,6 +82,6 @@ bool showNewFeature = checkgate.isEnabled("new_feature_v2", currentUserId, {"pla
 ```
 
 ## Why Enterprise Teams Choose Checkgate
-- **Data Sovereignty**: user identities and PII never leave your network.
+- **Data Sovereignty**: flags, user identities and evaluation data stay on your infrastructure; no third-party service receives them. Browser and mobile SDKs download their environment's targeting rules to the device, so keep personal data such as email addresses out of client-side rules.
 - **In-Process Evaluation**: Decisions happen in microseconds inside your application's memory, in the shared Rust core.
 - **Cost Transparency**: No per-user, per-seat, or per-flag pricing. Evaluation cost does not grow with users; server cost grows with connected clients (one server held 10,000 idle streams at 1 vCPU / 512 MiB in our [cost benchmark](/performance/cost-efficiency); `SSE_MAX_CONNECTIONS` defaults to 10,000 per instance).

@@ -1,59 +1,89 @@
 /**
- * docs/.vitepress/theme/custom.css
- * Checkgate custom branding. Indigo is the brand; green, red and amber are
- * reserved for flag state and are never used as accents here.
+ * Checkgate theme on top of the VitePress default theme. Tokens live in
+ * styles/tokens.css. Fonts: VitePress's bundled Inter (served locally, subset
+ * by unicode-range) and the system monospace stack; no external font requests.
  */
 
 :root {
-  /* Indigo 600 - primary */
-  --vp-c-brand-1: #4f46e5;
-  /* Indigo 500 - hover / highlight */
-  --vp-c-brand-2: #6366f1;
-  /* Indigo 400 - brightest */
-  --vp-c-brand-3: #818cf8;
+  --vp-c-brand-1: var(--cg-indigo-600);
+  --vp-c-brand-2: var(--cg-indigo-500);
+  --vp-c-brand-3: var(--cg-indigo-400);
+  --vp-c-brand-soft: rgba(79, 70, 229, 0.14);
 
-  /* Soft background for badges, hover states */
-  --vp-c-brand-soft: rgba(79, 70, 229, 0.16);
-
-  /* Primary action button text/bg overrides */
   --vp-button-brand-border: transparent;
   --vp-button-brand-text: #ffffff;
-  --vp-button-brand-bg: var(--vp-c-brand-1);
+  --vp-button-brand-bg: var(--cg-indigo-600);
   --vp-button-brand-hover-border: transparent;
   --vp-button-brand-hover-text: #ffffff;
-  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-hover-bg: var(--cg-indigo-700);
   --vp-button-brand-active-border: transparent;
   --vp-button-brand-active-text: #ffffff;
-  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+  --vp-button-brand-active-bg: var(--cg-indigo-700);
 
-  /* Premium Gradient Text for the main Hero Title */
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #818cf8 10%, #4338ca 90%);
+  --vp-font-family-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --vp-home-hero-name-color: var(--cg-ink);
 }
 
-/* Add a very subtle gradient animation to the main title */
-.name {
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: gradientGlow 8s ease infinite;
-  background-size: 200% 200%;
+.dark {
+  --vp-c-bg: #0b1020;
+  --vp-c-bg-alt: #0e1426;
+  --vp-c-bg-elv: #151c30;
+  --vp-c-bg-soft: #151c30;
+  --vp-c-divider: #222b47;
+  --vp-c-border: #2a3352;
+  --vp-c-gutter: #070b16;
+  --vp-c-text-1: #e8edff;
+  --vp-c-text-2: #b4bedb;
+  --vp-c-text-3: #8691b4;
+  --vp-c-brand-1: var(--cg-indigo-400);
+  --vp-c-brand-2: var(--cg-indigo-300);
+  --vp-c-brand-3: var(--cg-indigo-500);
+  --vp-c-brand-soft: rgba(129, 140, 248, 0.16);
+  --vp-code-block-bg: #10172b;
+  --vp-button-brand-bg: var(--cg-indigo-500);
+  --vp-button-brand-hover-bg: var(--cg-indigo-600);
+  --vp-button-brand-active-bg: var(--cg-indigo-600);
 }
 
-@keyframes gradientGlow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* Visible keyboard focus everywhere (WCAG 2.4.7 / 2.4.11). */
+:where(a, button, [role='tab'], summary, input, select, textarea):focus-visible {
+  outline: 2px solid var(--cg-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
-/* Round off the feature boxes for a more modern software look */
-.VPFeature {
-  border-radius: 16px !important;
-  transition: transform 0.2s ease, border-color 0.2s ease;
+/* Docs pages: slightly calmer headings and better tables on small screens. */
+.vp-doc h1 {
+  letter-spacing: -0.02em;
+}
+.vp-doc h2 {
+  letter-spacing: -0.01em;
+}
+.vp-doc table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.vp-doc img {
+  border-radius: 10px;
+}
+.vp-doc .custom-block {
+  border-radius: 12px;
 }
 
-.VPFeature:hover {
-  transform: translateY(-2px);
-  border-color: var(--vp-c-brand-3);
-  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.08);
+/* Sidebar group titles */
+.VPSidebarItem.level-0 > .item > .text {
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

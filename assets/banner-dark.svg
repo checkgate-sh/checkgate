@@ -1,31 +1,48 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="2304" height="576" viewBox="0 0 2304 576" fill="none" role="img" aria-label="Checkgate — feature flags without the round-trip">
-  <title>Checkgate — feature flags without the round-trip</title>
-  <defs>
-    <clipPath id="frame">
-      <rect width="2304" height="576" rx="0"/>
-    </clipPath>
-  </defs>
-  <g clip-path="url(#frame)">
-    <rect width="2304" height="576" fill="#0B1020"/>
-    <circle cx="2110" cy="70" r="360" fill="#4F46E5" opacity="0.16"/>
-    <circle cx="1930" cy="600" r="250" fill="#6366F1" opacity="0.10"/>
-
-    <!-- mark: 48x48 artwork scaled to 112x112 at (144,160) -->
-    <g transform="translate(144 160) scale(2.3333)">
-      <path d="M33.4 13.6 A14 14 0 1 0 33.4 34.4" stroke="#818CF8" stroke-width="6" stroke-linecap="round"/>
-      <path d="M23 24 H39" stroke="#818CF8" stroke-width="6" stroke-linecap="round"/>
-    </g>
-
-    <text x="296" y="248"
-          font-family="'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
-          font-size="92" font-weight="700" letter-spacing="-2.5" fill="#FFFFFF">Checkgate</text>
-
-    <text x="146" y="356"
-          font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
-          font-size="38" font-weight="400" fill="#A5B4FC">Feature flags without the round-trip.</text>
-
-    <text x="146" y="408"
-          font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
-          font-size="29" font-weight="400" fill="#7B89A8">Open-source, Rust-native, evaluated in-process. No network call on the hot path.</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 600" width="1600" height="600" role="img" aria-labelledby="t d" font-family="Inter, system-ui, -apple-system, &apos;Segoe UI&apos;, Roboto, Helvetica, Arial, sans-serif">
+<title id="t">Checkgate — Ship with confidence. Roll out with control.</title>
+<desc id="d">Open-source, self-hosted feature management with local evaluation and real-time synchronization. Open source · Self-hosted · Rust-powered.</desc>
+<defs>
+<radialGradient id="glow" cx="0.78" cy="0.42" r="0.55"><stop offset="0" stop-color="#6366F1" stop-opacity="0.22"/><stop offset="1" stop-color="#6366F1" stop-opacity="0"/></radialGradient>
+<linearGradient id="fade" x1="0" x2="1"><stop offset="0" stop-color="#0B1020" stop-opacity="1"/><stop offset="0.35" stop-color="#0B1020" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="1600" height="600" fill="#0B1020"/>
+<path d="M860 40h0.01 M900 40h0.01 M940 40h0.01 M980 40h0.01 M1020 40h0.01 M1060 40h0.01 M1100 40h0.01 M1140 40h0.01 M1180 40h0.01 M1220 40h0.01 M1260 40h0.01 M1300 40h0.01 M1340 40h0.01 M1380 40h0.01 M1420 40h0.01 M1460 40h0.01 M1500 40h0.01 M1540 40h0.01 M1580 40h0.01 M860 80h0.01 M900 80h0.01 M940 80h0.01 M980 80h0.01 M1020 80h0.01 M1060 80h0.01 M1100 80h0.01 M1140 80h0.01 M1180 80h0.01 M1220 80h0.01 M1260 80h0.01 M1300 80h0.01 M1340 80h0.01 M1380 80h0.01 M1420 80h0.01 M1460 80h0.01 M1500 80h0.01 M1540 80h0.01 M1580 80h0.01 M860 120h0.01 M900 120h0.01 M940 120h0.01 M980 120h0.01 M1020 120h0.01 M1060 120h0.01 M1100 120h0.01 M1140 120h0.01 M1180 120h0.01 M1220 120h0.01 M1260 120h0.01 M1300 120h0.01 M1340 120h0.01 M1380 120h0.01 M1420 120h0.01 M1460 120h0.01 M1500 120h0.01 M1540 120h0.01 M1580 120h0.01 M860 160h0.01 M900 160h0.01 M940 160h0.01 M980 160h0.01 M1020 160h0.01 M1060 160h0.01 M1100 160h0.01 M1140 160h0.01 M1180 160h0.01 M1220 160h0.01 M1260 160h0.01 M1300 160h0.01 M1340 160h0.01 M1380 160h0.01 M1420 160h0.01 M1460 160h0.01 M1500 160h0.01 M1540 160h0.01 M1580 160h0.01 M860 200h0.01 M900 200h0.01 M940 200h0.01 M980 200h0.01 M1020 200h0.01 M1060 200h0.01 M1100 200h0.01 M1140 200h0.01 M1180 200h0.01 M1220 200h0.01 M1260 200h0.01 M1300 200h0.01 M1340 200h0.01 M1380 200h0.01 M1420 200h0.01 M1460 200h0.01 M1500 200h0.01 M1540 200h0.01 M1580 200h0.01 M860 240h0.01 M900 240h0.01 M940 240h0.01 M980 240h0.01 M1020 240h0.01 M1060 240h0.01 M1100 240h0.01 M1140 240h0.01 M1180 240h0.01 M1220 240h0.01 M1260 240h0.01 M1300 240h0.01 M1340 240h0.01 M1380 240h0.01 M1420 240h0.01 M1460 240h0.01 M1500 240h0.01 M1540 240h0.01 M1580 240h0.01 M860 280h0.01 M900 280h0.01 M940 280h0.01 M980 280h0.01 M1020 280h0.01 M1060 280h0.01 M1100 280h0.01 M1140 280h0.01 M1180 280h0.01 M1220 280h0.01 M1260 280h0.01 M1300 280h0.01 M1340 280h0.01 M1380 280h0.01 M1420 280h0.01 M1460 280h0.01 M1500 280h0.01 M1540 280h0.01 M1580 280h0.01 M860 320h0.01 M900 320h0.01 M940 320h0.01 M980 320h0.01 M1020 320h0.01 M1060 320h0.01 M1100 320h0.01 M1140 320h0.01 M1180 320h0.01 M1220 320h0.01 M1260 320h0.01 M1300 320h0.01 M1340 320h0.01 M1380 320h0.01 M1420 320h0.01 M1460 320h0.01 M1500 320h0.01 M1540 320h0.01 M1580 320h0.01 M860 360h0.01 M900 360h0.01 M940 360h0.01 M980 360h0.01 M1020 360h0.01 M1060 360h0.01 M1100 360h0.01 M1140 360h0.01 M1180 360h0.01 M1220 360h0.01 M1260 360h0.01 M1300 360h0.01 M1340 360h0.01 M1380 360h0.01 M1420 360h0.01 M1460 360h0.01 M1500 360h0.01 M1540 360h0.01 M1580 360h0.01 M860 400h0.01 M900 400h0.01 M940 400h0.01 M980 400h0.01 M1020 400h0.01 M1060 400h0.01 M1100 400h0.01 M1140 400h0.01 M1180 400h0.01 M1220 400h0.01 M1260 400h0.01 M1300 400h0.01 M1340 400h0.01 M1380 400h0.01 M1420 400h0.01 M1460 400h0.01 M1500 400h0.01 M1540 400h0.01 M1580 400h0.01 M860 440h0.01 M900 440h0.01 M940 440h0.01 M980 440h0.01 M1020 440h0.01 M1060 440h0.01 M1100 440h0.01 M1140 440h0.01 M1180 440h0.01 M1220 440h0.01 M1260 440h0.01 M1300 440h0.01 M1340 440h0.01 M1380 440h0.01 M1420 440h0.01 M1460 440h0.01 M1500 440h0.01 M1540 440h0.01 M1580 440h0.01 M860 480h0.01 M900 480h0.01 M940 480h0.01 M980 480h0.01 M1020 480h0.01 M1060 480h0.01 M1100 480h0.01 M1140 480h0.01 M1180 480h0.01 M1220 480h0.01 M1260 480h0.01 M1300 480h0.01 M1340 480h0.01 M1380 480h0.01 M1420 480h0.01 M1460 480h0.01 M1500 480h0.01 M1540 480h0.01 M1580 480h0.01 M860 520h0.01 M900 520h0.01 M940 520h0.01 M980 520h0.01 M1020 520h0.01 M1060 520h0.01 M1100 520h0.01 M1140 520h0.01 M1180 520h0.01 M1220 520h0.01 M1260 520h0.01 M1300 520h0.01 M1340 520h0.01 M1380 520h0.01 M1420 520h0.01 M1460 520h0.01 M1500 520h0.01 M1540 520h0.01 M1580 520h0.01 M860 560h0.01 M900 560h0.01 M940 560h0.01 M980 560h0.01 M1020 560h0.01 M1060 560h0.01 M1100 560h0.01 M1140 560h0.01 M1180 560h0.01 M1220 560h0.01 M1260 560h0.01 M1300 560h0.01 M1340 560h0.01 M1380 560h0.01 M1420 560h0.01 M1460 560h0.01 M1500 560h0.01 M1540 560h0.01 M1580 560h0.01" stroke="#18203A" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+<rect x="840" width="760" height="600" fill="url(#fade)"/>
+<rect width="1600" height="600" fill="url(#glow)"/>
+<g opacity="0.95">
+<circle cx="1255" cy="300" r="150" fill="none" stroke="#2A3352" stroke-width="1.5" opacity="0.55"/>
+<circle cx="1255" cy="300" r="235" fill="none" stroke="#2A3352" stroke-width="1.5" opacity="0.35"/>
+<path d="M1255 300 Q1110 245 1005 130" fill="none" stroke="#818CF8" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round" opacity="0.7"/>
+<path d="M1255 300 Q1209 197 1215 85" fill="none" stroke="#818CF8" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round" opacity="0.7"/>
+<path d="M1255 300 Q1323 199 1430 140" fill="none" stroke="#818CF8" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round" opacity="0.7"/>
+<path d="M1255 300 Q1382 280 1505 320" fill="none" stroke="#818CF8" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round" opacity="0.7"/>
+<path d="M1255 300 Q1353 377 1405 490" fill="none" stroke="#818CF8" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round" opacity="0.7"/>
+<path d="M1255 300 Q1234 411 1165 500" fill="none" stroke="#818CF8" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round" opacity="0.7"/>
+<path d="M1255 300 Q1130 362 990 360" fill="none" stroke="#818CF8" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round" opacity="0.7"/>
+<rect x="982" y="107" width="46" height="46" rx="12" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<circle cx="1005" cy="130" r="7" fill="#A78BFA"/>
+<rect x="1192" y="62" width="46" height="46" rx="12" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<circle cx="1215" cy="85" r="7" fill="#A78BFA"/>
+<rect x="1407" y="117" width="46" height="46" rx="12" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<circle cx="1430" cy="140" r="7" fill="#A78BFA"/>
+<rect x="1482" y="297" width="46" height="46" rx="12" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<circle cx="1505" cy="320" r="7" fill="#A78BFA"/>
+<rect x="1382" y="467" width="46" height="46" rx="12" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<circle cx="1405" cy="490" r="7" fill="#A78BFA"/>
+<rect x="1142" y="477" width="46" height="46" rx="12" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<circle cx="1165" cy="500" r="7" fill="#A78BFA"/>
+<rect x="967" y="337" width="46" height="46" rx="12" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<circle cx="990" cy="360" r="7" fill="#A78BFA"/>
+<rect x="1195" y="240" width="120" height="120" rx="28" fill="#4F46E5"/>
+<g transform="translate(1221.0 266.0) scale(1.4167)" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"><path d="M33.4 13.6 A14 14 0 1 0 33.4 34.4"/><path d="M23 24 H39"/></g>
+</g>
+<g transform="translate(112 92) scale(1.1667)" fill="none" stroke="#818CF8" stroke-width="6" stroke-linecap="round"><path d="M33.4 13.6 A14 14 0 1 0 33.4 34.4"/><path d="M23 24 H39"/></g>
+<text x="182" y="134" font-size="40" font-weight="700" fill="#E8EDFF" text-anchor="start" letter-spacing="-0.5">Checkgate</text>
+<text x="112" y="262" font-size="68" font-weight="700" fill="#E8EDFF" text-anchor="start" letter-spacing="-1.5">Ship with confidence.</text>
+<text x="112" y="344" font-size="68" font-weight="700" fill="#818CF8" text-anchor="start" letter-spacing="-1.5">Roll out with control.</text>
+<text x="114" y="404" font-size="26" font-weight="400" fill="#B4BEDB" text-anchor="start">Open-source, self-hosted feature management with local</text>
+<text x="114" y="440" font-size="26" font-weight="400" fill="#B4BEDB" text-anchor="start">evaluation and real-time synchronization.</text>
+<rect x="112" y="488" width="159" height="38" rx="19" fill="#151C30" stroke="#2A3352"/><text x="191.5" y="514.0" font-size="20" font-weight="500" fill="#B4BEDB" text-anchor="middle">Open source</text>
+<rect x="283" y="488" width="159" height="38" rx="19" fill="#151C30" stroke="#2A3352"/><text x="362.5" y="514.0" font-size="20" font-weight="500" fill="#B4BEDB" text-anchor="middle">Self-hosted</text>
+<rect x="454" y="488" width="170" height="38" rx="19" fill="#151C30" stroke="#2A3352"/><text x="539.0" y="514.0" font-size="20" font-weight="500" fill="#B4BEDB" text-anchor="middle">Rust-powered</text>
 </svg>

@@ -17,7 +17,7 @@ yarn add @checkgate/node
 pnpm add @checkgate/node
 ```
 
-Requires Node.js 20 or later.
+Requires Node.js 22 or later (CI tests 22, 24 and 26; Node.js 20 reached end of life on 2026-04-30).
 
 Pre-built binaries are included for:
 - Linux x64 (glibc)
@@ -98,7 +98,7 @@ key is never in the message), the last known flags keep being served, and callin
 retries. `connect()` also rejects if `disconnect()` is called before it completes. While the server is
 unreachable it keeps retrying; race it with a timeout if startup cannot wait.
 
-### `client.getHealth(): CheckgateHealth`
+### `client.getHealth(): CheckgateHealth` <Since v="0.2.0" />
 
 Detailed diagnostics for health checks, readiness probes and dashboards. Local state only (no
 network call), and it never contains the SDK key, user keys or attributes. The same fields
@@ -153,7 +153,7 @@ missing.
 const color = client.getValue('checkout-button-color', userId, {}, 'blue') // string
 ```
 
-### `client.getDetails(flagKey, userKey, attributes): EvaluationDetails | null`
+### `client.getDetails(flagKey, userKey, attributes): EvaluationDetails | null` <Since v="0.2.0" />
 
 The same local evaluation as `getVariant()`, plus why it resolved that way. Use it for
 debugging and logging; `isEnabled()` stays the fastest call.
@@ -177,10 +177,11 @@ const d = client.getDetails('new-checkout', userId, { plan: 'pro' })
 `outcome` (`satisfied`, `unsatisfied`, `not_found`, `limit_exceeded`) and, when evaluated, its
 `result`. Checking stops at the first failure. Returns `null` if the flag does not exist.
 
-### `client.onStatusChange(callback): () => void`
+### `client.onStatusChange(callback): () => void` <Since v="0.2.0" />
 
-Calls `callback(client.getStatus())` whenever the connection state changes, and after each
-successful poll while in poll fallback. Returns an unsubscribe function. The
+Calls `callback(client.getStatus())` whenever the connection state changes, and after each poll
+while in poll fallback, successful or not (the state stays `'polling'`; `getHealth().lastPollAt`
+says when one last succeeded). Returns an unsubscribe function. The
 [OpenFeature provider](./openfeature) uses it to report `STALE` and `READY`.
 
 ### `client.track(eventKey, userKey, opts?): void`
@@ -229,9 +230,9 @@ const unsubscribe = client.onChange((flagKey) => {
 ```
 
 ::: tip Every SDK shares this surface
-`getVariant`, `getValue`, `track`, `getStatus()` and the reconnect / poll-fallback behaviour are
-available in the [Web](/sdks/web), [React Native](/sdks/react-native), and [Flutter](/sdks/flutter)
-SDKs too — because all four wrap the same Rust evaluation core, flag decisions are identical across
+`getVariant`, `getValue`, `track`, `getStatus()` (in Flutter, the `status` getter) and the reconnect /
+poll-fallback behaviour are available in the [Web](/sdks/web), [React Native](/sdks/react-native), and
+[Flutter](/sdks/flutter) SDKs too — because all four wrap the same Rust evaluation core, flag decisions are identical across
 them. Option names differ slightly per SDK (Flutter uses `Duration`s), and the `bootstrap` option
 for server-rendered apps is Web-only; see each SDK's page.
 :::

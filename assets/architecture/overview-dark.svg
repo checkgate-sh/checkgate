@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-labelledby="t d" font-family="Inter, system-ui, -apple-system, &apos;Segoe UI&apos;, Roboto, Helvetica, Arial, sans-serif">
+<title id="t">How Checkgate works: configuration syncs to SDKs; flags evaluate inside your process</title>
+<desc id="d">1. A flag changes in the dashboard or through the API. 2. The Checkgate server commits it to PostgreSQL, fans it out to every server instance through Redis, and pushes it over a Server-Sent Events stream to each connected SDK; SDKs reconnect with backoff and poll the snapshot endpoint if a stream cannot be established. 3. The SDK keeps the flags in a local store inside your process. 4. Your code calls isEnabled(), which the SDK's Rust engine answers from that store with no network request. The server never evaluates your application's flag checks; SDKs that report impressions send them in background batches.</desc>
+<defs>
+<marker id="a-sync" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#818CF8"/></marker>
+<marker id="a-eval" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#A78BFA"/></marker>
+<marker id="a-muted" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8691B4"/></marker>
+</defs>
+<rect x="0.5" y="0.5" width="1199" height="599" rx="20" fill="#0B1020" stroke="#2A3352"/>
+<text x="40" y="58" font-size="24" font-weight="700" fill="#E8EDFF" text-anchor="start">How Checkgate works</text>
+<text x="40" y="86" font-size="15" font-weight="400" fill="#B4BEDB" text-anchor="start">Configuration syncs in the background. Flag checks are answered inside your process.</text>
+<rect x="40" y="150" width="214" height="186" rx="16" fill="#151C30" stroke="#2A3352" stroke-width="1.5"/>
+<text x="62" y="186" font-size="17" font-weight="700" fill="#E8EDFF" text-anchor="start">Dashboard / API</text>
+<text x="62" y="214" font-size="14" font-weight="400" fill="#B4BEDB" text-anchor="start">Edit a flag, rule or</text>
+<text x="62" y="236" font-size="14" font-weight="400" fill="#B4BEDB" text-anchor="start">rollout. Automation</text>
+<text x="62" y="258" font-size="14" font-weight="400" fill="#B4BEDB" text-anchor="start">uses tokens: Terraform,</text>
+<text x="62" y="280" font-size="14" font-weight="400" fill="#B4BEDB" text-anchor="start">operator, MCP agents.</text>
+<circle cx="64" cy="312" r="13" fill="#818CF8"/><text x="64" y="317" font-size="14" font-weight="700" fill="#0B1020" text-anchor="middle">1</text>
+<text x="86" y="317" font-size="13" font-weight="600" fill="#8691B4" text-anchor="start">a flag changes</text>
+<rect x="300" y="120" width="320" height="246" rx="16" fill="#151C30" stroke="#818CF8" stroke-width="1.5"/>
+<text x="324" y="156" font-size="17" font-weight="700" fill="#E8EDFF" text-anchor="start">Checkgate server</text>
+<text x="324" y="178" font-size="13" font-weight="400" fill="#8691B4" text-anchor="start">Rust · self-hosted</text>
+<rect x="320" y="196" width="280" height="40" rx="10" fill="#1C2540" stroke="#2A3352" stroke-width="1.5"/>
+<text x="336" y="221" font-size="14" font-weight="700" fill="#E8EDFF" text-anchor="start">PostgreSQL</text>
+<text x="430" y="221" font-size="13" font-weight="400" fill="#B4BEDB" text-anchor="start">flags, revisions, audit</text>
+<rect x="320" y="246" width="280" height="40" rx="10" fill="#1C2540" stroke="#2A3352" stroke-width="1.5"/>
+<text x="336" y="271" font-size="14" font-weight="700" fill="#E8EDFF" text-anchor="start">Redis</text>
+<text x="430" y="271" font-size="13" font-weight="400" fill="#B4BEDB" text-anchor="start">fan-out across instances</text>
+<rect x="320" y="296" width="280" height="40" rx="10" fill="#1C2540" stroke="#2A3352" stroke-width="1.5"/>
+<text x="336" y="321" font-size="14" font-weight="700" fill="#818CF8" text-anchor="start">SSE</text>
+<text x="430" y="321" font-size="13" font-weight="400" fill="#B4BEDB" text-anchor="start">one stream per SDK</text>
+<circle cx="324" cy="352" r="13" fill="#818CF8"/><text x="324" y="357" font-size="14" font-weight="700" fill="#0B1020" text-anchor="middle">2</text>
+<text x="346" y="357" font-size="13" font-weight="600" fill="#8691B4" text-anchor="start">commit, then push</text>
+<rect x="780" y="110" width="380" height="400" rx="16" fill="#0B1020" stroke="#2A3352" stroke-width="1.5" stroke-dasharray="6 6"/>
+<text x="804" y="142" font-size="15" font-weight="600" fill="#8691B4" text-anchor="start">Your service — one process</text>
+<rect x="800" y="160" width="340" height="168" rx="16" fill="#151C30" stroke="#A78BFA" stroke-width="1.5"/>
+<text x="822" y="194" font-size="17" font-weight="700" fill="#E8EDFF" text-anchor="start">Checkgate SDK</text>
+<rect x="820" y="210" width="164" height="96" rx="10" fill="#1C2540" stroke="#2A3352" stroke-width="1.5"/>
+<text x="836" y="240" font-size="14" font-weight="700" fill="#E8EDFF" text-anchor="start">Local flag store</text>
+<text x="836" y="262" font-size="12.5" font-weight="400" fill="#B4BEDB" text-anchor="start">last known flags;</text>
+<text x="836" y="279" font-size="12.5" font-weight="400" fill="#B4BEDB" text-anchor="start">kept if the stream</text>
+<text x="836" y="296" font-size="12.5" font-weight="400" fill="#B4BEDB" text-anchor="start">drops</text>
+<rect x="1000" y="210" width="120" height="96" rx="10" fill="#1C2540" stroke="#2A3352" stroke-width="1.5"/>
+<text x="1014" y="240" font-size="14" font-weight="700" fill="#E8EDFF" text-anchor="start">Rust engine</text>
+<text x="1014" y="262" font-size="12.5" font-weight="400" fill="#B4BEDB" text-anchor="start">same code in</text>
+<text x="1014" y="279" font-size="12.5" font-weight="400" fill="#B4BEDB" text-anchor="start">every SDK</text>
+<path d="M984 258 H997" stroke="#8691B4" stroke-width="2" marker-end="url(#a-muted)"/>
+<rect x="800" y="392" width="340" height="96" rx="16" fill="#1C2540" stroke="#2A3352" stroke-width="1.5"/>
+<text x="822" y="424" font-size="15" font-weight="700" fill="#E8EDFF" text-anchor="start">Your code</text>
+<text x="822" y="452" font-size="14" font-weight="600" fill="#A78BFA" text-anchor="start" font-family="ui-monospace, SFMono-Regular, &apos;SF Mono&apos;, Menlo, Consolas, &apos;Liberation Mono&apos;, monospace">isEnabled('new-checkout', user)</text>
+<text x="822" y="474" font-size="13" font-weight="400" fill="#B4BEDB" text-anchor="start">answered in-process · no network request</text>
+<path d="M1046 392 V312" stroke="#A78BFA" stroke-width="2.5" marker-end="url(#a-eval)"/>
+<path d="M1076 312 V392" stroke="#A78BFA" stroke-width="2.5" marker-end="url(#a-eval)"/>
+<circle cx="1018" cy="352" r="13" fill="#A78BFA"/><text x="1018" y="357" font-size="14" font-weight="700" fill="#0B1020" text-anchor="middle">4</text>
+<text x="996" y="357" font-size="13" font-weight="600" fill="#8691B4" text-anchor="end">every check</text>
+<path d="M254 243 H296" stroke="#818CF8" stroke-width="2.5" marker-end="url(#a-sync)"/>
+<path d="M620 262 C690 262 740 236 796 236" fill="none" stroke="#818CF8" stroke-width="2.5" marker-end="url(#a-sync)"/>
+<circle cx="642" cy="206" r="13" fill="#818CF8"/><text x="642" y="211" font-size="14" font-weight="700" fill="#0B1020" text-anchor="middle">3</text>
+<text x="662" y="211" font-size="13" font-weight="700" fill="#818CF8" text-anchor="start">push over SSE</text>
+<text x="632" y="282" font-size="12" font-weight="400" fill="#8691B4" text-anchor="start">heartbeats ·</text>
+<text x="632" y="298" font-size="12" font-weight="400" fill="#8691B4" text-anchor="start">reconnect with backoff</text>
+<path d="M796 316 C730 316 680 340 624 340" fill="none" stroke="#8691B4" stroke-width="1.75" stroke-dasharray="5 6" marker-end="url(#a-muted)"/>
+<text x="632" y="370" font-size="12" font-weight="400" fill="#8691B4" text-anchor="start">polls the snapshot only</text>
+<text x="632" y="386" font-size="12" font-weight="400" fill="#8691B4" text-anchor="start">if a stream cannot be</text>
+<text x="632" y="402" font-size="12" font-weight="400" fill="#8691B4" text-anchor="start">established</text>
+<line x1="40" y1="530" x2="1160" y2="530" stroke="#2A3352"/>
+<path d="M40 543 H76" stroke="#818CF8" stroke-width="3" marker-end="url(#a-sync)"/>
+<text x="88" y="548" font-size="14" font-weight="600" fill="#B4BEDB" text-anchor="start">Sync path — runs when configuration changes</text>
+<path d="M520 543 H556" stroke="#A78BFA" stroke-width="3" marker-end="url(#a-eval)"/>
+<text x="568" y="548" font-size="14" font-weight="600" fill="#B4BEDB" text-anchor="start">Evaluation path — every flag check, inside your process</text>
+<text x="40" y="576" font-size="12.5" font-weight="400" fill="#8691B4" text-anchor="start">No request per flag check; impressions, when enabled, are batched in the background. A dropped stream keeps the last known flags.</text>
+</svg>

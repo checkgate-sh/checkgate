@@ -10,8 +10,16 @@ reaching it live. Everything runs locally; the credentials are generated on your
 for development only. For a deployment, follow [Getting Started](./getting-started) and
 [Self-hosting](../self-hosting).
 
-**You need:** Docker (Desktop or Engine, running) and Node.js 22 or later. Python 3.11+ is
-optional.
+**You need:** Docker (Desktop or Engine, running) and Node.js 22 or later. For the Python example,
+also Python 3.11 or newer and a Rust toolchain.
+
+::: info Which version this runs
+The script runs the latest published image (`ghcr.io/checkgate-sh/checkgate:latest`, currently
+0.1.31). Everything below works with it except the **Playground** in step 3, which is new in 0.2.0.
+To try 0.2.0 before it is published, build the image from this checkout first:
+`docker compose build` at the repository root, then
+`CHECKGATE_IMAGE=checkgate:latest ./quickstart/start.sh --seed`.
+:::
 
 ## 1. Start Checkgate and seed a sample flag
 
@@ -44,7 +52,9 @@ node --env-file=../.env index.mjs
 
 **Python**
 
-The Python package is not on PyPI yet, so build it from this checkout (needs Rust):
+The Python package is not on PyPI yet, so build it from this checkout (needs Rust). Use a Python
+3.11+ interpreter: if `python3 --version` prints an older one, write `python3.11` (or newer)
+instead of `python3` below.
 
 ```bash
 cd sdks/python
@@ -55,15 +65,22 @@ set -a && . ../.env && set +a
 ../../sdks/python/.venv/bin/python main.py
 ```
 
-Both print `user-pro=true  user-free=false`: the flag is evaluated in your process by the
-Checkgate engine, with no network call per evaluation.
+Both print the flag for two users (`new-checkout: user-pro=true  user-free=false`; Python writes
+`True`/`False`): the flag is evaluated in your process by the Checkgate engine, with no network
+call per evaluation.
 
 ## 3. Change it live
 
 Open [http://localhost:3000](http://localhost:3000), sign in with the printed credentials, and
 switch `new-checkout` off. The running example prints the new answer within a second, without a
-restart. Then open **Playground** in the sidebar and evaluate `new-checkout` for
-`{"plan": "pro"}` to see the matched rule and why.
+restart. With a 0.2.0 server <Since v="0.2.0" />, open **Playground** in the sidebar and evaluate
+`new-checkout` for `{"plan": "pro"}` to see the matched rule and why.
+
+<NextSteps :items="[
+  { title: 'Core concepts', link: '/guide/concepts', text: 'Flags, rules, segments and rollouts.' },
+  { title: 'Pick an SDK', link: '/sdks/', text: 'What your stack needs, and its status.' },
+  { title: 'Deploy it', link: '/self-hosting', text: 'Docker, PostgreSQL, Redis and production settings.' },
+]" />
 
 ## Clean up
 

@@ -3,7 +3,9 @@ title: "OpenFeature Provider for Node.js — Checkgate"
 description: "Use Checkgate through the OpenFeature server SDK. Flags are evaluated locally by the Checkgate Rust engine: no network request per evaluation."
 ---
 
-# OpenFeature provider (Node.js)
+# OpenFeature provider (Node.js) <Since v="0.2.0" />
+
+<ReleaseNotice pkg="openfeature" />
 
 `@checkgate/openfeature-provider` plugs Checkgate into the
 [OpenFeature](https://openfeature.dev) server SDK for Node.js. Code written against the
@@ -16,7 +18,9 @@ OpenFeature API keeps working; evaluations are answered by the same local engine
 npm install @checkgate/openfeature-provider @checkgate/node @openfeature/server-sdk
 ```
 
-Requires Node.js 20 or later, `@openfeature/server-sdk` 1.17 or later and `@checkgate/node` 0.2.
+Requires Node.js 22 or later (CI tests 22, 24 and 26), `@openfeature/server-sdk` 1.17 or later
+(tested with 1.23) and `@checkgate/node` 0.2. Until 0.2.0 is published, install both Checkgate
+packages from a checkout of the repository.
 
 ## Quick start
 

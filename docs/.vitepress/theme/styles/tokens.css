@@ -1,0 +1,63 @@
+/*
+ * Checkgate design tokens for the docs site. Mirrors assets/branding/tokens.json
+ * (the README graphics use the same values). Indigo is the brand, as in the
+ * dashboard; violet marks the in-process evaluation path; green, red and amber
+ * stay reserved for flag state.
+ */
+:root {
+  --cg-indigo-50: #eef2ff;
+  --cg-indigo-100: #e0e7ff;
+  --cg-indigo-200: #c7d2fe;
+  --cg-indigo-300: #a5b4fc;
+  --cg-indigo-400: #818cf8;
+  --cg-indigo-500: #6366f1;
+  --cg-indigo-600: #4f46e5;
+  --cg-indigo-700: #4338ca;
+  --cg-indigo-900: #312e81;
+  --cg-indigo-950: #1e1b4b;
+  --cg-violet-400: #a78bfa;
+  --cg-violet-600: #7c3aed;
+
+  /* light theme surfaces */
+  --cg-bg: #ffffff;
+  --cg-surface: #f6f7fc;
+  --cg-surface-2: #eef0fa;
+  --cg-border: #dde1ee;
+  --cg-grid: rgba(79, 70, 229, 0.07);
+  --cg-ink: #0f1428;
+  --cg-ink-2: #3a4466;
+  --cg-muted: #5d6787;
+  --cg-accent: var(--cg-indigo-600);
+  --cg-accent-soft: rgba(79, 70, 229, 0.1);
+  --cg-eval: var(--cg-violet-600);
+  --cg-shadow: 0 1px 2px rgba(15, 20, 40, 0.04), 0 8px 24px -12px rgba(15, 20, 40, 0.12);
+  --cg-shadow-lg: 0 2px 4px rgba(15, 20, 40, 0.04), 0 24px 64px -24px rgba(49, 46, 129, 0.28);
+
+  --cg-radius: 14px;
+  --cg-radius-lg: 20px;
+  --cg-space-1: 4px;
+  --cg-space-2: 8px;
+  --cg-space-3: 12px;
+  --cg-space-4: 16px;
+  --cg-space-5: 24px;
+  --cg-space-6: 32px;
+  --cg-space-7: 48px;
+  --cg-space-8: 64px;
+  --cg-space-9: 96px;
+}
+
+.dark {
+  --cg-bg: #0b1020;
+  --cg-surface: #151c30;
+  --cg-surface-2: #1c2540;
+  --cg-border: #2a3352;
+  --cg-grid: rgba(129, 140, 248, 0.07);
+  --cg-ink: #e8edff;
+  --cg-ink-2: #b4bedb;
+  --cg-muted: #8691b4;
+  --cg-accent: var(--cg-indigo-400);
+  --cg-accent-soft: rgba(129, 140, 248, 0.14);
+  --cg-eval: var(--cg-violet-400);
+  --cg-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --cg-shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 24px 64px -24px rgba(99, 102, 241, 0.35);
+}

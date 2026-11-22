@@ -3,7 +3,15 @@ title: "AI Agents (MCP) — Let agents read flags and propose changes safely"
 description: "Connect Claude and other MCP clients to Checkgate with @checkgate/mcp-server: read-only by default, and with a propose-scoped token every change becomes a change request a person approves."
 ---
 
-# AI Agents (MCP)
+# AI Agents (MCP) <Since v="0.2.0" />
+
+<ReleaseNotice pkg="mcp" />
+
+::: warning Needs a 0.2.0 server
+The `propose` token scope that keeps agents from applying changes exists only on a **0.2.0
+server**. A 0.1.31 server does not know it. Do not create `propose` tokens while any 0.1.31
+instance is still serving; see [Upgrading to 0.2.0](/operations/upgrading-to-0-2-0).
+:::
 
 `@checkgate/mcp-server` is a [Model Context Protocol](https://modelcontextprotocol.io) server that
 lets an AI agent — Claude Desktop, Claude Code, or any MCP client — work with your feature flags:
@@ -70,7 +78,7 @@ your email. Someone else must approve them.
 
 ## 2. Configure your MCP client
 
-The package needs Node.js 20 or later. Until it is published to npm, run it from a checkout of the
+The package needs Node.js 22 or later (CI tests it on 22). Until it is published to npm, run it from a checkout of the
 repository (`cd integrations/mcp-server && npm ci`) and point `command`/`args` at
 `integrations/mcp-server/bin/checkgate-mcp.js`.
 

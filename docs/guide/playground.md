@@ -3,7 +3,12 @@ title: "Evaluation Playground — Debug Targeting Before You Ship"
 description: "See what a Checkgate SDK would answer for a given user and why: matched rule, rollout bucket, weighted variant, prerequisites and configuration revision."
 ---
 
-# Evaluation playground
+# Evaluation playground <Since v="0.2.0" />
+
+::: info Needs a 0.2.0 server
+The playground is part of the 0.2.0 server and dashboard; the published 0.1.31 image does not
+have it. The [quickstart](./quickstart) shows how to run 0.2.0 from a checkout.
+:::
 
 **Playground** in the dashboard sidebar answers one question: *what would an SDK return for
 this user, and why?* Use it to check a targeting change before you rely on it, or to explain a

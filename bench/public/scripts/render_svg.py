@@ -3,9 +3,9 @@
 
     render_svg.py docs/performance/results/v0.1.31/summary.json assets/benchmarks
 
-Writes performance-{light,dark}.svg ("Architecture & Performance", from
+Writes performance-{light,dark}.svg ("Performance", from
 summary.json) and, when cost-summary.json sits next to summary.json,
-cost-{light,dark}.svg ("Infrastructure Cost & Savings"). The README picks a
+cost-{light,dark}.svg ("Infrastructure cost"). The README picks a
 theme with <picture> + prefers-color-scheme, like its other graphics.
 Deterministic: the same inputs always give byte-identical files. Every number
 comes from the summaries; a metric missing there is left out, never filled
@@ -25,12 +25,16 @@ FONT = "system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 NOTE = "Measured under documented workloads and hardware. Results may vary by deployment."
 
 THEMES = {
-    # GitHub's own surfaces and inks; the accent is Checkgate indigo. Green,
-    # red and amber are reserved for flag state and never used here.
-    "light": {"bg": "#ffffff", "border": "#d0d7de", "rule": "#d8dee4", "ink": "#1f2328",
-              "ink2": "#424a53", "muted": "#59636e", "accent": "#4f46e5", "bar2": "#c7c9f2"},
-    "dark": {"bg": "#0d1117", "border": "#30363d", "rule": "#30363d", "ink": "#f0f6fc",
-             "ink2": "#c9d1d9", "muted": "#9198a1", "accent": "#818cf8", "bar2": "#3b3f73"},
+    # Checkgate design tokens (assets/branding/tokens.json): midnight surfaces in
+    # dark, white in light; indigo is the accent. Green, red and amber are
+    # reserved for flag state and never used here. No gradients: url() is not
+    # allowed in these files (validate.py).
+    "light": {"bg": "#ffffff", "card": "#f6f7fc", "border": "#dde1ee", "rule": "#e3e6f0", "ink": "#0f1428",
+              "ink2": "#3a4466", "muted": "#5d6787", "accent": "#4f46e5", "bar2": "#c7d2fe",
+              "chip": "#eef2ff", "chip_ink": "#4338ca"},
+    "dark": {"bg": "#0b1020", "card": "#151c30", "border": "#2a3352", "rule": "#222b47", "ink": "#e8edff",
+             "ink2": "#b4bedb", "muted": "#8691b4", "accent": "#818cf8", "bar2": "#3b4170",
+             "chip": "#1e1b4b", "chip_ink": "#a5b4fc"},
 }
 
 ORDER = [
@@ -39,6 +43,15 @@ ORDER = [
     ("efficiency", "CPU and memory", "lower"),
     ("propagation", "Update propagation", "lower"),
 ]
+
+# Which statistic each headline value is, shown on its tile so a median is never
+# read as a tail latency (or the reverse). Must match headline.<key>.source.
+STAT = {
+    "evaluation": ("median", "median_ns"),
+    "throughput": ("median of runs", "rps_median"),
+    "efficiency": ("CPU time per request", "requests_per_server_cpu_second"),
+    "propagation": ("p99 · pooled runs", "p99_ms"),
+}
 
 
 def esc(s):
@@ -119,8 +132,18 @@ def frame(t, h, title, desc):
         f'role="img" aria-labelledby="t d" font-family="{FONT}">',
         f'<title id="t">{esc(title)}</title>',
         f'<desc id="d">{esc(desc)}</desc>',
-        f'<rect x="0.5" y="0.5" width="{W - 1}" height="{h - 1}" rx="16" fill="{t["bg"]}" stroke="{t["border"]}"/>',
+        f'<rect x="0.5" y="0.5" width="{W - 1}" height="{h - 1}" rx="20" fill="{t["bg"]}" stroke="{t["border"]}"/>',
     ]
+
+
+def card(x, y, w, h, t):
+    return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="14" fill="{t["card"]}" stroke="{t["border"]}"/>'
+
+
+def pill(x, y, label, t, size=12):
+    w = round(len(label) * size * 0.56 + 20)
+    return (f'<rect x="{x}" y="{y}" width="{w}" height="22" rx="11" fill="{t["chip"]}"/>'
+            + text(x + 10, y + 15, label, size, t["chip_ink"], 600))
 
 
 def render(summary, theme):
@@ -132,64 +155,60 @@ def render(summary, theme):
     env = summary["environment"]
     commit = summary["commit"][:7]
     desc_parts = []
-    for _, label, better, h in tiles:
+    for k, label, better, h in tiles:
         num, unit = fmt_value(h)
         c = change(h, better)
-        desc_parts.append(f"{label}: {num} {unit} ({h['scenario']}; {h['context']}"
+        stat = STAT.get(k, ("", ""))[0]
+        desc_parts.append(f"{label}, {stat}: {num} {unit} ({h['scenario']}; {h['context']}"
                           + (f"; v{base_version}: {c}" if c else "") + ").")
     desc = (" ".join(desc_parts) + f" Measured {summary['date']} on {env['host']}; "
             f"server limited to {env['server_limits']}; commit {commit}. {NOTE}")
-    title = f"Checkgate v{summary['version']}: architecture and performance"
+    title = f"Checkgate v{summary['version']}: performance"
     out = frame(t, H, title, desc)
     out += [
-        text(PAD, 60, "Architecture & Performance", 24, t["ink"], 600),
-        text(W - PAD, 60, f"v{summary['version']} · measured {summary['date']}", 14, t["muted"], 400, "end"),
-        text(PAD, 86, "Local evaluation. Real-time updates. Lightweight infrastructure.", 15, t["ink2"]),
-        f'<line x1="{PAD}" y1="104" x2="{W - PAD}" y2="104" stroke="{t["rule"]}"/>',
+        text(PAD, 58, "Performance", 24, t["ink"], 700),
+        text(W - PAD, 58, f"v{summary['version']} · measured {summary['date']}", 14, t["muted"], 400, "end"),
+        text(PAD, 86, "Every figure comes from the published raw runs, with the statistic it is.", 15, t["ink2"]),
     ]
     n = max(1, len(tiles))
-    col = (W - 2 * PAD) / n
-    for i, (_, label, better, h) in enumerate(tiles):
-        x = round(PAD + i * col + (0 if i == 0 else 24))
-        inner = col - (24 if i == 0 else 48)
-        if i > 0:
-            lx = round(PAD + i * col)
-            out.append(f'<line x1="{lx}" y1="124" x2="{lx}" y2="358" stroke="{t["rule"]}"/>')
+    gap = 16
+    tw = (W - 2 * PAD - gap * (n - 1)) / n
+    ty, th = 110, 300
+    for i, (k, label, better, h) in enumerate(tiles):
+        x0 = round(PAD + i * (tw + gap))
+        x = x0 + 20
+        inner = tw - 40
+        out.append(card(x0, ty, round(tw), th, t))
         num, unit = fmt_value(h)
-        out.append(f'<rect x="{x}" y="128" width="28" height="4" rx="2" fill="{t["accent"]}"/>')
-        out.append(text(x, 158, label, 15, t["ink2"], 600))
+        out.append(f'<rect x="{x}" y="{ty + 20}" width="24" height="4" rx="2" fill="{t["accent"]}"/>')
+        out.append(text(x, ty + 48, label, 15, t["ink"], 600))
+        stat, field = STAT.get(k, ("", ""))
+        if stat and field in h.get("source", ""):
+            out.append(pill(x, ty + 60, stat, t))
         out.append(
-            f'<text x="{x}" y="216" fill="{t["ink"]}" font-weight="600">'
-            f'<tspan font-size="48">{esc(num)}</tspan>'
-            f'<tspan font-size="20" fill="{t["ink2"]}" dx="6">{esc(unit)}</tspan></text>')
-        y = 244
+            f'<text x="{x}" y="{ty + 132}" fill="{t["ink"]}" font-weight="700">'
+            f'<tspan font-size="46">{esc(num)}</tspan>'
+            f'<tspan font-size="19" fill="{t["ink2"]}" font-weight="600" dx="6">{esc(unit)}</tspan></text>')
+        y = ty + 160
         c = change(h, better)
         if c:
-            out.append(text(x, y, f"v{base_version}: {c}", 13.5, t["accent"], 600))
-            y += 24
-        for line in wrap(h["scenario"], 13.5, inner)[:3]:
-            out.append(text(x, y, line, 13.5, t["ink2"]))
-            y += 19
-        for line in wrap(h["context"], 12.5, inner)[:3]:
-            out.append(text(x, y + 2, line, 12.5, t["muted"]))
+            before, _, verdict = c.partition(" · ")
+            out.append(text(x, y, f"v{base_version}: {before.replace(' before', '')}", 13, t["ink2"], 600))
+            out.append(text(x, y + 18, verdict, 13, t["ink2"], 600))
+            y += 44
+        for line in wrap(h["scenario"], 13, inner)[:3]:
+            out.append(text(x, y, line, 13, t["ink2"]))
             y += 18
-    out.append(f'<line x1="{PAD}" y1="378" x2="{W - PAD}" y2="378" stroke="{t["rule"]}"/>')
-    arch = [
-        ("Local evaluation", "SDKs evaluate flags in-process: no request per flag decision."),
-        ("Server-sent events", "One persistent connection per client carries flag changes."),
-        ("Rust server", "Measured here inside a 1 vCPU / 512 MiB container."),
-    ]
-    acol = (W - 2 * PAD) / 3
-    for i, (name, line) in enumerate(arch):
-        ax = round(PAD + i * acol)
-        out.append(text(ax, 404, name, 13.5, t["ink"], 600))
-        out.append(text(ax, 424, line, 12.5, t["ink2"]))
-    out.append(f'<line x1="{PAD}" y1="446" x2="{W - PAD}" y2="446" stroke="{t["rule"]}"/>')
+        for line in wrap(h["context"], 12, inner)[:3]:
+            out.append(text(x, y + 4, line, 12, t["muted"]))
+            y += 17
     comp = f" Earlier version measured the same way, runs alternated (v{base_version})." if base_version else ""
-    out.append(text(PAD, 472, f"{env['short_host']} · {env['docker']} · server limited to {env['server_limits']} · "
+    out.append(f'<line x1="{PAD}" y1="430" x2="{W - PAD}" y2="430" stroke="{t["rule"]}"/>')
+    out.append(text(PAD, 456, f"{env['short_host']} · {env['docker']} · server limited to {env['server_limits']} · "
                               f"PostgreSQL 16 + Redis 7 in containers · {runs_label(summary)}, commit {commit}.",
                     12.5, t["muted"]))
-    out.append(text(PAD, 494, f"{NOTE}{comp} Method and raw data: docs/performance/benchmarks.md", 12.5, t["muted"]))
+    out.append(text(PAD, 476, f"{NOTE}{comp}", 12.5, t["muted"]))
+    out.append(text(PAD, 496, "Method, every run and the raw data: docs/performance/benchmarks.md", 12.5, t["muted"]))
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -241,23 +260,25 @@ def render_cost(cost, theme):
     monthly = cost["projected"]["monthly"]
     a = cost["calculated"]["assumptions"]
     focus = cost_focus(cost)
-    title = f"Checkgate v{cost['version']}: infrastructure cost and savings"
+    title = f"Checkgate v{cost['version']}: infrastructure cost"
     desc_bits = []
     out_rows = []
     out = []
     out += [
-        text(PAD, 60, "Infrastructure Cost & Savings", 24, t["ink"], 600),
-        text(W - PAD, 60, f"v{cost['version']} · prices accessed {cost['pricing']['accessed']}", 14, t["muted"], 400, "end"),
-        text(PAD, 86, "Understand the infrastructure required to run your own feature flags.", 15, t["ink2"]),
-        f'<line x1="{PAD}" y1="104" x2="{W - PAD}" y2="104" stroke="{t["rule"]}"/>',
+        text(PAD, 58, "Infrastructure cost", 24, t["ink"], 700),
+        text(W - PAD, 58, f"v{cost['version']} · prices accessed {cost['pricing']['accessed']}", 14, t["muted"], 400, "end"),
+        text(PAD, 86, "What one server spends to keep clients current: measured, calculated and projected kept apart.", 15, t["ink2"]),
+        card(PAD, 112, 360, 316, t),
+        card(PAD + 376, 112, 388, 316, t),
+        card(PAD + 780, 112, W - 2 * PAD - 780, 316, t),
     ]
     # Panel A: connected clients on one server
-    ax, aw = PAD, 360
-    out.append(f'<rect x="{ax}" y="124" width="28" height="4" rx="2" fill="{t["accent"]}"/>')
-    out.append(text(ax, 154, "Streaming clients on one server", 15, t["ink2"], 600))
-    out.append(text(ax, 174, "measured · 1 vCPU / 512 MiB limit · idle, heartbeats only", 12, t["muted"]))
+    ax, aw = PAD + 20, 320
+    out.append(f'<rect x="{ax}" y="132" width="24" height="4" rx="2" fill="{t["accent"]}"/>')
+    out.append(text(ax, 160, "Streaming clients on one server", 15, t["ink"], 600))
+    out.append(text(ax, 180, "measured · idle (heartbeats only) · 1 vCPU", 12, t["muted"]))
     y = 204
-    for hdr, hx in (("Clients", ax), ("CPU", ax + 120), ("RSS", ax + 200), ("Heartbeats", ax + 270)):
+    for hdr, hx in (("Clients", ax), ("CPU", ax + 110), ("RSS", ax + 185), ("Heartbeats", ax + 255)):
         out.append(text(hx, y, hdr, 12, t["muted"], 600))
     y += 24
     for p in sorted(sse, key=lambda p: p["clients"]):
@@ -266,23 +287,23 @@ def render_cost(cost, theme):
             cpu = p["idle"]["server_cpu_pct"]
             rss = p["idle"]["server_rss_mib"]
             hb = p["idle"]["heartbeat_bytes_per_client_per_hour"]
-            out.append(text(ax + 120, y, f"{sig3(cpu):g} %", 14, t["ink"]))
-            out.append(text(ax + 200, y, f"{int(round(rss))} MiB", 14, t["ink"]))
-            out.append(text(ax + 270, y, f"{fmt_bytes(hb)}/h", 14, t["ink"]))
+            out.append(text(ax + 110, y, f"{sig3(cpu):g} %", 14, t["ink"]))
+            out.append(text(ax + 185, y, f"{int(round(rss))} MiB", 14, t["ink"]))
+            out.append(text(ax + 255, y, f"{fmt_bytes(hb)}/h", 14, t["ink"]))
             desc_bits.append(f"{fmt_int(p['clients'])} streaming clients: {sig3(cpu):g} % of one CPU idle, "
                              f"{int(round(rss))} MiB RSS, {fmt_bytes(hb)} of heartbeats per client per hour")
         else:
-            out.append(text(ax + 120, y, "not sustained at this limit", 13, t["muted"]))
+            out.append(text(ax + 110, y, "not sustained at this limit", 13, t["muted"]))
             desc_bits.append(f"{fmt_int(p['clients'])} streaming clients: not sustained at this limit")
         y += 26
-    out.append(text(ax, y + 4, "CPU: % of one core. Per-client heartbeat bytes, not counting TCP/TLS.", 11.5, t["muted"]))
+    out.append(text(ax, y + 4, "CPU: % of one core, idle.", 11.5, t["muted"]))
+    out.append(text(ax, y + 22, "Heartbeat bytes per client, excluding TCP/TLS.", 11.5, t["muted"]))
 
     # Panel B: SSE vs polling at `focus` clients
-    bx, bw = PAD + 400, 380
-    out.append(f'<line x1="{bx - 20}" y1="124" x2="{bx - 20}" y2="420" stroke="{t["rule"]}"/>')
-    out.append(f'<rect x="{bx}" y="124" width="28" height="4" rx="2" fill="{t["accent"]}"/>')
-    out.append(text(bx, 154, f"{fmt_int(focus)} clients: streaming vs polling" if focus else "Streaming vs polling", 15, t["ink2"], 600))
-    out.append(text(bx, 174, "traffic per month (calculated) · freshness (measured)", 12, t["muted"]))
+    bx, bw = PAD + 396, 348
+    out.append(f'<rect x="{bx}" y="132" width="24" height="4" rx="2" fill="{t["accent"]}"/>')
+    out.append(text(bx, 160, f"{fmt_int(focus)} clients: streaming vs polling" if focus else "Streaming vs polling", 15, t["ink"], 600))
+    out.append(text(bx, 180, "traffic per month (calculated) · freshness (measured)", 12, t["muted"]))
     rows = []
     s_tr = next((x for x in traffic if x["mode"] == "sse" and x["clients"] == focus), None)
     s_pr = next((p for p in sse if p["clients"] == focus and p.get("runs")), None)
@@ -295,34 +316,33 @@ def render_cost(cost, theme):
                      tr["requests_per_month"] if tr else None, p.get("staleness_p50_ms"), p["sustained"]))
     gmax = max([r[1] for r in rows if r[1]] or [1])
     y = 204
-    for hdr, hx in (("", bx), ("Traffic / month", bx + 92), ("Freshness p50", bx + 300)):
+    for hdr, hx in (("", bx), ("Traffic / month", bx + 92), ("Freshness p50", bx + 268)):
         out.append(text(hx, y, hdr, 12, t["muted"], 600))
     y += 26
     for name, gb, reqs, fresh, ok in rows:
         out.append(text(bx, y, name, 14, t["ink"], 600))
         if gb is not None:
-            wbar = max(2, round(120 * gb / gmax))
+            wbar = max(2, round(100 * gb / gmax))
             out.append(f'<rect x="{bx + 92}" y="{y - 12}" width="{wbar}" height="14" rx="3" '
                        f'fill="{t["accent"] if name == "SSE" else t["bar2"]}"/>')
             label = f"{sig3(gb):,g} GB" if gb >= 1 else f"{int(round(gb * 1000))} MB"
             out.append(text(bx + 92 + wbar + 8, y, label, 13, t["ink"]))
-        out.append(text(bx + 300, y, fmt_ms(fresh) + ("" if ok else " *"), 13, t["ink"]))
+        out.append(text(bx + 268, y, fmt_ms(fresh) + ("" if ok else " *"), 13, t["ink"]))
         desc_bits.append(f"{name} at {fmt_int(focus)} clients: {f'{sig3(gb):,g} GB' if gb is not None else 'n/a'} a month, "
                          f"{fmt_int(reqs) if reqs is not None else 'n/a'} requests a month, freshness p50 {fmt_ms(fresh)}"
                          + ("" if ok else " (not sustained)"))
         y += 28
     out.append(text(bx, y + 2, f"Assumes {a['flag_changes_per_day']} flag changes/day, "
                                f"{a['stream_reconnects_per_client_per_day']} reconnects/client/day.", 11.5, t["muted"]))
-    out.append(text(bx, y + 20, "Each poll returns the whole flag set (no conditional requests).", 11.5, t["muted"]))
+    out.append(text(bx, y + 20, "Polls return the whole flag set; no conditional requests.", 11.5, t["muted"]))
     if any(not r[4] for r in rows):
         out.append(text(bx, y + 38, "* not sustained by one server at this limit", 11.5, t["muted"]))
 
     # Panel C: projected monthly cost
-    cx = PAD + 820
-    out.append(f'<line x1="{cx - 20}" y1="124" x2="{cx - 20}" y2="420" stroke="{t["rule"]}"/>')
-    out.append(f'<rect x="{cx}" y="124" width="28" height="4" rx="2" fill="{t["accent"]}"/>')
-    out.append(text(cx, 154, "Projected monthly cost", 15, t["ink2"], 600))
-    out.append(text(cx, 174, "AWS us-east-1 on-demand list prices", 12, t["muted"]))
+    cx = PAD + 800
+    out.append(f'<rect x="{cx}" y="132" width="24" height="4" rx="2" fill="{t["accent"]}"/>')
+    out.append(text(cx, 160, "Projected monthly cost", 15, t["ink"], 600))
+    out.append(text(cx, 180, "AWS us-east-1 on-demand list prices", 12, t["muted"]))
     y = 210
     priced = sorted((m for m in monthly if m["mode"] == "sse" and m.get("total_usd") is not None),
                     key=lambda m: m["clients"])
@@ -337,7 +357,7 @@ def render_cost(cost, theme):
         lo, hi, usd = g[0]["clients"], g[-1]["clients"], g[0]["total_usd"]
         label = f"{fmt_int(lo)} clients" if lo == hi else f"{fmt_int(lo)}–{fmt_int(hi)} clients"
         out.append(text(cx, y, f"Streaming, {label}", 14, t["ink2"]))
-        out.append(text(W - PAD, y, f"${usd:,.2f}", 18, t["ink"], 600, "end"))
+        out.append(text(W - PAD - 20, y, f"${usd:,.2f}", 18, t["ink"], 600, "end"))
         desc_bits.append(f"projected ${usd:,.2f} a month for {label} streaming")
         y += 22
         if len(g) > 1:
@@ -347,7 +367,7 @@ def render_cost(cost, theme):
             y += 6
     for m in sorted((m for m in monthly if m["mode"] == "sse" and m.get("total_usd") is None), key=lambda m: m["clients"]):
         out.append(text(cx, y, f"{fmt_int(m['clients'])} clients", 14, t["ink2"]))
-        out.append(text(W - PAD, y, "not priced", 13, t["muted"], 400, "end"))
+        out.append(text(W - PAD - 20, y, "not priced", 13, t["muted"], 400, "end"))
         y += 28
     focus_polls = sorted((m for m in monthly if m["mode"] == "poll" and m["clients"] == focus), key=lambda m: -m["interval_s"])
     if focus_polls:
@@ -356,15 +376,14 @@ def render_cost(cost, theme):
         for m in focus_polls:
             out.append(text(cx, y, f"every {m['interval_s']} s", 14, t["ink2"]))
             if m.get("total_usd") is not None:
-                out.append(text(W - PAD, y, f"${m['total_usd']:,.2f}", 16, t["ink"], 600, "end"))
+                out.append(text(W - PAD - 20, y, f"${m['total_usd']:,.2f}", 16, t["ink"], 600, "end"))
                 desc_bits.append(f"projected ${m['total_usd']:,.2f} a month for {fmt_int(focus)} clients polling every {m['interval_s']} s")
             else:
-                out.append(text(W - PAD, y, "not sustained", 13, t["muted"], 400, "end"))
+                out.append(text(W - PAD - 20, y, "not sustained", 13, t["muted"], 400, "end"))
             y += 24
     out.append(text(cx, y + 6, "1 server + PostgreSQL + Redis + storage", 12, t["muted"]))
     out.append(text(cx, y + 24, "+ egress. A projection, not a quote.", 12, t["muted"]))
 
-    out.append(f'<line x1="{PAD}" y1="440" x2="{W - PAD}" y2="440" stroke="{t["rule"]}"/>')
     foot = [
         "Measured: CPU, memory, bytes and freshness of one server at 1 vCPU / 512 MiB, with PostgreSQL and Redis in containers.",
         "Calculated: monthly traffic from measured bytes per heartbeat, change and reconnect at the stated rates. Projected: priced with",

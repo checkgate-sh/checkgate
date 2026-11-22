@@ -1,54 +1,57 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="1200" height="520" role="img" aria-labelledby="t d" font-family="system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-<title id="t">Checkgate v0.1.31: architecture and performance</title>
-<desc id="d">SDK evaluation: 1.0 µs (Node SDK isEnabled(): 50% rollout, 1,000-flag store, no network call; batch means p95 1.0 µs · p99 1.1 µs · Rust core alone 303 ns; v0.1.30: 7.2 µs before · 7.15× faster). Server throughput: 591 req/s (SDK snapshot reads, 1,000 concurrent clients, p99 2433 ms; one server limited to 1 vCPU · 512 MiB; v0.1.30: 489 req/s before · 1.21× more). CPU and memory: 1.51 ms (server CPU per snapshot request (101 flags, 15 KB); peak RSS 59 MiB under that load; v0.1.30: 1.92 ms before · 21.2 % less CPU). Update propagation: 198 ms (p99 update → visible in SDK, 1,000 connected SDK clients; p50 39.2 ms · 0 of 1,200,000 missed · pooled over 6 runs; median run p99 84 ms; v0.1.30: 75 ms before · 2.63× worse). Measured 2026-11-18 on Intel(R) Core(TM) i5-8259U CPU @ 2.30GHz, 4 cores / 8 threads, 8 GiB, macOS 15.8.1; server limited to 1 vCPU, 512 MiB; commit 66cbfec. Measured under documented workloads and hardware. Results may vary by deployment.</desc>
-<rect x="0.5" y="0.5" width="1199" height="519" rx="16" fill="#0d1117" stroke="#30363d"/>
-<text x="40" y="60" font-size="24" font-weight="600" fill="#f0f6fc" text-anchor="start">Architecture &amp; Performance</text>
-<text x="1160" y="60" font-size="14" font-weight="400" fill="#9198a1" text-anchor="end">v0.1.31 · measured 2026-11-18</text>
-<text x="40" y="86" font-size="15" font-weight="400" fill="#c9d1d9" text-anchor="start">Local evaluation. Real-time updates. Lightweight infrastructure.</text>
-<line x1="40" y1="104" x2="1160" y2="104" stroke="#30363d"/>
-<rect x="40" y="128" width="28" height="4" rx="2" fill="#818cf8"/>
-<text x="40" y="158" font-size="15" font-weight="600" fill="#c9d1d9" text-anchor="start">SDK evaluation</text>
-<text x="40" y="216" fill="#f0f6fc" font-weight="600"><tspan font-size="48">1.0</tspan><tspan font-size="20" fill="#c9d1d9" dx="6">µs</tspan></text>
-<text x="40" y="244" font-size="13.5" font-weight="600" fill="#818cf8" text-anchor="start">v0.1.30: 7.2 µs before · 7.15× faster</text>
-<text x="40" y="268" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">Node SDK isEnabled(): 50% rollout,</text>
-<text x="40" y="287" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">1,000-flag store, no network call</text>
-<text x="40" y="308" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">batch means p95 1.0 µs · p99 1.1 µs ·</text>
-<text x="40" y="326" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">Rust core alone 303 ns</text>
-<line x1="320" y1="124" x2="320" y2="358" stroke="#30363d"/>
-<rect x="344" y="128" width="28" height="4" rx="2" fill="#818cf8"/>
-<text x="344" y="158" font-size="15" font-weight="600" fill="#c9d1d9" text-anchor="start">Server throughput</text>
-<text x="344" y="216" fill="#f0f6fc" font-weight="600"><tspan font-size="48">591</tspan><tspan font-size="20" fill="#c9d1d9" dx="6">req/s</tspan></text>
-<text x="344" y="244" font-size="13.5" font-weight="600" fill="#818cf8" text-anchor="start">v0.1.30: 489 req/s before · 1.21× more</text>
-<text x="344" y="268" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">SDK snapshot reads, 1,000</text>
-<text x="344" y="287" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">concurrent clients, p99 2433 ms</text>
-<text x="344" y="308" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">one server limited to 1 vCPU ·</text>
-<text x="344" y="326" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">512 MiB</text>
-<line x1="600" y1="124" x2="600" y2="358" stroke="#30363d"/>
-<rect x="624" y="128" width="28" height="4" rx="2" fill="#818cf8"/>
-<text x="624" y="158" font-size="15" font-weight="600" fill="#c9d1d9" text-anchor="start">CPU and memory</text>
-<text x="624" y="216" fill="#f0f6fc" font-weight="600"><tspan font-size="48">1.51</tspan><tspan font-size="20" fill="#c9d1d9" dx="6">ms</tspan></text>
-<text x="624" y="244" font-size="13.5" font-weight="600" fill="#818cf8" text-anchor="start">v0.1.30: 1.92 ms before · 21.2 % less CPU</text>
-<text x="624" y="268" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">server CPU per snapshot request</text>
-<text x="624" y="287" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">(101 flags, 15 KB)</text>
-<text x="624" y="308" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">peak RSS 59 MiB under that load</text>
-<line x1="880" y1="124" x2="880" y2="358" stroke="#30363d"/>
-<rect x="904" y="128" width="28" height="4" rx="2" fill="#818cf8"/>
-<text x="904" y="158" font-size="15" font-weight="600" fill="#c9d1d9" text-anchor="start">Update propagation</text>
-<text x="904" y="216" fill="#f0f6fc" font-weight="600"><tspan font-size="48">198</tspan><tspan font-size="20" fill="#c9d1d9" dx="6">ms</tspan></text>
-<text x="904" y="244" font-size="13.5" font-weight="600" fill="#818cf8" text-anchor="start">v0.1.30: 75 ms before · 2.63× worse</text>
-<text x="904" y="268" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">p99 update → visible in SDK,</text>
-<text x="904" y="287" font-size="13.5" font-weight="400" fill="#c9d1d9" text-anchor="start">1,000 connected SDK clients</text>
-<text x="904" y="308" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">p50 39.2 ms · 0 of 1,200,000 missed</text>
-<text x="904" y="326" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">· pooled over 6 runs; median run</text>
-<text x="904" y="344" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">p99 84 ms</text>
-<line x1="40" y1="378" x2="1160" y2="378" stroke="#30363d"/>
-<text x="40" y="404" font-size="13.5" font-weight="600" fill="#f0f6fc" text-anchor="start">Local evaluation</text>
-<text x="40" y="424" font-size="12.5" font-weight="400" fill="#c9d1d9" text-anchor="start">SDKs evaluate flags in-process: no request per flag decision.</text>
-<text x="413" y="404" font-size="13.5" font-weight="600" fill="#f0f6fc" text-anchor="start">Server-sent events</text>
-<text x="413" y="424" font-size="12.5" font-weight="400" fill="#c9d1d9" text-anchor="start">One persistent connection per client carries flag changes.</text>
-<text x="787" y="404" font-size="13.5" font-weight="600" fill="#f0f6fc" text-anchor="start">Rust server</text>
-<text x="787" y="424" font-size="12.5" font-weight="400" fill="#c9d1d9" text-anchor="start">Measured here inside a 1 vCPU / 512 MiB container.</text>
-<line x1="40" y1="446" x2="1160" y2="446" stroke="#30363d"/>
-<text x="40" y="472" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">Intel Core i5-8259U · Docker Desktop 29.7.2, VM 8 vCPU / 3.8 GiB · server limited to 1 vCPU, 512 MiB · PostgreSQL 16 + Redis 7 in containers · 3 runs (propagation 6), commit 66cbfec.</text>
-<text x="40" y="494" font-size="12.5" font-weight="400" fill="#9198a1" text-anchor="start">Measured under documented workloads and hardware. Results may vary by deployment. Earlier version measured the same way, runs alternated (v0.1.30). Method and raw data: docs/performance/benchmarks.md</text>
+<title id="t">Checkgate v0.1.31: performance</title>
+<desc id="d">SDK evaluation, median: 1.0 µs (Node SDK isEnabled(): 50% rollout, 1,000-flag store, no network call; batch means p95 1.0 µs · p99 1.1 µs · Rust core alone 303 ns; v0.1.30: 7.2 µs before · 7.15× faster). Server throughput, median of runs: 591 req/s (SDK snapshot reads, 1,000 concurrent clients, p99 2433 ms; one server limited to 1 vCPU · 512 MiB; v0.1.30: 489 req/s before · 1.21× more). CPU and memory, CPU time per request: 1.51 ms (server CPU per snapshot request (101 flags, 15 KB); peak RSS 59 MiB under that load; v0.1.30: 1.92 ms before · 21.2 % less CPU). Update propagation, p99 · pooled runs: 198 ms (p99 update → visible in SDK, 1,000 connected SDK clients; p50 39.2 ms · 0 of 1,200,000 missed · pooled over 6 runs; median run p99 84 ms; v0.1.30: 75 ms before · 2.63× worse). Measured 2026-11-18 on Intel(R) Core(TM) i5-8259U CPU @ 2.30GHz, 4 cores / 8 threads, 8 GiB, macOS 15.8.1; server limited to 1 vCPU, 512 MiB; commit 66cbfec. Measured under documented workloads and hardware. Results may vary by deployment.</desc>
+<rect x="0.5" y="0.5" width="1199" height="519" rx="20" fill="#0b1020" stroke="#2a3352"/>
+<text x="40" y="58" font-size="24" font-weight="700" fill="#e8edff" text-anchor="start">Performance</text>
+<text x="1160" y="58" font-size="14" font-weight="400" fill="#8691b4" text-anchor="end">v0.1.31 · measured 2026-11-18</text>
+<text x="40" y="86" font-size="15" font-weight="400" fill="#b4bedb" text-anchor="start">Every figure comes from the published raw runs, with the statistic it is.</text>
+<rect x="40" y="110" width="268" height="300" rx="14" fill="#151c30" stroke="#2a3352"/>
+<rect x="60" y="130" width="24" height="4" rx="2" fill="#818cf8"/>
+<text x="60" y="158" font-size="15" font-weight="600" fill="#e8edff" text-anchor="start">SDK evaluation</text>
+<rect x="60" y="170" width="60" height="22" rx="11" fill="#1e1b4b"/><text x="70" y="185" font-size="12" font-weight="600" fill="#a5b4fc" text-anchor="start">median</text>
+<text x="60" y="242" fill="#e8edff" font-weight="700"><tspan font-size="46">1.0</tspan><tspan font-size="19" fill="#b4bedb" font-weight="600" dx="6">µs</tspan></text>
+<text x="60" y="270" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">v0.1.30: 7.2 µs</text>
+<text x="60" y="288" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">7.15× faster</text>
+<text x="60" y="314" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">Node SDK isEnabled(): 50%</text>
+<text x="60" y="332" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">rollout, 1,000-flag store, no</text>
+<text x="60" y="350" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">network call</text>
+<text x="60" y="372" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">batch means p95 1.0 µs · p99 1.1 µs</text>
+<text x="60" y="389" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">· Rust core alone 303 ns</text>
+<rect x="324" y="110" width="268" height="300" rx="14" fill="#151c30" stroke="#2a3352"/>
+<rect x="344" y="130" width="24" height="4" rx="2" fill="#818cf8"/>
+<text x="344" y="158" font-size="15" font-weight="600" fill="#e8edff" text-anchor="start">Server throughput</text>
+<rect x="344" y="170" width="114" height="22" rx="11" fill="#1e1b4b"/><text x="354" y="185" font-size="12" font-weight="600" fill="#a5b4fc" text-anchor="start">median of runs</text>
+<text x="344" y="242" fill="#e8edff" font-weight="700"><tspan font-size="46">591</tspan><tspan font-size="19" fill="#b4bedb" font-weight="600" dx="6">req/s</tspan></text>
+<text x="344" y="270" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">v0.1.30: 489 req/s</text>
+<text x="344" y="288" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">1.21× more</text>
+<text x="344" y="314" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">SDK snapshot reads, 1,000</text>
+<text x="344" y="332" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">concurrent clients, p99 2433 ms</text>
+<text x="344" y="354" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">one server limited to 1 vCPU ·</text>
+<text x="344" y="371" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">512 MiB</text>
+<rect x="608" y="110" width="268" height="300" rx="14" fill="#151c30" stroke="#2a3352"/>
+<rect x="628" y="130" width="24" height="4" rx="2" fill="#818cf8"/>
+<text x="628" y="158" font-size="15" font-weight="600" fill="#e8edff" text-anchor="start">CPU and memory</text>
+<rect x="628" y="170" width="154" height="22" rx="11" fill="#1e1b4b"/><text x="638" y="185" font-size="12" font-weight="600" fill="#a5b4fc" text-anchor="start">CPU time per request</text>
+<text x="628" y="242" fill="#e8edff" font-weight="700"><tspan font-size="46">1.51</tspan><tspan font-size="19" fill="#b4bedb" font-weight="600" dx="6">ms</tspan></text>
+<text x="628" y="270" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">v0.1.30: 1.92 ms</text>
+<text x="628" y="288" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">21.2 % less CPU</text>
+<text x="628" y="314" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">server CPU per snapshot request</text>
+<text x="628" y="332" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">(101 flags, 15 KB)</text>
+<text x="628" y="354" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">peak RSS 59 MiB under that load</text>
+<rect x="892" y="110" width="268" height="300" rx="14" fill="#151c30" stroke="#2a3352"/>
+<rect x="912" y="130" width="24" height="4" rx="2" fill="#818cf8"/>
+<text x="912" y="158" font-size="15" font-weight="600" fill="#e8edff" text-anchor="start">Update propagation</text>
+<rect x="912" y="170" width="134" height="22" rx="11" fill="#1e1b4b"/><text x="922" y="185" font-size="12" font-weight="600" fill="#a5b4fc" text-anchor="start">p99 · pooled runs</text>
+<text x="912" y="242" fill="#e8edff" font-weight="700"><tspan font-size="46">198</tspan><tspan font-size="19" fill="#b4bedb" font-weight="600" dx="6">ms</tspan></text>
+<text x="912" y="270" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">v0.1.30: 75 ms</text>
+<text x="912" y="288" font-size="13" font-weight="600" fill="#b4bedb" text-anchor="start">2.63× worse</text>
+<text x="912" y="314" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">p99 update → visible in SDK,</text>
+<text x="912" y="332" font-size="13" font-weight="400" fill="#b4bedb" text-anchor="start">1,000 connected SDK clients</text>
+<text x="912" y="354" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">p50 39.2 ms · 0 of 1,200,000 missed</text>
+<text x="912" y="371" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">· pooled over 6 runs; median run</text>
+<text x="912" y="388" font-size="12" font-weight="400" fill="#8691b4" text-anchor="start">p99 84 ms</text>
+<line x1="40" y1="430" x2="1160" y2="430" stroke="#222b47"/>
+<text x="40" y="456" font-size="12.5" font-weight="400" fill="#8691b4" text-anchor="start">Intel Core i5-8259U · Docker Desktop 29.7.2, VM 8 vCPU / 3.8 GiB · server limited to 1 vCPU, 512 MiB · PostgreSQL 16 + Redis 7 in containers · 3 runs (propagation 6), commit 66cbfec.</text>
+<text x="40" y="476" font-size="12.5" font-weight="400" fill="#8691b4" text-anchor="start">Measured under documented workloads and hardware. Results may vary by deployment. Earlier version measured the same way, runs alternated (v0.1.30).</text>
+<text x="40" y="496" font-size="12.5" font-weight="400" fill="#8691b4" text-anchor="start">Method, every run and the raw data: docs/performance/benchmarks.md</text>
 </svg>

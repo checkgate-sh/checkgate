@@ -9,8 +9,8 @@ Express, Fastify and NestJS integrations for [`@checkgate/node`](../nodejs/READM
 - **Flags bound to each request's user**: `req.checkgate.isEnabled('new-ui')`,
   from one shared client, with no network call per request or per evaluation.
 - **Startup that does not hang**: waits at most `readyTimeoutMs` for flags, then
-  continues (cached or default values, still syncing) or fails. A rejected SDK
-  key always fails.
+  continues (cached or default values, still syncing) or fails. An SDK key
+  rejected within that time fails startup.
 - **Graceful shutdown**: the client disconnects exactly once.
 
 ```bash

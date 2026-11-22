@@ -23,11 +23,18 @@ Find your stack below — each section lists what's **required**, what's
 | **React Native** | `@checkgate/react-native` | `@checkgate/cli` |
 | **Flutter** | `checkgate_flutter` | `@checkgate/cli` |
 | **Node.js server** — Express, Fastify, NestJS | `@checkgate/node` | `@checkgate/node-integrations`, `@checkgate/cli` |
-| **Python server** — FastAPI, Django, Flask | `checkgate` (PyPI) | — |
+| **Python server** — FastAPI, Django, Flask | `checkgate` (0.2.0; build from source, not on PyPI yet) | — |
 | **Edge** — Cloudflare Workers, Vercel Edge, middleware | `@checkgate/edge` + `@checkgate/web` | `@checkgate/cli` |
 
 `@checkgate/cli` is optional everywhere — it's a dev-time tool that generates
 type-safe flag accessors. It never ships in your runtime bundle.
+
+## Status by package
+
+What you can install today, and the limits worth knowing before you pick. This table is
+generated from the site's release data.
+
+<SdkMatrix />
 
 ---
 
@@ -137,14 +144,12 @@ npm packages are not involved.
 
 See the [Flutter SDK reference](/sdks/flutter).
 
-### Python
+### Python <Since v="0.2.0" />
 
-```bash
-pip install checkgate
-```
-
-**One package** from PyPI: the Python client with the same Rust core compiled
-in through PyO3 (abi3 wheels for CPython 3.11+). Evaluation is synchronous and
+**One package**, `checkgate`: the Python client with the same Rust core compiled
+in through PyO3 (abi3, CPython 3.11+). It is **not on PyPI yet** — build it from
+the repository ([how](/sdks/python#installation)) and do not install a `checkgate`
+package from PyPI until the project announces it. Evaluation is synchronous and
 thread-safe; syncing runs on a background thread, so it works the same under
 WSGI and ASGI servers. Create one client per worker process.
 
@@ -179,7 +184,7 @@ app.get('/', (req, res) => {
 
 See the [Node.js SDK reference](/sdks/nodejs).
 
-**Optional: `@checkgate/node-integrations`** — middleware for Express, a plugin
+**Optional: `@checkgate/node-integrations`** <Since v="0.2.0" /> — middleware for Express, a plugin
 for Fastify and a module for NestJS. Each request gets flags bound to its own
 user (`req.checkgate.isEnabled('new-homepage')`), startup waits for flags with
 a timeout instead of hanging, and shutdown disconnects the client. See
