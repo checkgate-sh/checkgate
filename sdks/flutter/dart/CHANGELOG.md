@@ -1,6 +1,16 @@
 ## 0.2.0 (2026-11-22)
 
-- Release 0.2.0. See https://github.com/checkgate-sh/checkgate/blob/main/CHANGELOG.md
+- Released in lockstep with Checkgate 0.2.0. The Dart API is unchanged from
+  0.1.31, and the package works with 0.1.31 and 0.2.0 servers (the SDK
+  protocol did not change).
+- The bundled Rust engine source is the 0.2.0 core (its evaluator was
+  refactored to support `explain()`, which this package does not expose).
+  Evaluation results are unchanged: the core passes the shared evaluation
+  vectors.
+- Still no bundled compiled engine: you build and link it yourself (see the
+  README).
+
+Full release notes: https://github.com/checkgate-sh/checkgate/blob/main/CHANGELOG.md
 
 ## 0.1.31 (2026-11-21)
 

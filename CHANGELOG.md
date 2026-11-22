@@ -5,7 +5,7 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-11-22
 
 Developer adoption: OpenFeature, Python, framework integrations, a local
 quickstart, an evaluation playground, SDK diagnostics and an MCP server for AI
@@ -43,6 +43,13 @@ adds a network request per evaluation.
   0.2.0 SDKs with a 0.1.31 server; the new server endpoints are additive.
 - Building the Rust workspace now needs Python 3.11+ for the PyO3 crate
   (`PYO3_PYTHON` selects the interpreter).
+- **Supported runtimes:** server with PostgreSQL 15 (bundled in the image)
+  or 16 (CI) and Redis, unchanged; Node.js SDK, OpenFeature provider and
+  framework integrations tested on Node.js 22, 24 and 26 (the integrations
+  require 22.12+); MCP server tested on Node.js 22; Python SDK on CPython 3.11+
+  (abi3 wheels for Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64).
+- No breaking change to SDK or REST APIs beyond the `202` on governed flag
+  creation above.
 
 ### Added
 
@@ -77,6 +84,23 @@ adds a network request per evaluation.
   Node.js and Python examples; first-run snippets in the setup wizard and an
   empty-environment checklist on the dashboard.
 
+### Improved
+
+- **Onboarding:** a five-minute local quickstart, first-run snippets in the
+  setup wizard, and SDK pages organised by stack.
+- **SDK integration:** one engine and one set of evaluation vectors behind
+  every SDK, now including OpenFeature, Python and the framework integrations;
+  `getDetails()` / `get_details()` explain each answer.
+- **Diagnostics:** per-stream delivered revision, environment convergence and
+  SDK health reports, shared between the Node.js and Python SDKs.
+- **Package validation:** npm tarballs and Python wheels are checked
+  (contents, metadata, entry points, types, clean installs) in CI and before
+  every publish.
+- **Release and benchmark infrastructure:** a dedicated-host A/B benchmark
+  harness with confidence intervals and explicit invalid-run rules
+  (`scripts/release-benchmarks/`), and a version-consistency check over every
+  package (`scripts/check-versions.mjs`, run in CI and by the release).
+
 ### Security
 
 - **Approval-required environments: flag creation is governed** (inherited
@@ -106,6 +130,10 @@ adds a network request per evaluation.
   4-vCPU runners produced no Rust core results while reporting success. CI
   now runs every benchmark once, and the workflow fails when a run fails.
 - Server tests: a port race in the test harness (`reliability::g2`).
+- Python SDK: quadratic buffering of event-stream lines (see Security).
+- Release tooling: `scripts/bump-version.sh` left the workspace crates'
+  `checkgate-core` requirements at `0.1.0`, which no longer resolve at 0.2.0;
+  it now discovers packages instead of using a fixed list.
 
 ### Changed
 
@@ -120,10 +148,45 @@ adds a network request per evaluation.
 - CI tests the Node.js SDK's native build, the OpenFeature provider and the
   framework integrations on Node.js 22, 24 and 26 (Node.js 20 reached end of
   life on 2026-04-30); the MCP server on 22.
-- Packages not yet on a registry: the Python package (`checkgate` on PyPI) has
-  no publish job yet; `@checkgate/openfeature-provider`,
-  `@checkgate/node-integrations` and `@checkgate/mcp-server` publish with the
-  release (packaging checked in the release workflow).
+- Release workflow: the tag must match every manifest's version; the Python
+  wheels are checked together and published to PyPI with trusted publishing
+  (no stored token, with attestations), and every publish job waits for them.
+  `@checkgate/openfeature-provider`, `@checkgate/node-integrations`,
+  `@checkgate/mcp-server` and the Python package `checkgate` are first
+  published with 0.2.0.
+
+### Performance
+
+Measured with the dedicated-host A/B harness on a 6-CPU Linux workstation
+(v0.1.31 against the 0.2.0 candidate, repeated runs, ratio of medians with a
+95 % bootstrap interval; harness and method in `scripts/release-benchmarks/`):
+
+- No measured regression exceeds the 10 % release threshold.
+- Rust core: rule matching is 2.7 % (1 rule) to 4.6 % (10 rules) slower and
+  weighted multivariate evaluation 3.0 % slower, about 2–10 ns per
+  evaluation; boolean, rollout, prerequisite and lookup cases are unchanged.
+  Tracked in #72 and #73.
+- Node.js SDK evaluation, snapshot throughput and CPU per request, SSE
+  propagation (p50/p95/p99 up to 1,000 clients) and memory are unchanged
+  within measurement noise.
+
+These are measurements on one host class under the documented workloads,
+not a comparison with other products.
+
+### Known limitations
+
+- Python SDK: the event queue between the stream and the client is not
+  bounded by count (#74); snapshot persistence re-encodes the whole cache per
+  batch (#77). No source distribution, so platforms without a wheel (for
+  example musl/Alpine) cannot install it yet.
+- Evaluation playground: no dedicated concurrency limit (#75).
+- `/health/ready` runs a database probe per call (#76).
+- Kubernetes operator: retries of an approval-gated update can create
+  duplicate pending change requests (#78).
+- Inert flags (disabled, no `disabled_value`) are still created directly in
+  approval-required environments, by design; any other creation needs
+  approval.
+- React Native: iOS is not certified. Flutter: no bundled compiled engine.
 
 ## [0.1.31] - 2026-11-21
 
