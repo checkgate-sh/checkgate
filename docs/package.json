@@ -10,6 +10,7 @@
     "preview": "vitepress preview"
   },
   "devDependencies": {
+    "@lucide/vue": "1.66.0",
     "vitepress": "2.0.0-alpha.21"
   }
 }

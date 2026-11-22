@@ -34,6 +34,7 @@ ALLOWED = [
     re.compile(r"^[a-z0-9-]+\.html$"),
     re.compile(r"^(%s)/[a-z0-9-]+\.html$" % "|".join(SECTIONS)),
     re.compile(r"^hashmap\.json$"),  # VitePress page-hash map
+    re.compile(r"^sitemap\.xml$"),  # generated from the public pages (config.ts `sitemap`)
     re.compile(r"^assets/(chunks/)?[A-Za-z0-9@_.-]+\.(js|css|woff2?)$"),
     re.compile(r"^assets/[A-Za-z0-9_.-]+\.(png|jpe?g|webp|gif|svg|ico)$"),  # imported images
     re.compile(r"^[A-Za-z0-9_.-]+\.(png|jpe?g|webp|gif|svg|ico)$"),  # docs/public/ images

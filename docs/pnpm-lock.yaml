@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@lucide/vue':
+        specifier: 1.66.0
+        version: 1.66.0(vue@3.5.45)
       vitepress:
         specifier: 2.0.0-alpha.21
         version: 2.0.0-alpha.21(postcss@8.5.32)
@@ -48,6 +51,11 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
+
+  '@lucide/vue@1.66.0':
+    resolution: {integrity: sha512-cyALYgAzCD2uZ557pM5I/dmFAyTKqtwY7PrdU67gzITkTH+V635u7Uv7VBpQ5hqvmlGqRtbqSDx08LCJHU+GAw==}
+    peerDependencies:
+      vue: '>=3.0.1'
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
@@ -649,6 +657,10 @@ snapshots:
   '@iconify/types@2.0.0': {}
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
+
+  '@lucide/vue@1.66.0(vue@3.5.45)':
+    dependencies:
+      vue: 3.5.45
 
   '@oxc-project/types@0.156.0': {}
 
