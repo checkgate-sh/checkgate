@@ -13,7 +13,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  checkgate_flutter: ^0.1.31
+  checkgate_flutter: ^0.2.0
 ```
 
 Then run:

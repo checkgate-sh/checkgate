@@ -1,8 +1,8 @@
 // ignore_for_file: non_constant_identifier_names, camel_case_types
 /// Raw Dart FFI bindings to libcheckgate_flutter.
 ///
-/// These typedefs mirror the C signatures in sdks/flutter/src/lib.rs exactly.
-/// Do not call these directly — use [CheckgateFlutterClient] instead.
+/// These typedefs mirror the C signatures in sdks/flutter/dart/rust/src/lib.rs exactly.
+/// Do not call these directly — use [CheckgateClient] instead.
 library checkgate_bindings;
 
 import 'dart:ffi';
