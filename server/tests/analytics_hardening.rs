@@ -111,11 +111,11 @@ async fn new_key(admin: &reqwest::Client, base: &str, env_id: &str, name: &str) 
 async fn row_quota_is_per_key_and_refuses_whole_batches() {
     let Some(env) = test_env() else { return };
     let db = env.fresh_database("cg_n6_rows").await;
-    let metrics_addr = format!("127.0.0.1:{}", free_port());
     let mut vars = base_env("n6_rows");
     vars.push(("RATE_LIMIT_INGEST_ROWS_PER_MINUTE", Some("1000".into())));
-    vars.push(("METRICS_ADDR", Some(metrics_addr.clone())));
+    vars.push(("METRICS_ADDR", Some("127.0.0.1:0".into())));
     let server = Server::spawn(&db, &env.redis_url, &pairs(&vars)).await;
+    let metrics_addr = server.metrics_addr();
     let (admin, key, env_id) = complete_setup(&server).await;
     let pool = sqlx::PgPool::connect(&db).await.unwrap();
     let sdk = bearer_client(&key);
@@ -373,17 +373,17 @@ async fn quota_holds_across_instances_under_concurrency() {
 #[tokio::test]
 async fn redis_outage_falls_back_to_a_per_instance_quota() {
     let Some(env) = test_env() else { return };
-    let metrics_addr = format!("127.0.0.1:{}", free_port());
     let c = Cluster::start(
         &env,
         "cg_n6_outage",
         1,
         &[
             ("RATE_LIMIT_INGEST_ROWS_PER_MINUTE", Some("1000")),
-            ("METRICS_ADDR", Some(&metrics_addr)),
+            ("METRICS_ADDR", Some("127.0.0.1:0")),
         ],
     )
     .await;
+    let metrics_addr = c.server(0).metrics_addr();
     let sdk = bearer_client(&c.sdk_key);
     c.redis(0).blackhole();
     c.redis(0).sever();
@@ -571,15 +571,15 @@ async fn wait_for(within: Duration, mut done: impl AsyncFnMut() -> bool) -> bool
 async fn retention_deletes_expired_rows_only_and_reports_keep_working() {
     let Some(env) = test_env() else { return };
     let db = env.fresh_database("cg_n6_retention").await;
-    let metrics_addr = format!("127.0.0.1:{}", free_port());
     let mut vars = base_env("n6_retention");
     vars.extend([
         ("ANALYTICS_RETENTION_DAYS", Some("30".into())),
         ("ANALYTICS_RETENTION_INTERVAL_SECS", Some("1".into())),
         ("ANALYTICS_RETENTION_BATCH_SIZE", Some("100".into())),
-        ("METRICS_ADDR", Some(metrics_addr.clone())),
+        ("METRICS_ADDR", Some("127.0.0.1:0".into())),
     ]);
     let server = Server::spawn(&db, &env.redis_url, &pairs(&vars)).await;
+    let metrics_addr = server.metrics_addr();
     let (admin, key, env_id) = complete_setup(&server).await;
     let pool = sqlx::PgPool::connect(&db).await.unwrap();
     let base = server.url(&format!("/api/environments/{env_id}"));

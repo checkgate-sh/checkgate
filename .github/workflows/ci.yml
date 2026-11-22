@@ -229,6 +229,11 @@ jobs:
           cargo test -p server --test analytics_hardening -- --nocapture
           cargo test -p server --test propose_scope -- --nocapture
           cargo test -p server --test governance -- --nocapture
+          cargo test -p server --test harness -- --nocapture
+          # Added in 0.2.0; they skip without PostgreSQL/Redis, so the Rust job
+          # never ran them.
+          cargo test -p server --test playground -- --nocapture
+          cargo test -p server --test sdk_diagnostics -- --nocapture
 
       # The server's own tests that need PostgreSQL and Redis (they skip in
       # the Rust tests job, which has neither): the scheduler, analytics

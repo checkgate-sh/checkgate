@@ -10,7 +10,7 @@
 
 use super::chaos::ChaosProxy;
 use super::sdk::SimSdk;
-use super::{Server, TestEnv, complete_setup, free_port, request};
+use super::{Server, TestEnv, complete_setup, request, unique_dir};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -20,6 +20,8 @@ pub struct Instance {
     pub server: Option<Server>,
     pub redis: ChaosProxy,
     pub redis_url: String,
+    /// `0` until the first start, then the port the instance bound (kept
+    /// across restarts, since clients point at it).
     pub port: u16,
     pub dir: PathBuf,
 }
@@ -74,15 +76,12 @@ impl Cluster {
         let mut instances = Vec::new();
         for _ in 0..n {
             let (redis, redis_url) = ChaosProxy::for_url(&test_env.redis_url).await;
-            let port = free_port();
-            let dir = std::env::temp_dir().join(format!("checkgate-test-{name}-{port}"));
-            let _ = std::fs::remove_dir_all(&dir);
             instances.push(Instance {
                 server: None,
                 redis,
                 redis_url,
-                port,
-                dir,
+                port: 0,
+                dir: unique_dir(name),
             });
         }
         let mut cluster = Cluster {
@@ -116,33 +115,17 @@ impl Cluster {
             .collect()
     }
 
-    /// Starts instance `i` on its port. On first start, a port taken by
-    /// another process in the meantime is replaced by a fresh one; a restart
-    /// keeps its port, since clients point at it.
+    /// Starts instance `i`. The first start binds port 0 (the operating
+    /// system picks a port nobody else holds, and the harness reads it from
+    /// the instance's own log); a restart binds the same port again, since
+    /// clients point at it, retrying a few times if another process holds it.
     pub async fn start_instance(&mut self, i: usize) {
-        let first_start = !self.instances[i].dir.join("server.log").exists();
-        for _ in 0..5 {
-            let env = self.env_pairs();
-            let inst = &self.instances[i];
-            if let Some(server) =
-                Server::try_spawn_in(&inst.dir, inst.port, &self.db_url, &inst.redis_url, &env)
-                    .await
-            {
-                self.instances[i].server = Some(server);
-                return;
-            }
-            assert!(
-                first_start,
-                "restarted instance exited during startup:\n{}",
-                self.logs()[i].1
-            );
-            let port = free_port();
-            let dir = std::env::temp_dir().join(format!("checkgate-test-{}-{port}", self.name));
-            let _ = std::fs::remove_dir_all(&dir);
-            self.instances[i].port = port;
-            self.instances[i].dir = dir;
-        }
-        panic!("instance {i} could not start on a free port");
+        let env = self.env_pairs();
+        let inst = &self.instances[i];
+        let server =
+            Server::spawn_in(&inst.dir, inst.port, &self.db_url, &inst.redis_url, &env).await;
+        self.instances[i].port = server.port();
+        self.instances[i].server = Some(server);
     }
 
     /// SIGKILL: no shutdown handling runs, like a crashed or OOM-killed pod.
