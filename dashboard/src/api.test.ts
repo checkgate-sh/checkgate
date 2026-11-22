@@ -65,8 +65,9 @@ describe('api functions', () => {
     const newFlag: Flag = { key: 'new-flag', is_enabled: false, rollout_percentage: null, description: null, rules: [] }
     mockResponse(newFlag)
 
-    await api.createFlag(ENV_ID, newFlag)
+    const result = await api.createFlag(ENV_ID, newFlag)
 
+    expect(result).toEqual({ applied: true, flag: newFlag })
     expect(globalThis.fetch).toHaveBeenCalledWith(
       `/api/environments/${ENV_ID}/flags`,
       expect.objectContaining({
@@ -75,6 +76,16 @@ describe('api functions', () => {
         headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
       }),
     )
+  })
+
+  it('createFlag reports a creation queued for approval (202)', async () => {
+    const newFlag: Flag = { key: 'new-flag', is_enabled: true, rollout_percentage: null, description: null, rules: [] }
+    const queued = { id: 7, environment_id: ENV_ID, flag_key: 'new-flag', action: 'create', patch: newFlag, status: 'pending' }
+    mockResponse(queued, 202)
+
+    const result = await api.createFlag(ENV_ID, newFlag)
+
+    expect(result).toEqual({ applied: false, changeRequest: queued })
   })
 
   it('throws an error on rejection', async () => {

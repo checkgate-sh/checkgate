@@ -552,6 +552,8 @@ Content-Type: application/json
 
 Creates a flag. If the key already exists in this environment, replaces it entirely unless the environment requires approval. In that case replacement returns `409 Conflict`; use PATCH to submit a change request.
 
+In an environment that [requires approval](#set-approval-requirement) (since 0.2.0), only an **inert** flag is created at once: `is_enabled: false` with no `disabled_value` (or `disabled_value: false`), which serves the built-in `false` and nothing else. Any other creation — an enabled flag, or a disabled one with its own off value — returns `202 Accepted` with a pending [change request](#change-requests) whose `action` is `create`: nothing is stored or served to SDKs until someone other than the requester approves it. While one creation of a key is pending, another returns `409 Conflict`.
+
 A [`propose`-scoped token](#token-scopes) (since 0.2.0) gets `403 Forbidden`: a new flag is served to SDKs at once, and even a disabled one makes code that already reads the key get `false` instead of its own default, so creating flags is left to people.
 
 **Request Body**
@@ -568,7 +570,11 @@ A [`propose`-scoped token](#token-scopes) (since 0.2.0) gets `403 Forbidden`: a 
 
 **Response** `200 OK` — returns the created flag.
 
-**Response** `409 Conflict` — the key exists and the environment requires approval, or the caller uses a `propose` token.
+**Response** `202 Accepted` — the environment requires approval and the flag is not inert; returns the pending `create` change request, not a flag.
+
+**Response** `403 Forbidden` — the caller uses a `propose` or `read_only` token, or lacks write access to the project.
+
+**Response** `409 Conflict` — the environment requires approval and the key exists or already has a pending creation.
 
 **Response** `422 Unprocessable Entity` — invalid flag key or `rollout_percentage` out of range.
 
@@ -817,9 +823,11 @@ Editor role or above. Flags referencing this segment are re-broadcast without th
 ## Change Requests
 
 Created by a flag `PATCH` in environments with [`require_approval`](#set-approval-requirement)
-enabled, and by every `PATCH` made with a [`propose` token](#token-scopes). A change
-request captures a flag `PATCH` that hasn't been applied yet — see
-[Partially Update a Flag](#partially-update-a-flag) for how one gets created. Someone other than the
+enabled, by every `PATCH` made with a [`propose` token](#token-scopes), and (since 0.2.0) by
+creating a flag that is not inert in such an environment. A change request captures a flag
+`PATCH` (`action: "update"`) or a new flag (`action: "create"`, `patch` is the whole creation
+body) that hasn't been applied yet — see [Partially Update a Flag](#partially-update-a-flag) and
+[Create or Replace a Flag](#create-or-replace-a-flag) for how one gets created. Someone other than the
 requester must approve it (self-approval is rejected); admins may cancel anyone's pending request,
 mirroring how workspace admins bypass project membership elsewhere.
 
@@ -839,6 +847,7 @@ GET /api/environments/{env_id}/change-requests?status=pending
     "id": 1,
     "environment_id": "550e8400-e29b-41d4-a716-446655440000",
     "flag_key": "dark_mode",
+    "action": "update",
     "patch": { "is_enabled": true },
     "requested_by": "alice@acme.com",
     "status": "pending",
@@ -858,13 +867,13 @@ GET /api/environments/{env_id}/change-requests?status=pending
 POST /api/environments/{env_id}/change-requests/{id}/approve
 ```
 
-Applies the stored patch to the flag's *current* state (not a stale snapshot from when the request was filed) and marks the request approved.
+Applies the stored patch to the flag's *current* state (not a stale snapshot from when the request was filed) and marks the request approved. For a `create` request, inserts the new flag; the audit log records the reviewer as actor, with `change_request_id` and `requested_by` in its metadata.
 
-**Response** `200 OK` — returns the updated flag.
+**Response** `200 OK` — returns the updated (or created) flag.
 
 **Response** `403 Forbidden` — the caller is the original requester, or uses a `propose` or `read_only` token (neither can ever approve or reject).
 
-**Response** `409 Conflict` — the request is no longer pending (already approved/rejected/cancelled).
+**Response** `409 Conflict` — the request is no longer pending (already approved/rejected/cancelled), or it is a `create` request and the key exists by now (the request stays pending; reject or cancel it).
 
 ---
 

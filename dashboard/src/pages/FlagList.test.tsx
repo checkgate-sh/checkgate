@@ -107,7 +107,7 @@ describe('FlagList flag panel', () => {
 
   it('adds the created flag to the list and closes the panel', async () => {
     const user = userEvent.setup()
-    vi.mocked(api.createFlag).mockResolvedValue({ ...FLAG, key: 'new_flag' })
+    vi.mocked(api.createFlag).mockResolvedValue({ applied: true, flag: { ...FLAG, key: 'new_flag' } })
     renderList('/flags?new=1')
 
     const dialog = await screen.findByRole('dialog', { name: 'New flag' })

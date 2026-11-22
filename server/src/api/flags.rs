@@ -43,9 +43,11 @@ pub struct FlagWithMetadata {
 }
 
 /// Request body for `POST /flags` — the evaluation `Flag` plus optional
-/// lifecycle metadata set at creation time.
-#[derive(Debug, Deserialize)]
-struct CreateFlagRequest {
+/// lifecycle metadata set at creation time. In an environment that requires
+/// approval, a creation that would serve anything is stored in this shape as
+/// the `patch` of a pending `create` change request (see [`create_flag`]).
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CreateFlagRequest {
     #[serde(flatten)]
     flag: Flag,
     #[serde(default)]
@@ -177,6 +179,45 @@ pub(super) fn is_valid_flag_key(key: &str) -> bool {
         && key
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// The checks every new flag passes, whether it is written at once or when a
+/// `create` change request is approved.
+fn validate_new_flag(flag: &Flag) -> Result<(), StatusCode> {
+    if !is_valid_flag_key(&flag.key) {
+        warn!(key = %flag.key, "Rejected create_flag: invalid key");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    if flag.rollout_percentage.is_some_and(|p| p > 100) {
+        warn!(
+            rollout_percentage = ?flag.rollout_percentage,
+            "Rejected create_flag: rollout_percentage out of range"
+        );
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    if let Err(reason) = crate::limits::check_flag(flag) {
+        warn!(%reason, "Rejected create_flag: configuration exceeds limits");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    Ok(())
+}
+
+/// True when a new flag serves nothing anyone approved could object to: it is
+/// switched off and its off value is the built-in `false`. Evaluation of a
+/// disabled flag returns `disabled_value` (default `false`) before it looks at
+/// rules, rollout, variants or prerequisites, and a disabled flag never
+/// satisfies another flag's prerequisite, so none of those fields takes
+/// effect until someone enables the flag — which, in an environment that
+/// requires approval, is itself a change request.
+///
+/// A disabled flag with a custom `disabled_value` is not inert: SDKs are
+/// served that value.
+pub(crate) fn is_inert(flag: &Flag) -> bool {
+    !flag.is_enabled
+        && matches!(
+            flag.disabled_value,
+            None | Some(checkgate_core::evaluator::FlagValue::Bool(false))
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -333,45 +374,38 @@ async fn list_flags(
     Ok(Json(flags))
 }
 
+/// POST /api/environments/:env_id/flags
+///
+/// Where no approval is required, the flag is written (an existing key is
+/// replaced) and served to SDKs at once — `200` with the flag.
+///
+/// Where the environment requires approval, an existing key is never
+/// replaced (`409`), and only an [inert](is_inert) flag — disabled, serving
+/// the built-in `false` — is written at once. Anything else is captured as a
+/// pending `create` change request and `202 Accepted` is returned with it
+/// (the same contract as a queued PATCH): nothing reaches `flags`, SDK
+/// snapshots or the stream until a different person approves it. A second
+/// pending creation of the same key is `409`.
 #[instrument(skip(state, jar, req), fields(flag_key = %req.flag.key))]
 async fn create_flag(
     State(state): State<AppState>,
     jar: AuthContext,
     Path(env_id): Path<String>,
     Json(req): Json<CreateFlagRequest>,
-) -> Result<Json<FlagWithMetadata>, StatusCode> {
+) -> Result<axum::response::Response, StatusCode> {
+    use axum::response::IntoResponse;
+
     check_env_access(&state.db, &jar, &env_id).await?;
-    let payload = req.flag;
     // A `propose` token never creates flags (`require_editor` already refuses
     // the route; this is defence in depth). A created flag is served to SDKs at
     // once, and even a disabled one changes what code that already reads the
     // key gets (`false` instead of its own default) — with no review. Creating
     // flags goes through a person.
     if crate::auth::is_propose_token(&jar) {
-        warn!(key = %payload.key, "Rejected create_flag: propose tokens cannot create flags");
+        warn!(key = %req.flag.key, "Rejected create_flag: propose tokens cannot create flags");
         return Err(StatusCode::FORBIDDEN);
     }
-    if !is_valid_flag_key(&payload.key) {
-        warn!(key = %payload.key, "Rejected create_flag: invalid key");
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-
-    if payload.rollout_percentage.is_some_and(|p| p > 100) {
-        warn!(
-            rollout_percentage = ?payload.rollout_percentage,
-            "Rejected create_flag: rollout_percentage out of range"
-        );
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    if let Err(reason) = crate::limits::check_flag(&payload) {
-        warn!(%reason, "Rejected create_flag: configuration exceeds limits");
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-
-    let data = serde_json::to_value(&payload).map_err(|e| {
-        error!(error = %e, "Failed to serialize flag for DB write");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    validate_new_flag(&req.flag)?;
 
     let mut tx = state
         .db
@@ -379,69 +413,182 @@ async fn create_flag(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let protected = lock_environment(&mut tx, &env_id).await?;
+    let actor_email = get_session_claims(&jar).map(|c| c.email);
+
+    if protected && !is_inert(&req.flag) {
+        let requested_by = actor_email.ok_or(StatusCode::UNAUTHORIZED)?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM flags WHERE key = $1 AND environment_id = $2::uuid)",
+        )
+        .bind(&req.flag.key)
+        .bind(&env_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "PostgreSQL read failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        if exists {
+            return Err(StatusCode::CONFLICT);
+        }
+        let body = serde_json::to_value(&req).map_err(|e| {
+            error!(error = %e, "Failed to serialize flag for a change request");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        let cr = super::change_requests::create_change_request(
+            &mut *tx,
+            &env_id,
+            &req.flag.key,
+            &body,
+            &requested_by,
+            super::change_requests::Action::Create,
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        crate::notify::notify(
+            state.clone(),
+            env_id.clone(),
+            crate::integrations::change_request_payload(
+                "change_request.opened",
+                &env_id,
+                &req.flag.key,
+                cr.id,
+                Some(&requested_by),
+                None,
+            ),
+        );
+        info!(env_id = %env_id, change_request_id = cr.id, "Flag creation queued for approval");
+        return Ok((StatusCode::ACCEPTED, Json(cr)).into_response());
+    }
+
     // An existing key is never overwritten in a protected environment (that
     // would bypass approval).
-    let no_overwrite = protected;
+    let created = insert_flag_in_tx(&mut tx, &env_id, req, !protected).await?;
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let created = emit_create(&state, &env_id, created, actor_email.as_deref(), None).await;
+    info!(env_id = %env_id, "Flag created/replaced");
+    Ok(Json(created).into_response())
+}
+
+/// A flag written by [`insert_flag_in_tx`], held until the transaction commits.
+pub(crate) struct CreatedFlag {
+    pub result: FlagWithMetadata,
+    pub data: serde_json::Value,
+    pub revision: i64,
+}
+
+/// Inserts a new flag. With `overwrite`, an existing key is replaced;
+/// without, an existing key is `409`. The caller holds the environment lock.
+pub(crate) async fn insert_flag_in_tx(
+    tx: &mut sqlx::PgTransaction<'_>,
+    env_id: &str,
+    req: CreateFlagRequest,
+    overwrite: bool,
+) -> Result<CreatedFlag, StatusCode> {
+    let data = serde_json::to_value(&req.flag).map_err(|e| {
+        error!(error = %e, "Failed to serialize flag for DB write");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     let written = sqlx::query(
         "INSERT INTO flags (key, environment_id, data, tags, owner_email) \
          VALUES ($1, $2::uuid, $3, $4, $5) \
          ON CONFLICT (key, environment_id) \
-         DO UPDATE SET data = EXCLUDED.data, tags = EXCLUDED.tags, owner_email = EXCLUDED.owner_email WHERE NOT $6 \
+         DO UPDATE SET data = EXCLUDED.data, tags = EXCLUDED.tags, owner_email = EXCLUDED.owner_email WHERE $6 \
          RETURNING revision",
     )
-    .bind(&payload.key)
-    .bind(&env_id)
+    .bind(&req.flag.key)
+    .bind(env_id)
     .bind(&data)
     .bind(&req.tags)
     .bind(&req.owner_email)
-    .bind(no_overwrite)
-    .fetch_optional(&mut *tx)
+    .bind(overwrite)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|e| {
         error!(error = %e, "PostgreSQL write failed");
         StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .ok_or(StatusCode::CONFLICT)?;
+    Ok(CreatedFlag {
+        revision: written.get("revision"),
+        data,
+        result: FlagWithMetadata {
+            flag: req.flag,
+            tags: req.tags,
+            owner_email: req.owner_email,
+            archived_at: None,
+        },
+    })
+}
+
+/// Inserts the flag a `create` change request holds, on its approval. The
+/// stored body is validated again (limits may have changed since it was
+/// queued); a key created in the meantime is `409` and the request stays
+/// pending.
+pub(crate) async fn create_from_request_in_tx(
+    tx: &mut sqlx::PgTransaction<'_>,
+    env_id: &str,
+    key: &str,
+    body: serde_json::Value,
+) -> Result<CreatedFlag, StatusCode> {
+    let req: CreateFlagRequest = serde_json::from_value(body).map_err(|e| {
+        error!(error = %e, "Stored flag creation is not a valid flag");
+        StatusCode::UNPROCESSABLE_ENTITY
     })?;
+    if req.flag.key != key {
+        error!(stored = %req.flag.key, key, "Stored flag creation names another key");
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    validate_new_flag(&req.flag)?;
+    lock_environment(tx, env_id).await?;
+    insert_flag_in_tx(tx, env_id, req, false).await
+}
 
-    let Some(written) = written else {
-        return Err(StatusCode::CONFLICT);
-    };
-    let revision: i64 = written.get("revision");
-    tx.commit()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let actor_email = get_session_claims(&jar).map(|c| c.email);
+/// Side effects of a committed creation: audit, publish, webhook.
+pub(crate) async fn emit_create(
+    state: &AppState,
+    env_id: &str,
+    created: CreatedFlag,
+    actor_email: Option<&str>,
+    metadata: Option<&serde_json::Value>,
+) -> FlagWithMetadata {
+    let key = created.result.flag.key.clone();
     super::audit::log_audit_event(
         &state.db,
-        &env_id,
-        &payload.key,
-        actor_email.as_deref(),
+        env_id,
+        &key,
+        actor_email,
         "CREATE",
         None,
-        Some(&data),
-        None,
+        Some(&created.data),
+        metadata,
     )
     .await;
 
-    publish_flag_change(&state, &env_id, &payload, revision, "create_flag").await;
+    publish_flag_change(
+        state,
+        env_id,
+        &created.result.flag,
+        created.revision,
+        "create_flag",
+    )
+    .await;
 
     let wh_payload = super::webhooks::flag_event_payload(
         "flag.created",
-        &env_id,
-        &payload.key,
-        Some(&data),
-        actor_email.as_deref(),
-        None,
+        env_id,
+        &key,
+        Some(&created.data),
+        actor_email,
+        metadata,
     );
-    crate::notify::notify(state.clone(), env_id.clone(), wh_payload);
-
-    info!(env_id = %env_id, "Flag created/replaced");
-    Ok(Json(FlagWithMetadata {
-        flag: payload,
-        tags: req.tags,
-        owner_email: req.owner_email,
-        archived_at: None,
-    }))
+    crate::notify::notify(state.clone(), env_id.to_string(), wh_payload);
+    created.result
 }
 
 #[instrument(skip(state, jar), fields(flag_key = %path.key))]
@@ -809,6 +956,7 @@ async fn patch_flag(
         &path.key,
         &patch,
         &requested_by,
+        super::change_requests::Action::Update,
     )
     .await?;
     tx.commit()

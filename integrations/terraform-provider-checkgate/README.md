@@ -68,6 +68,11 @@ terraform import checkgate_segment.internal   <environment_id>/internal-employee
   pending change request (HTTP 202) rather than applied — the provider surfaces
   this as an error, because an apply can't complete synchronously behind a review
   gate. Use a non-gated environment (or approve out of band) for IaC-managed flags.
+- Since server 0.2.0 the same holds for **creating** a flag there, unless it is
+  disabled and keeps the default off value (`is_enabled = false`, no
+  `disabled_value`): the create fails with the approval error and nothing is
+  written to state. After someone else approves the change request, the flag
+  exists: `terraform import` it (re-applying the create would be `409`).
 - See [`examples/main.tf`](examples/main.tf) for a full example.
 
 ## Development
