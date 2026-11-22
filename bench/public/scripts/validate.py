@@ -32,10 +32,20 @@ sys.dont_write_bytecode = True  # importing render_svg must not leave __pycache_
 ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
                       text=True, check=True).stdout.strip()
 HERE = os.path.join(ROOT, "bench", "public")
-with open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8") as _f:
-    VERSION = re.search(r'^version = "([^"]+)"', _f.read(), re.M).group(1)
-RESULTS = os.path.join(ROOT, "docs", "performance", "results", f"v{VERSION}")
-SECTIONS = ("Architecture & Performance", "Infrastructure Cost & Savings")
+# The published result set is the newest docs/performance/results/v<version>/
+# with a summary.json, not the workspace version: a release that is not
+# re-benchmarked (0.2.0) keeps publishing the previous set, and says so.
+_RESULTS_ROOT = os.path.join(ROOT, "docs", "performance", "results")
+_SETS = sorted(
+    (tuple(int(x) for x in d[1:].split(".")), d)
+    for d in os.listdir(_RESULTS_ROOT)
+    if re.fullmatch(r"v\d+\.\d+\.\d+", d) and os.path.isfile(os.path.join(_RESULTS_ROOT, d, "summary.json"))
+)
+if not _SETS:
+    sys.exit("error: no docs/performance/results/v*/summary.json")
+VERSION = _SETS[-1][1][1:]
+RESULTS = os.path.join(_RESULTS_ROOT, f"v{VERSION}")
+SECTIONS = ("Performance", "Infrastructure cost")
 ASSETS = os.path.join(ROOT, "assets", "benchmarks")
 DOCS = [os.path.join(ROOT, "docs", "performance", "benchmarks.md"),
         os.path.join(ROOT, "docs", "performance", "cost-efficiency.md"), os.path.join(HERE, "README.md")]
@@ -271,11 +281,14 @@ def main():
         check_readme_numbers(summary)
     check_links()
     check_commands()
+    data_ts = os.path.join(ROOT, "docs", ".vitepress", "data", "benchmarks.data.ts")
+    if os.path.isfile(data_ts) and f"/results/v{VERSION}/summary.json" not in open(data_ts, encoding="utf-8").read():
+        fail(f"docs/.vitepress/data/benchmarks.data.ts does not read the published set v{VERSION}")
     if errors:
         for e in errors:
             print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
-    print("ok: benchmark results, graphic, links and documented commands are consistent")
+    print(f"ok: benchmark results (v{VERSION}), graphic, links and documented commands are consistent")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,44 @@
+{
+  "name": "@checkgate/mcp-server",
+  "version": "0.2.0",
+  "description": "Model Context Protocol (MCP) server for Checkgate: lets AI agents read feature flags and propose changes that a human approves.",
+  "type": "module",
+  "bin": {
+    "checkgate-mcp": "bin/checkgate-mcp.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  },
+  "keywords": [
+    "checkgate",
+    "feature-flags",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/checkgate-sh/checkgate.git",
+    "directory": "integrations/mcp-server"
+  },
+  "homepage": "https://github.com/checkgate-sh/checkgate#readme",
+  "bugs": {
+    "url": "https://github.com/checkgate-sh/checkgate/issues"
+  },
+  "license": "Apache-2.0"
+}

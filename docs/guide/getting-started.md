@@ -7,10 +7,15 @@ description: "Step-by-step guide to running Checkgate locally, completing the se
 
 This guide walks you through running Checkgate locally and evaluating your first feature flag.
 
+::: tip In a hurry?
+The [five-minute quickstart](./quickstart) does all of this with one script from a clone of the
+repository. This page explains each step, without a clone.
+:::
+
 ## Prerequisites
 
 - Docker and Docker Compose
-- Node.js 18+ (for the Node.js SDK example)
+- Node.js 22+ (for the Node.js SDK example)
 
 ## 1. Start the Server
 

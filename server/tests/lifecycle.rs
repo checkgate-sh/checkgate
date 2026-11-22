@@ -14,7 +14,7 @@ mod common;
 use common::chaos::ChaosProxy;
 use common::cluster::{Cluster, flag_body};
 use common::sdk::SimSdk;
-use common::{free_port, request, test_env};
+use common::{request, test_env};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -227,9 +227,14 @@ async fn sigterm_drains_closes_streams_and_exits_within_grace() {
 #[tokio::test]
 async fn metrics_endpoint_is_valid_bounded_and_private() {
     let Some(env) = test_env() else { return };
-    let metrics_port = free_port();
-    let addr = format!("127.0.0.1:{metrics_port}");
-    let c = Cluster::start(&env, "life_metrics", 1, &[("METRICS_ADDR", Some(&addr))]).await;
+    let c = Cluster::start(
+        &env,
+        "life_metrics",
+        1,
+        &[("METRICS_ADDR", Some("127.0.0.1:0"))],
+    )
+    .await;
+    let addr = c.server(0).metrics_addr();
     c.create_flag(0, "metric-flag-key", true).await;
     let sdk = c.sdk("sdk", 0);
     c.wait_converged(&[&sdk], &c.env_id, CONVERGE).await;

@@ -2,7 +2,10 @@
 //! `require_approval` set, `PATCH /environments/{env_id}/flags/{key}` no
 //! longer applies immediately — it's captured here as a pending change
 //! request that a *different* editor/admin must approve before it takes
-//! effect. See `super::flags::patch_flag` for the queueing side.
+//! effect. Creating a flag that would serve anything (`POST …/flags` with an
+//! enabled flag or a custom off value) is captured the same way, as a
+//! `create` request. See `super::flags::patch_flag` and
+//! `super::flags::create_flag` for the queueing side.
 
 use crate::auth::{AuthContext, get_session_claims};
 use crate::state::AppState;
@@ -25,11 +28,32 @@ fn format_rfc3339(dt: time::OffsetDateTime) -> String {
 // Types
 // ---------------------------------------------------------------------------
 
+/// What approving a change request does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Action {
+    /// Merge `patch` onto the existing flag (a queued PATCH).
+    Update,
+    /// Insert the new flag `patch` holds in full (a queued POST).
+    Create,
+}
+
+impl Action {
+    fn as_str(self) -> &'static str {
+        match self {
+            Action::Update => "update",
+            Action::Create => "create",
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct ChangeRequestInfo {
     pub id: i64,
     pub environment_id: String,
     pub flag_key: String,
+    /// `update` (a PATCH: `patch` is merged onto the flag) or `create` (a new
+    /// flag: `patch` is the whole creation body).
+    pub action: String,
     pub patch: serde_json::Value,
     pub requested_by: String,
     pub status: String,
@@ -44,6 +68,7 @@ fn row_to_info(row: &sqlx::postgres::PgRow) -> ChangeRequestInfo {
         id: row.get("id"),
         environment_id: row.get("environment_id"),
         flag_key: row.get("flag_key"),
+        action: row.get("action"),
         patch: row.get("patch"),
         requested_by: row.get("requested_by"),
         status: row.get("status"),
@@ -72,27 +97,40 @@ pub struct RejectRequest {
 // ---------------------------------------------------------------------------
 
 /// Inserts a new pending change request. Called by `super::flags::patch_flag`
-/// once it has already validated the patch would apply cleanly.
+/// and `super::flags::create_flag` once they have validated that it would
+/// apply cleanly. A second pending `create` of the same key is `409` (unique
+/// index `idx_change_requests_one_pending_create`).
 pub(crate) async fn create_change_request(
     db: impl sqlx::PgExecutor<'_>,
     env_id: &str,
     flag_key: &str,
     patch: &serde_json::Value,
     requested_by: &str,
+    action: Action,
 ) -> Result<ChangeRequestInfo, StatusCode> {
     let row = sqlx::query(
-        "INSERT INTO change_requests (environment_id, flag_key, patch, requested_by) \
-         VALUES ($1::uuid, $2, $3, $4) \
-         RETURNING id, environment_id::text, flag_key, patch, requested_by, status, \
+        "INSERT INTO change_requests (environment_id, flag_key, patch, requested_by, action) \
+         VALUES ($1::uuid, $2, $3, $4, $5) \
+         RETURNING id, environment_id::text, flag_key, action, patch, requested_by, status, \
                    reviewed_by, reason, created_at, reviewed_at",
     )
     .bind(env_id)
     .bind(flag_key)
     .bind(patch)
     .bind(requested_by)
+    .bind(action.as_str())
     .fetch_one(db)
     .await
     .map_err(|e| {
+        if e.as_database_error()
+            .is_some_and(|d| d.is_unique_violation())
+        {
+            warn!(
+                flag_key,
+                "Rejected change request: this key already has a pending creation"
+            );
+            return StatusCode::CONFLICT;
+        }
         error!(error = %e, "Failed to create change request");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -107,7 +145,7 @@ async fn lock_pending(
     id: i64,
 ) -> Result<sqlx::postgres::PgRow, StatusCode> {
     sqlx::query(
-        "SELECT id, environment_id::text, flag_key, patch, requested_by, status, \
+        "SELECT id, environment_id::text, flag_key, action, patch, requested_by, status, \
                 reviewed_by, reason, created_at, reviewed_at \
          FROM change_requests WHERE id = $1 AND environment_id = $2::uuid FOR UPDATE",
     )
@@ -136,7 +174,7 @@ pub async fn list_change_requests(
     super::flags::check_env_access(&state.db, &jar, &env_id).await?;
 
     let rows = sqlx::query(
-        "SELECT id, environment_id::text, flag_key, patch, requested_by, status, \
+        "SELECT id, environment_id::text, flag_key, action, patch, requested_by, status, \
                 reviewed_by, reason, created_at, reviewed_at \
          FROM change_requests \
          WHERE environment_id = $1::uuid AND ($2::text IS NULL OR status = $2) \
@@ -156,9 +194,11 @@ pub async fn list_change_requests(
 
 /// POST /api/environments/:env_id/change-requests/:id/approve
 ///
-/// Applies the stored patch and marks the request approved. Blocked if the
-/// caller is the original requester — someone else must review it, the same
-/// way a PR author can't approve their own PR.
+/// Applies the stored patch (or, for a `create` request, inserts the flag)
+/// and marks the request approved. Blocked if the caller is the original
+/// requester — someone else must review it, the same way a PR author can't
+/// approve their own PR. Approving a creation whose key exists by now is
+/// `409` and leaves the request pending (reject or cancel it).
 pub async fn approve_change_request(
     State(state): State<AppState>,
     jar: AuthContext,
@@ -189,8 +229,24 @@ pub async fn approve_change_request(
     }
 
     let flag_key: String = row.get("flag_key");
+    let action: String = row.get("action");
     let patch: serde_json::Value = row.get("patch");
-    let applied = super::flags::apply_patch_in_tx(&mut tx, &env_id, &flag_key, patch).await?;
+    let applied = match action.as_str() {
+        "create" => Applied::Create(
+            super::flags::create_from_request_in_tx(&mut tx, &env_id, &flag_key, patch).await?,
+        ),
+        "update" => Applied::Update(
+            super::flags::apply_patch_in_tx(&mut tx, &env_id, &flag_key, patch).await?,
+        ),
+        other => {
+            error!(
+                change_request_id = id,
+                action = other,
+                "Unknown change request action"
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
     sqlx::query(
         "UPDATE change_requests SET status = 'approved', reviewed_by = $1, reviewed_at = NOW() \
@@ -210,11 +266,25 @@ pub async fn approve_change_request(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let applied =
-        super::flags::emit_patch(&state, &env_id, &flag_key, applied, Some(&reviewer), None).await;
+    let applied = match applied {
+        Applied::Update(applied) => {
+            super::flags::emit_patch(&state, &env_id, &flag_key, applied, Some(&reviewer), None)
+                .await
+        }
+        Applied::Create(created) => {
+            // The audit entry names the reviewer as actor (they made it take
+            // effect) and keeps who asked for it.
+            let metadata = serde_json::json!({
+                "change_request_id": id,
+                "requested_by": requested_by,
+            });
+            super::flags::emit_create(&state, &env_id, created, Some(&reviewer), Some(&metadata))
+                .await
+        }
+    };
 
-    // Note `emit_patch` above already emitted `flag.updated`; this second
-    // event records *who reviewed it*, which the flag event doesn't carry.
+    // Note the flag event above (`flag.updated` or `flag.created`) was already
+    // emitted; this second event records *who reviewed it*.
     crate::notify::notify(
         state.clone(),
         env_id.clone(),
@@ -230,6 +300,12 @@ pub async fn approve_change_request(
 
     info!(change_request_id = id, env_id = %env_id, flag_key = %flag_key, "Change request approved and applied");
     Ok(Json(applied))
+}
+
+/// The write an approval made, held until its transaction commits.
+enum Applied {
+    Update(super::flags::AppliedPatch),
+    Create(super::flags::CreatedFlag),
 }
 
 /// POST /api/environments/:env_id/change-requests/:id/reject
@@ -286,7 +362,8 @@ pub async fn reject_change_request(
 
 /// DELETE /api/environments/:env_id/change-requests/:id — withdraw your own
 /// pending request. Admins may cancel anyone's (incident-response override,
-/// mirroring how workspace admins bypass project membership elsewhere).
+/// mirroring how workspace admins bypass project membership elsewhere) — but
+/// not through a `propose` token, which only ever withdraws its owner's own.
 pub async fn cancel_change_request(
     State(state): State<AppState>,
     jar: AuthContext,
@@ -294,7 +371,8 @@ pub async fn cancel_change_request(
 ) -> Result<StatusCode, StatusCode> {
     super::flags::check_env_access(&state.db, &jar, &env_id).await?;
     let claims = get_session_claims(&jar);
-    let is_admin = claims.as_ref().is_some_and(|c| c.role == "admin");
+    let is_admin =
+        claims.as_ref().is_some_and(|c| c.role == "admin") && !crate::auth::is_propose_token(&jar);
     let caller_email = claims.map(|c| c.email);
 
     let Some(caller_email) = caller_email else {

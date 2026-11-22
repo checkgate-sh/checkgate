@@ -2,125 +2,144 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
-    <img src="assets/banner-dark.svg" alt="Checkgate — feature flags without the round-trip" width="100%">
+    <img src="assets/banner-light.svg" alt="Checkgate — Ship with confidence. Roll out with control. Open-source, self-hosted feature management with local evaluation and real-time synchronization." width="100%">
   </picture>
 </p>
 
-# Checkgate — Feature Flags Without the Round-Trip.
+<p align="center">
+  <a href="https://github.com/checkgate-sh/checkgate/actions/workflows/ci.yml"><img src="https://github.com/checkgate-sh/checkgate/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/checkgate-sh/checkgate/releases/latest"><img src="https://img.shields.io/github/v/release/checkgate-sh/checkgate?label=release&color=4f46e5" alt="Latest release"></a>
+  <a href="https://www.npmjs.com/package/@checkgate/node"><img src="https://img.shields.io/npm/v/@checkgate/node?label=%40checkgate%2Fnode&color=4f46e5" alt="@checkgate/node on npm"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4f46e5" alt="License: Apache 2.0"></a>
+  <a href="https://checkgate-sh.github.io/checkgate/"><img src="https://img.shields.io/badge/docs-checkgate--sh.github.io-4f46e5" alt="Documentation"></a>
+</p>
 
-[![CI](https://github.com/checkgate-sh/checkgate/actions/workflows/ci.yml/badge.svg)](https://github.com/checkgate-sh/checkgate/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![npm @checkgate/node](https://img.shields.io/npm/v/@checkgate/node?label=npm%20node)](https://www.npmjs.com/package/@checkgate/node)
-[![npm @checkgate/web](https://img.shields.io/npm/v/@checkgate/web?label=npm%20web)](https://www.npmjs.com/package/@checkgate/web)
-[![npm @checkgate/react-native](https://img.shields.io/npm/v/@checkgate/react-native?label=npm%20react-native)](https://www.npmjs.com/package/@checkgate/react-native)
+<p align="center">
+  <a href="https://checkgate-sh.github.io/checkgate/"><b>Documentation</b></a> ·
+  <a href="docs/guide/quickstart.md"><b>Quickstart</b></a> ·
+  <a href="docs/sdks/index.md"><b>SDKs</b></a> ·
+  <a href="docs/self-hosting.md"><b>Self-hosting</b></a> ·
+  <a href="CHANGELOG.md"><b>Changelog</b></a>
+</p>
 
-**Self-hosted feature flags with local SDK evaluation, real-time SSE updates, and a lightweight Rust-powered server.** Every flag decision happens inside your process, with no request per evaluation, while one persistent SSE connection per SDK keeps its flags current, typically within tens of milliseconds of a change.
+**Checkgate is open-source, self-hosted feature management.** Turn a feature on for a percentage of
+users, target it by any attribute, require approval before a production change, and turn it off
+again with one switch — from the dashboard, the REST API or Terraform.
 
-The server and the shared evaluation core are written in Rust, with SDKs for Node.js (NAPI), browsers (WebAssembly), React Native (JSI) and Flutter (FFI). In the v0.1.31 benchmark, a change reached 1,000 connected SDK clients with a p50 of 39 ms, and none of 1.2 million deliveries was missed.
+**Feature flags without the round-trip.** Each SDK keeps your environment's flags in memory and
+evaluates them inside your process with the same Rust engine, so a flag check makes no network
+request. One Server-Sent Events connection per SDK delivers changes as they happen, with
+reconnects, a polling fallback and the last known flags if the server is unreachable. You run the
+server, PostgreSQL and Redis on your own infrastructure.
 
-**[Explore the Documentation →](https://checkgate-sh.github.io/checkgate)**
+> [!IMPORTANT]
+> Upgrading a 0.1.31 server to 0.2.0? Read [Upgrading to 0.2.0](docs/operations/upgrading-to-0-2-0.md)
+> first: two database migrations, no rolling upgrade, back up the database before you start.
 
----
-
-## Overview
+## How it works
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/overview-dark.svg">
-    <img src="assets/overview-light.svg" width="820" alt="A flag change flows from the dashboard to the Checkgate server, which pushes it over SSE to every SDK, where flags evaluate locally in-process.">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/architecture/overview-dark.svg">
+    <img src="assets/architecture/overview-light.svg" width="100%" alt="How Checkgate works. Sync path: a flag changes in the dashboard or API; the Checkgate server commits it to PostgreSQL, fans it out to every server instance through Redis, and pushes it over a Server-Sent Events stream to each SDK, which reconnects with backoff and polls the snapshot only if a stream cannot be established. Evaluation path: your code calls isEnabled(), and the SDK answers from its local flag store with its Rust engine, inside your process, with no network request.">
   </picture>
 </p>
 
-<p align="center">
-  <em>A flag change is written once, then pushed to every connected SDK in milliseconds — after which each <code>isEnabled()</code> is a local, in-process lookup.</em>
-</p>
+The server distributes configuration; it never evaluates your application's flag checks. If the
+stream drops, the SDK keeps serving the last flags it received. See
+[Architecture](docs/guide/architecture.md) and [Reliability](docs/operations/reliability.md).
 
----
+## Quickstart
 
-## Quick start
-
-Run the all-in-one image (PostgreSQL, Redis, the server and the dashboard in one container). Save as `compose.yml`:
-
-```yaml
-services:
-  checkgate:
-    image: ghcr.io/checkgate-sh/checkgate:latest
-    ports:
-      - "3000:3000"
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkgate}
-      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
-      SETUP_TOKEN: ${SETUP_TOKEN:-}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
-    volumes:
-      - checkgate_pgdata:/var/lib/postgresql/data
-      - checkgate_redis:/var/lib/redis
-    restart: unless-stopped
-    stop_grace_period: 30s
-
-volumes:
-  checkgate_pgdata:
-  checkgate_redis:
-```
+You need Docker (running) and Node.js 22 or later. From a clone, one script starts a local,
+development-only Checkgate, completes setup, creates the flag `new-checkout` (on for the `pro` plan)
+and writes an SDK key to `quickstart/.env`:
 
 ```bash
-# The server refuses to start without SESSION_SECRET; SETUP_TOKEN unlocks the setup wizard.
-printf 'SESSION_SECRET=%s\nSETUP_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
-docker compose up -d
-grep SETUP_TOKEN .env   # enter this token at http://localhost:3000/setup
-npm install @checkgate/node
+git clone https://github.com/checkgate-sh/checkgate.git && cd checkgate
+./quickstart/start.sh --seed
+cd quickstart/node && npm install && node --env-file=../.env index.mjs
 ```
 
-The wizard creates the first admin and shows an SDK key for the **Development** environment.
+The example evaluates the flag in-process and prints `new-checkout: user-pro=true  user-free=false`.
+Sign in at <http://localhost:3000> with the printed credentials, switch `new-checkout` off, and the
+running example prints the new answer without a restart. `./quickstart/start.sh --down` removes
+everything.
+
+The script runs the latest published image and generates throwaway secrets; never reuse its
+settings outside your machine. Python, troubleshooting and what the script does:
+[Five-minute quickstart](docs/guide/quickstart.md). For a real deployment:
+[Getting started](docs/guide/getting-started.md) and [Self-hosting](docs/self-hosting.md).
+
+In your own code:
 
 ```typescript
 import { CheckgateClient } from '@checkgate/node'
 
-const client = new CheckgateClient({ serverUrl: 'http://localhost:3000', sdkKey: 'sk_live_your_key_here' })
+const client = new CheckgateClient({
+  serverUrl: 'http://localhost:3000',
+  sdkKey: process.env.CHECKGATE_SDK_KEY!,
+})
 await client.connect()
 
-// Evaluated in-process: no network call per decision.
-const enabled = client.isEnabled('new-checkout-flow', 'user-123', { plan: 'pro' })
+client.isEnabled('new-checkout', 'user-123', { plan: 'pro' }) // local: no network request
 ```
 
-The full walkthrough (first flag, SDK keys, production settings): [Getting Started](docs/guide/getting-started.md).
+## Why Checkgate
 
----
+- **Local evaluation.** Flags are evaluated in memory by the SDK, so a flag check adds no network
+  latency, and keeps answering from the last known flags while the server is unreachable.
+- **Real-time synchronization.** Changes reach connected SDKs over SSE, with heartbeats, silent-stream
+  detection, reconnects with backoff, a polling fallback and per-flag revision ordering.
+  [How sync works](docs/operations/reliability.md).
+- **Controlled rollouts and governance.** Targeting rules, reusable segments, prerequisites,
+  multivariate flags and sticky percentage rollouts; per-environment change requests with
+  self-approval blocked, scheduled changes, an audit log, scoped tokens and webhooks.
+- **Self-hosted.** One Rust server binary with PostgreSQL and Redis, or an all-in-one image.
+  Apache 2.0. Your flags and users stay on your infrastructure; browser and mobile SDKs download
+  their environment's rules, as any local-evaluation SDK does.
 
-## Features
+## SDKs and integrations
 
-- **In-process evaluation** — flags are evaluated in local memory: well under a microsecond in the Rust core, 0.8–4 µs through the Node.js SDK
-- **Real-time updates** — SSE push with heartbeats; changes typically land in tens of milliseconds. SDKs reconnect with backoff, detect silent streams, fall back to polling when a stream cannot be held, and keep serving the last known flags meanwhile
-- **Targeting** — rules on any user attribute (`email`, `plan`, `region`, …), reusable segments, prerequisite flags, and multivariate flags
-- **Percentage rollouts** — deterministic MurmurHash3 bucketing; sticky and independent per flag
-- **Environments and governance** — per-environment configuration, change-request approvals, scheduled changes, audit log, personal access tokens, webhooks and Slack/Teams alerts
-- **Consistent updates** — with a v0.1.31 server and SDK, polls and stream replays are applied in revision order per flag (not atomically across flags); see [configuration consistency](docs/operations/configuration-consistency.md)
-- **Observability** — Prometheus metrics, health and readiness endpoints
-- **Self-hosted** — single binary + PostgreSQL + Redis; no third-party service sees your flags or users
+| Runtime | Package | Status |
+|---|---|---|
+| Node.js | [`@checkgate/node`](docs/sdks/nodejs.md) (NAPI) | npm 0.2.0 |
+| Browser | [`@checkgate/web`](docs/sdks/web.md) (WebAssembly) | npm 0.2.0 |
+| React Native | [`@checkgate/react-native`](docs/sdks/react-native.md) (JSI) | npm 0.2.0 · Android build verified in CI; iOS not certified |
+| Flutter | [`checkgate_flutter`](docs/sdks/flutter.md) (FFI) | pub.dev 0.2.0 · bundles no engine: you build and link it |
+| Python | [`checkgate`](docs/sdks/python.md) (PyO3) | PyPI 0.2.0 · new in 0.2.0; CPython 3.11+ |
+| OpenFeature | [`@checkgate/openfeature-provider`](docs/sdks/openfeature.md) (Node.js server) | npm 0.2.0 · new in 0.2.0 |
+| Express · Fastify · NestJS | [`@checkgate/node-integrations`](docs/sdks/node-frameworks.md) | npm 0.2.0 · new in 0.2.0 |
+| SSR / edge | [`@checkgate/ssr`](docs/ecosystem/ssr.md), [`@checkgate/edge`](docs/ecosystem/edge.md) | npm 0.2.0 |
+| Typed flags | [`@checkgate/cli`](docs/ecosystem/cli.md) | npm 0.2.0 |
+| AI agents | [`@checkgate/mcp-server`](docs/ecosystem/mcp.md) | npm 0.2.0 · new in 0.2.0 · read-only by default; can propose, never apply or approve |
+| Infrastructure as code | [Terraform / OpenTofu provider](docs/ecosystem/terraform.md), [Kubernetes operator](docs/ecosystem/kubernetes.md) | build from source |
 
-**SDK status (v0.1.31):** Node.js and Web run unit, fault-injection and live end-to-end tests in CI. React Native's Android native build is verified in CI; its iOS build is not certified for this release. Flutter bundles no compiled engine yet: you build and link the Rust engine yourself ([how](docs/sdks/flutter.md#linking-the-native-engine)); verified on the iOS simulator.
+Every SDK runs the same evaluation engine and checks the same shared test vectors. Also new in
+0.2.0: the [evaluation playground](docs/guide/playground.md) (what an SDK would answer for a user,
+and why) and [SDK diagnostics](docs/operations/sdk-diagnostics.md). Which packages your stack needs:
+[Which SDK do I need?](docs/sdks/index.md)
 
----
-
-## Architecture & Performance
-
-*Local evaluation. Real-time updates. Lightweight infrastructure.*
+## Performance
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/performance-dark.svg">
-    <img src="assets/benchmarks/performance-light.svg" width="100%" alt="Checkgate v0.1.31 architecture and performance, measured on a 4-core laptop with the server limited to 1 vCPU and 512 MiB, each figure next to v0.1.30 measured in the same session: Node SDK isEnabled() 1.0 µs (v0.1.30: 7.2 µs); 591 req/s snapshot throughput at 1,000 concurrent clients (v0.1.30: 489); 1.51 ms server CPU per request (v0.1.30: 1.92 ms), peak RSS 59 MiB; update propagation p99 198 ms at 1,000 SDK clients pooled over 6 runs, median run 84 ms (v0.1.30: 75 ms), none of 1.2 million deliveries missed.">
+    <img src="assets/benchmarks/performance-light.svg" width="100%" alt="Checkgate v0.1.31 performance, measured on a 4-core laptop with the server limited to 1 vCPU and 512 MiB, each figure next to v0.1.30 measured in the same session: Node SDK isEnabled() median 1.0 µs (v0.1.30: 7.2 µs); 591 req/s snapshot throughput at 1,000 concurrent clients, median of runs (v0.1.30: 489); 1.51 ms server CPU time per request (v0.1.30: 1.92 ms), peak RSS 59 MiB; update propagation p99 198 ms at 1,000 SDK clients pooled over 6 runs, p50 39 ms, median run p99 84 ms (v0.1.30: 75 ms), none of 1.2 million deliveries missed.">
   </picture>
 </p>
 
-Measured on a v0.1.31 release candidate (commit `66cbfec`), and on v0.1.30 again in the same session with runs alternated, on a 4-core Intel laptop in desktop use. Later v0.1.31 changes were A/B-tested and did not change these paths. The server ran in Docker with a 1 vCPU / 512 MiB limit; 3 runs per measurement, 6 for propagation. The higher pooled p99 comes from two runs made while the host was still loaded; the reasons are in the methodology.
+Measured on a v0.1.31 release candidate (commit `66cbfec`) on a 4-core Intel laptop in desktop use,
+with the server in Docker limited to 1 vCPU / 512 MiB; v0.1.30 was measured in the same session
+with runs alternated. 3 runs per measurement, 6 for propagation. The pooled p99 of 198 ms includes
+two runs made while the host was still loaded; the methodology explains why. These figures describe
+that machine and workload, not a guarantee for yours. v0.2.0 was compared with v0.1.31 in a
+controlled A/B on a 6-CPU Linux workstation: no measured regression above 10 %; Rust-core rule
+matching and weighted variants are 2.7–4.6 % slower (2–10 ns per evaluation), everything else
+unchanged ([CHANGELOG](CHANGELOG.md#performance)).
 Methodology, every run and the raw data: [Public benchmarks](docs/performance/benchmarks.md).
 
----
-
-## Infrastructure Cost & Savings
-
-*Understand the infrastructure required to run your own feature flags.*
+## Infrastructure cost
 
 <p align="center">
   <picture>
@@ -129,79 +148,38 @@ Methodology, every run and the raw data: [Public benchmarks](docs/performance/be
   </picture>
 </p>
 
-What one server spends to keep 100 to 10,000 clients up to date over SSE, the same clients polling every 10, 30 or 60 s instead, and that infrastructure priced at dated AWS list prices. Measured, calculated and projected figures are kept apart, and PostgreSQL and Redis are included.
-Method, assumptions and sources: [Infrastructure cost and efficiency](docs/performance/cost-efficiency.md).
+Measured, calculated and projected figures are kept apart, and PostgreSQL and Redis are included.
+Prices are dated list prices, not a quote. Method, assumptions and sources:
+[Infrastructure cost and efficiency](docs/performance/cost-efficiency.md).
 
----
+## Dashboard
 
-## Screenshots
-
-*Indigo dashboard with the Checkgate gate logo, shown with example data for Vantage Robotics and administrator Juan Dela Cruz. [Explore the dashboard guide](docs/guide/dashboard.md).*
-
-**Dashboard overview** — flag counts, rollout status, and recent activity at a glance.
-
-![Dashboard overview](assets/screenshots/01-dashboard.png)
-
-**Feature flags** — tags, types, rollout percentage, and one-click enable/disable per environment.
-
-![Feature flags list](assets/screenshots/02-feature-flags.png)
-
-**Flag editor** — targeting rules, tags, ownership, and prerequisite (dependent) flags.
-
-![Flag editor](assets/screenshots/03-flag-editor.png)
-
-**Change requests** — require a second reviewer before a flag change takes effect in sensitive environments; self-approval is blocked.
-
-![Change requests](assets/screenshots/04-change-requests.png)
-
-**Cross-environment diff** — see what's different between environments before promoting, with a one-click sync.
-
-![Compare environments](assets/screenshots/05-environment-diff.png)
-
-**Personal access tokens** — scoped, revocable API credentials for CI/CD and Terraform, as an alternative to admin-equivalent SDK keys.
-
-![Personal access tokens](assets/screenshots/06-settings-tokens.png)
-
-**Environments** — isolate configuration across Production, Staging, UAT, and Development, with per-environment approval gates.
-
-![Environments](assets/screenshots/07-environments.png)
-
-**Collapsible sidebar** — reclaim screen space on data-dense pages; the whole dashboard is full-width by default.
-
-![Collapsed sidebar](assets/screenshots/08-sidebar-collapsed.png)
-
----
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/01-dashboard.png" alt="Checkgate dashboard overview: flag counts, rollout status and recent activity"></td>
+    <td width="50%"><img src="assets/screenshots/03-flag-editor.png" alt="Flag editor with targeting rules, tags, owner and a prerequisite flag"></td>
+  </tr>
+  <tr>
+    <td><b>Overview</b> — flag counts, rollout status and recent activity.</td>
+    <td><b>Flag editor</b> — targeting rules, rollout percentage, ownership and prerequisites.</td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/04-change-requests.png" alt="Pending change requests awaiting a second reviewer"></td>
+    <td valign="top"><b>Change requests</b> — a second reviewer approves changes in protected environments; self-approval is blocked.<br><br>Screenshots of the v0.1.31 dashboard with example data. More in the <a href="docs/guide/dashboard.md">dashboard guide</a>.</td>
+  </tr>
+</table>
 
 ## Documentation
 
-| Topic | Link |
-|-------|------|
-| Why Checkgate / comparisons | [What is Checkgate?](docs/guide/what-is-checkgate.md) |
-| System architecture | [Architecture](docs/guide/architecture.md) |
-| Flags, rules, rollout concepts | [Core Concepts](docs/guide/concepts.md) |
-| Dashboard tour | [Dashboard](docs/guide/dashboard.md) |
-| Step-by-step setup | [Getting Started](docs/guide/getting-started.md) |
-| REST API + SSE stream reference | [API Reference](docs/api-reference.md) |
-| Node.js SDK | [SDK: Node.js](docs/sdks/nodejs.md) |
-| Web (WASM) SDK | [SDK: Web](docs/sdks/web.md) |
-| React Native (JSI) SDK | [SDK: React Native](docs/sdks/react-native.md) |
-| Flutter (FFI) SDK | [SDK: Flutter](docs/sdks/flutter.md) |
-| Type-safe codegen CLI | [`@checkgate/cli`](cli/README.md) |
-| Edge evaluation (Workers, Fly.io) | [`@checkgate/edge`](edge/README.md) |
-| SSR / bootstrap (Next.js, Remix, …) | [`@checkgate/ssr`](ssr/README.md) |
-| Terraform / OpenTofu provider | [terraform-provider-checkgate](integrations/terraform-provider-checkgate/README.md) |
-| Kubernetes operator | [checkgate-operator](integrations/kubernetes-operator/README.md) |
-| Docker, AWS, env vars | [Self-Hosting](docs/self-hosting.md) |
-| Enterprise Setup & Migration | [Enterprise Setup & Migration](docs/enterprise-setup.md) |
-
----
+- **Start:** [What is Checkgate?](docs/guide/what-is-checkgate.md) · [Quickstart](docs/guide/quickstart.md) · [Getting started](docs/guide/getting-started.md) · [Core concepts](docs/guide/concepts.md)
+- **Build:** [SDKs](docs/sdks/index.md) · [Integrations](docs/ecosystem/ssr.md) · [REST API and SSE reference](docs/api-reference.md)
+- **Operate:** [Self-hosting](docs/self-hosting.md) · [Upgrading to 0.2.0](docs/operations/upgrading-to-0-2-0.md) · [Reliability](docs/operations/reliability.md) · [Observability](docs/operations/observability.md) · [Production security settings](docs/self-hosting.md#security)
+- **Project:** [Roadmap](docs/roadmap.md) · [Changelog](CHANGELOG.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0 — © 2025
-
-
+[Apache License 2.0](LICENSE).

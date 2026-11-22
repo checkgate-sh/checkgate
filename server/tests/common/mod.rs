@@ -81,6 +81,9 @@ pub struct Server {
     /// Working directory; a generated setup token file lands here.
     pub dir: PathBuf,
     child: Child,
+    port: u16,
+    /// Where `/metrics` listens, when `METRICS_ADDR` was set.
+    metrics: Option<std::net::SocketAddr>,
 }
 
 impl Drop for Server {
@@ -90,6 +93,13 @@ impl Drop for Server {
     }
 }
 
+/// A port that was free a moment ago. Only for addresses a test hands to
+/// something it does not start itself (an unreachable webhook target, say):
+/// nothing reserves the port after this returns, so a server must never be
+/// started on it — two parallel tests can get the same port, and a server
+/// that loses the bind used to be mistaken for the one that won it
+/// (`reliability::g2`, v0.2.0). Servers bind port 0 instead; see
+/// [`Server::spawn`].
 pub fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -98,19 +108,48 @@ pub fn free_port() -> u16 {
         .port()
 }
 
+/// A working directory no other test (or earlier run) uses.
+pub fn unique_dir(label: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "checkgate-test-{label}-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+/// How a spawned process's startup ended, read from its own log lines.
+enum Startup {
+    /// It is listening: the server port and, if configured, the metrics address.
+    Listening(u16, Option<std::net::SocketAddr>),
+    /// It could not bind (address in use); it exits on its own.
+    AddrInUse(String),
+    /// It exited (or never got as far as listening) for another reason.
+    Failed(String),
+}
+
+/// Bounded attempts at restarting on a fixed port that another process took
+/// in the meantime. Each attempt waits for the losing process to exit.
+const RESTART_BIND_ATTEMPTS: u32 = 5;
+
 impl Server {
-    /// Spawns the server binary and waits until `/health` answers.
+    /// Spawns the server binary on a port the operating system assigns and
+    /// waits until `/health` answers.
     /// `extra_env` overrides the defaults; a value of `None` removes a variable.
+    ///
+    /// The server binds port 0 itself and reports the address in its log, so
+    /// no other process can take the port between choosing and binding it.
     pub async fn spawn(db_url: &str, redis_url: &str, extra_env: &[(&str, Option<&str>)]) -> Self {
-        let port = free_port();
-        let dir = std::env::temp_dir().join(format!("checkgate-test-{port}"));
-        // A directory left by an earlier run on the same port is stale.
-        let _ = std::fs::remove_dir_all(&dir);
-        Self::spawn_in(&dir, port, db_url, redis_url, extra_env).await
+        Self::spawn_in(&unique_dir("server"), 0, db_url, redis_url, extra_env).await
     }
 
-    /// Like [`Server::spawn`], reusing `dir` (to restart an instance) and
-    /// appending its stdout — the JSON log — to `dir/server.log`.
+    /// Like [`Server::spawn`], in `dir` (to restart an instance) and on
+    /// `port` (`0`: the operating system picks one), appending its stdout —
+    /// the JSON log — to `dir/server.log`. A fixed port that is taken is
+    /// retried a few times, then the test fails with the process's log.
     pub async fn spawn_in(
         dir: &Path,
         port: u16,
@@ -118,16 +157,70 @@ impl Server {
         redis_url: &str,
         extra_env: &[(&str, Option<&str>)],
     ) -> Self {
-        let child = command(dir, port, db_url, redis_url, extra_env)
+        let mut last = String::new();
+        for attempt in 1..=RESTART_BIND_ATTEMPTS {
+            match Self::start(dir, port, db_url, redis_url, extra_env).await {
+                Ok(server) => {
+                    server.wait_healthy().await;
+                    return server;
+                }
+                Err(Startup::AddrInUse(log)) if port != 0 => {
+                    eprintln!(
+                        "port {port} is held by another process (attempt {attempt}/{RESTART_BIND_ATTEMPTS}); retrying"
+                    );
+                    last = log;
+                    tokio::time::sleep(Duration::from_millis(200 * u64::from(attempt))).await;
+                }
+                Err(Startup::AddrInUse(log) | Startup::Failed(log)) => {
+                    panic!("server in {} did not start:\n{log}", dir.display())
+                }
+                Err(Startup::Listening(..)) => unreachable!(),
+            }
+        }
+        panic!(
+            "server could not bind port {port} after {RESTART_BIND_ATTEMPTS} attempts \
+             (another process holds it):\n{last}"
+        );
+    }
+
+    /// Starts the process and waits until *it* is listening — not merely
+    /// until something answers on the port. Returns the process's log on
+    /// failure.
+    async fn start(
+        dir: &Path,
+        port: u16,
+        db_url: &str,
+        redis_url: &str,
+        extra_env: &[(&str, Option<&str>)],
+    ) -> Result<Self, Startup> {
+        let log_path = dir.join("server.log");
+        let offset = std::fs::metadata(&log_path).map_or(0, |m| m.len());
+        let mut child = command(dir, port, db_url, redis_url, extra_env)
             .spawn()
             .expect("spawn server binary");
-        let server = Server {
-            base: format!("http://127.0.0.1:{port}"),
-            dir: dir.to_path_buf(),
-            child,
-        };
-        server.wait_healthy().await;
-        server
+        let wants_metrics = extra_env
+            .iter()
+            .any(|(k, v)| *k == "METRICS_ADDR" && v.is_some_and(|v| !v.is_empty()));
+        match wait_listening(&mut child, &log_path, offset, wants_metrics).await {
+            Startup::Listening(bound, metrics) => {
+                assert!(
+                    port == 0 || bound == port,
+                    "server bound {bound}, asked for {port}"
+                );
+                Ok(Server {
+                    base: format!("http://127.0.0.1:{bound}"),
+                    dir: dir.to_path_buf(),
+                    child,
+                    port: bound,
+                    metrics,
+                })
+            }
+            other => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(other)
+            }
+        }
     }
 
     /// Restarts the process in place: same port, directory and environment.
@@ -137,14 +230,22 @@ impl Server {
         redis_url: &str,
         extra_env: &[(&str, Option<&str>)],
     ) -> Self {
-        let port: u16 = self.base.rsplit(':').next().unwrap().parse().unwrap();
+        let port = self.port;
         let dir = self.dir.clone();
         drop(self);
         Self::spawn_in(&dir, port, db_url, redis_url, extra_env).await
     }
 
     pub fn port(&self) -> u16 {
-        self.base.rsplit(':').next().unwrap().parse().unwrap()
+        self.port
+    }
+
+    /// The address `/metrics` listens on. Start the server with
+    /// `METRICS_ADDR=127.0.0.1:0` to have the operating system pick the port.
+    pub fn metrics_addr(&self) -> String {
+        self.metrics
+            .expect("server was started without METRICS_ADDR")
+            .to_string()
     }
 
     /// Sends SIGTERM (graceful shutdown) without waiting.
@@ -175,8 +276,7 @@ impl Server {
     }
 
     /// Like [`Server::spawn_in`], but returns `None` if the process exits
-    /// before it is healthy (e.g. its port was taken between `free_port` and
-    /// the bind), so the caller can retry elsewhere.
+    /// before it is listening, so the caller can decide what to do.
     pub async fn try_spawn_in(
         dir: &Path,
         port: u16,
@@ -184,27 +284,17 @@ impl Server {
         redis_url: &str,
         extra_env: &[(&str, Option<&str>)],
     ) -> Option<Self> {
-        let child = command(dir, port, db_url, redis_url, extra_env)
-            .spawn()
-            .expect("spawn server binary");
-        let mut server = Server {
-            base: format!("http://127.0.0.1:{port}"),
-            dir: dir.to_path_buf(),
-            child,
-        };
-        let client = reqwest::Client::new();
-        for _ in 0..240 {
-            if server.child.try_wait().unwrap().is_some() {
-                return None;
+        match Self::start(dir, port, db_url, redis_url, extra_env).await {
+            Ok(server) => {
+                server.wait_healthy().await;
+                Some(server)
             }
-            if let Ok(resp) = client.get(format!("{}/health", server.base)).send().await
-                && resp.status().is_success()
-            {
-                return Some(server);
+            Err(Startup::AddrInUse(log) | Startup::Failed(log)) => {
+                eprintln!("server in {} did not start:\n{log}", dir.display());
+                None
             }
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            Err(Startup::Listening(..)) => unreachable!(),
         }
-        panic!("server did not become healthy at {}", server.base);
     }
 
     pub async fn wait_healthy(&self) {
@@ -223,6 +313,69 @@ impl Server {
     pub fn url(&self, path: &str) -> String {
         format!("{}{}", self.base, path)
     }
+}
+
+/// Reads the log `child` appends to (from `offset`, i.e. this process's lines
+/// only) until it reports `Server listening` (and, with `wants_metrics`, the
+/// metrics listener, which binds after it), fails to bind, or exits.
+async fn wait_listening(
+    child: &mut Child,
+    log_path: &Path,
+    offset: u64,
+    wants_metrics: bool,
+) -> Startup {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut seen = String::new();
+    // Startup runs migrations; 60 s matches the old health-check budget.
+    for _ in 0..1_200 {
+        if let Ok(mut f) = std::fs::File::open(log_path)
+            && f.seek(SeekFrom::Start(offset)).is_ok()
+        {
+            seen.clear();
+            let _ = f.read_to_string(&mut seen);
+        }
+        let (mut port, mut metrics) = (None, None);
+        for line in seen.lines() {
+            let Ok(v) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            let fields = &v["fields"];
+            let addr = || -> std::net::SocketAddr {
+                fields["addr"]
+                    .as_str()
+                    .and_then(|a| a.parse().ok())
+                    .expect("listening line carries addr")
+            };
+            match fields["message"].as_str() {
+                Some("Metrics listening on /metrics") => metrics = Some(addr()),
+                Some("Server listening") => port = Some(addr().port()),
+                Some(m) if m.starts_with("Failed to bind") => {
+                    let in_use = fields["error"]
+                        .as_str()
+                        .is_some_and(|e| e.contains("in use"));
+                    // The process exits on its own; wait for it so the next
+                    // attempt does not race it.
+                    let _ = child.wait();
+                    return if in_use {
+                        Startup::AddrInUse(seen.clone())
+                    } else {
+                        Startup::Failed(seen.clone())
+                    };
+                }
+                _ => {}
+            }
+        }
+        if let Some(port) = port
+            && (metrics.is_some() || !wants_metrics)
+        {
+            return Startup::Listening(port, metrics);
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            return Startup::Failed(format!("exited with {status} before listening:\n{seen}"));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Startup::Failed(format!("not listening after 60 s:\n{seen}"))
 }
 
 fn command(
@@ -259,6 +412,9 @@ fn command(
         .stderr(Stdio::inherit());
     for (key, value) in extra_env {
         match value {
+            // The harness reads the `server` target's startup lines (see
+            // `wait_listening`), whatever level a test chooses.
+            Some(value) if *key == "RUST_LOG" => cmd.env(key, format!("{value},server=info")),
             Some(value) => cmd.env(key, value),
             None => cmd.env_remove(key),
         };
@@ -272,10 +428,8 @@ pub async fn expect_startup_failure(
     redis_url: &str,
     extra_env: &[(&str, Option<&str>)],
 ) -> String {
-    let port = free_port();
-    let dir = std::env::temp_dir().join(format!("checkgate-test-{port}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    let mut child = command(&dir, port, db_url, redis_url, extra_env)
+    let dir = unique_dir("startup-failure");
+    let mut child = command(&dir, 0, db_url, redis_url, extra_env)
         .spawn()
         .expect("spawn server binary");
     for _ in 0..240 {

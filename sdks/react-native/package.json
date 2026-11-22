@@ -1,6 +1,6 @@
 {
   "name": "@checkgate/react-native",
-  "version": "0.1.31",
+  "version": "0.2.0",
   "description": "Checkgate feature-flag SDK for React Native — local evaluation via Rust JSI.",
   "main": "index.js",
   "repository": {

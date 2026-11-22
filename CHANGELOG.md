@@ -5,6 +5,189 @@ All notable changes to Checkgate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-22
+
+Developer adoption: OpenFeature, Python, framework integrations, a local
+quickstart, an evaluation playground, SDK diagnostics and an MCP server for AI
+agents. Every new SDK surface evaluates with the same Rust engine; no feature
+adds a network request per evaluation.
+
+### Upgrading from 0.1.31
+
+- **Two database migrations**, both additive, applied on start:
+  `20261121000029_pat_propose_scope` widens the personal-access-token scope
+  check to allow `propose`; `20261122000030_change_request_create` adds
+  `change_requests.action` (`update` for every existing row) and a unique
+  index allowing one pending creation per key. **A 0.1.31 binary will not
+  start against a database that has them** (the migrator reports an applied
+  migration it does not know), so there is no rolling mixed-version upgrade:
+  replace all instances.
+- **Creating a flag in an environment that requires approval now needs
+  approval** unless the flag is inert (disabled, no `disabled_value`). An
+  enabled create there used to apply at once; it now answers `202 Accepted`
+  with a pending change request (`action: "create"`) — the same contract as a
+  queued PATCH — and the flag exists only after someone else approves it.
+  Scripts that POST enabled flags into such an environment and expect `200`
+  must handle `202` (the Go client, Terraform provider and Kubernetes operator
+  report it as `ErrApprovalRequired`). Environments without approval are
+  unchanged.
+- **Create no `propose` tokens while any 0.1.31 instance is still serving**:
+  0.1.31 does not know the scope and would let such a token create a
+  `read_write` token.
+- **Rollback:** stop 0.2.0, delete every `propose` token, cancel pending
+  flag creations, delete both migrations' rows from `_sqlx_migrations`, start
+  0.1.31. Take a database backup before upgrading. Details:
+  docs/operations/upgrading-to-0-2-0.md.
+- No configuration change is required. The SDK protocol (`/stream`,
+  `/flags/snapshot`) is unchanged, so 0.1.31 SDKs work with a 0.2.0 server and
+  0.2.0 SDKs with a 0.1.31 server; the new server endpoints are additive.
+- Building the Rust workspace now needs Python 3.11+ for the PyO3 crate
+  (`PYO3_PYTHON` selects the interpreter).
+- **Supported runtimes:** server with PostgreSQL 15 (bundled in the image)
+  or 16 (CI) and Redis, unchanged; Node.js SDK, OpenFeature provider and
+  framework integrations tested on Node.js 22, 24 and 26 (the integrations
+  require 22.12+); MCP server tested on Node.js 22; Python SDK on CPython 3.11+
+  (abi3 wheels for Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64).
+- No breaking change to SDK or REST APIs beyond the `202` on governed flag
+  creation above.
+
+### Added
+
+- **Core:** `explain()` — the same evaluation as `evaluate_variant`, plus the
+  reason (`DISABLED`, `PREREQUISITE_FAILED`, `TARGETING_MATCH`,
+  `ROLLOUT_EXCLUDED`, `SPLIT`, `DEFAULT`, `STATIC`), matched rule, rollout
+  bucket, weighted variant and prerequisite outcomes. Shared evaluation vectors
+  (`sdks/conformance/vectors/evaluation.json`) that every SDK checks.
+- **Node.js SDK:** `getDetails()`, `onStatusChange()`, and `getHealth()`
+  (diagnostics schema 1, shared with Python).
+- **`@checkgate/openfeature-provider`:** OpenFeature server-SDK provider over
+  `@checkgate/node`, with reason/variant mapping and READY/STALE/ERROR/FATAL
+  lifecycle.
+- **Python SDK (`checkgate`):** PyO3 bindings to the engine; SSE, poll
+  fallback, revision ordering, offline cache, `get_details()`, `get_health()`;
+  FastAPI, Flask and Django examples. Runs the shared fault-injection suite.
+- **`@checkgate/node-integrations`:** Express middleware, Fastify plugin and
+  NestJS module over one shared client, with request-scoped context and a
+  startup timeout policy.
+- **Evaluation playground:** `POST /api/environments/{env}/flags/{key}/evaluate`
+  and a dashboard page — what an SDK would answer for a user, and why. Read-only.
+- **SDK diagnostics on the server:** `last_delivered_revision` per stream,
+  `GET /api/health/environments` (convergence per environment), metrics
+  `checkgate_snapshot_requests_total` and `checkgate_playground_evaluations_total`.
+- **`propose` personal access tokens:** read access plus proposing flag
+  changes (always a change request) and withdrawing their own requests; they
+  can never create a flag, apply, approve or reject. For automation and AI agents.
+- **`@checkgate/mcp-server`:** stdio MCP server for AI agents — read-only by
+  default; with `CHECKGATE_MCP_WRITE=1`, change proposals through the normal
+  approval workflow (no tool creates, approves or applies anything).
+- **Quickstart:** `quickstart/start.sh --seed` (local, development only) with
+  Node.js and Python examples; first-run snippets in the setup wizard and an
+  empty-environment checklist on the dashboard.
+
+### Improved
+
+- **Onboarding:** a five-minute local quickstart, first-run snippets in the
+  setup wizard, and SDK pages organised by stack.
+- **SDK integration:** one engine and one set of evaluation vectors behind
+  every SDK, now including OpenFeature, Python and the framework integrations;
+  `getDetails()` / `get_details()` explain each answer.
+- **Diagnostics:** per-stream delivered revision, environment convergence and
+  SDK health reports, shared between the Node.js and Python SDKs.
+- **Package validation:** npm tarballs and Python wheels are checked
+  (contents, metadata, entry points, types, clean installs) in CI and before
+  every publish.
+- **Release and benchmark infrastructure:** a dedicated-host A/B benchmark
+  harness with confidence intervals and explicit invalid-run rules
+  (`scripts/release-benchmarks/`), and a version-consistency check over every
+  package (`scripts/check-versions.mjs`, run in CI and by the release).
+
+### Security
+
+- **Approval-required environments: flag creation is governed** (inherited
+  from 0.1.x, found in the 0.2.0 security review). A project editor could
+  create an *enabled* flag directly in an environment that requires approval,
+  and SDKs were served it with no review. Such a creation is now a pending
+  change request that a different editor or admin must approve; rejection
+  leaves no flag. Inert creations still apply at once. Regression tests:
+  `server/tests/governance.rs`.
+- **Python SDK:** an event-stream line that arrives in many small writes no
+  longer costs quadratic CPU (a 15 MiB line in 4 KiB pieces took ~12 s of
+  GIL-holding time; now milliseconds). The 16 MiB line/event bound is
+  unchanged.
+- **Quickstart** publishes its port on `127.0.0.1` only (it is plain HTTP with
+  `COOKIE_SECURE=false`); `CHECKGATE_BIND=0.0.0.0` restores network access.
+- **`@checkgate/mcp-server`** warns at start when `CHECKGATE_URL` is plain
+  `http://` to a host other than this machine (the token travels in clear),
+  and its 403 explanation no longer says a `propose` token can create
+  disabled flags (it cannot, since F-01).
+
+### Fixed
+
+- Release tooling: `scripts/bump-version.sh` failed on Linux (GNU sed) at its
+  first edit, and left npm lockfiles at the old version.
+- Benchmarks: the Criterion suite panicked on 1-, 2- and 4-CPU hosts
+  (duplicate benchmark ID), so the public benchmark workflow on GitHub's
+  4-vCPU runners produced no Rust core results while reporting success. CI
+  now runs every benchmark once, and the workflow fails when a run fails.
+- Server tests: a port race in the test harness (`reliability::g2`).
+- Python SDK: quadratic buffering of event-stream lines (see Security).
+- Release tooling: `scripts/bump-version.sh` left the workspace crates'
+  `checkgate-core` requirements at `0.1.0`, which no longer resolve at 0.2.0;
+  it now discovers packages instead of using a fixed list.
+
+### Changed
+
+- Documentation: new README and docs-site homepage, journey-based navigation,
+  release-status labels generated from one data file (packages not yet on
+  npm or PyPI say so), restyled benchmark graphics (same measurements; each
+  figure names its statistic), social preview image, sitemap and canonical
+  URLs.
+- Node.js SDK: on a stream's `ready` the client now marks itself ready before
+  switching to `streaming`, so status listeners see `isReady()` on a first
+  connection.
+- CI tests the Node.js SDK's native build, the OpenFeature provider and the
+  framework integrations on Node.js 22, 24 and 26 (Node.js 20 reached end of
+  life on 2026-04-30); the MCP server on 22.
+- Release workflow: the tag must match every manifest's version; the Python
+  wheels are checked together and published to PyPI with trusted publishing
+  (no stored token, with attestations), and every publish job waits for them.
+  `@checkgate/openfeature-provider`, `@checkgate/node-integrations`,
+  `@checkgate/mcp-server` and the Python package `checkgate` are first
+  published with 0.2.0.
+
+### Performance
+
+Measured with the dedicated-host A/B harness on a 6-CPU Linux workstation
+(v0.1.31 against the 0.2.0 candidate, repeated runs, ratio of medians with a
+95 % bootstrap interval; harness and method in `scripts/release-benchmarks/`):
+
+- No measured regression exceeds the 10 % release threshold.
+- Rust core: rule matching is 2.7 % (1 rule) to 4.6 % (10 rules) slower and
+  weighted multivariate evaluation 3.0 % slower, about 2–10 ns per
+  evaluation; boolean, rollout, prerequisite and lookup cases are unchanged.
+  Tracked in #72 and #73.
+- Node.js SDK evaluation, snapshot throughput and CPU per request, SSE
+  propagation (p50/p95/p99 up to 1,000 clients) and memory are unchanged
+  within measurement noise.
+
+These are measurements on one host class under the documented workloads,
+not a comparison with other products.
+
+### Known limitations
+
+- Python SDK: the event queue between the stream and the client is not
+  bounded by count (#74); snapshot persistence re-encodes the whole cache per
+  batch (#77). No source distribution, so platforms without a wheel (for
+  example musl/Alpine) cannot install it yet.
+- Evaluation playground: no dedicated concurrency limit (#75).
+- `/health/ready` runs a database probe per call (#76).
+- Kubernetes operator: retries of an approval-gated update can create
+  duplicate pending change requests (#78).
+- Inert flags (disabled, no `disabled_value`) are still created directly in
+  approval-required environments, by design; any other creation needs
+  approval.
+- React Native: iOS is not certified. Flutter: no bundled compiled engine.
+
 ## [0.1.31] - 2026-11-21
 
 ### Upgrading from 0.1.30

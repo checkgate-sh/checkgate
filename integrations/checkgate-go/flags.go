@@ -50,10 +50,13 @@ type Flag struct {
 	OwnerEmail        *string           `json:"owner_email,omitempty"`
 }
 
-// ErrApprovalRequired is returned by UpdateFlag when the environment has
-// require_approval set: the PATCH was captured as a pending change request
-// (HTTP 202) instead of applying, so an infrastructure-as-code apply cannot
-// complete synchronously.
+// ErrApprovalRequired is returned when the environment has require_approval
+// set and the server captured the request as a pending change request (HTTP
+// 202) instead of applying it: by UpdateFlag and ReplaceFlag, and by
+// CreateFlag for any flag that is not disabled-with-the-default-off-value
+// (server 0.2.0 and later). An infrastructure-as-code apply cannot complete
+// synchronously behind that review gate; once someone else approves the
+// request, the flag exists and can be imported or updated.
 var ErrApprovalRequired = errors.New("checkgate: change requires approval (environment has require_approval enabled); apply cannot complete synchronously")
 
 func flagsPath(envID string) string {
@@ -74,10 +77,17 @@ func (c *Client) GetFlag(ctx context.Context, envID, key string) (*Flag, error) 
 }
 
 // CreateFlag creates a flag in the environment and returns the stored result.
+// Returns ErrApprovalRequired if the server queued the creation for approval
+// (HTTP 202): nothing was created yet. A second creation of the same key
+// while one is pending is an *APIError with status 409.
 func (c *Client) CreateFlag(ctx context.Context, envID string, flag *Flag) (*Flag, error) {
 	var out Flag
-	if _, err := c.do(ctx, http.MethodPost, flagsPath(envID), flag, &out); err != nil {
+	status, err := c.do(ctx, http.MethodPost, flagsPath(envID), flag, &out)
+	if err != nil {
 		return nil, err
+	}
+	if status == http.StatusAccepted {
+		return nil, ErrApprovalRequired
 	}
 	return &out, nil
 }

@@ -31,6 +31,12 @@ spec:
   change in the dashboard is pulled back to the declared spec.
 - **Status**: a `Ready` condition and `synced` field report the last outcome;
   failures set `Ready=False` with the reason and back off for retry.
+- **Environments that require approval**: a create or update there becomes a
+  pending change request (server 0.2.0 and later also for creating a flag unless
+  it is disabled with the default off value). The resource reports `Ready=False`
+  with the approval error until a person approves it in Checkgate; retried
+  creates of a key whose creation is pending get `409` and add no duplicate
+  request.
 
 ## Spec reference
 

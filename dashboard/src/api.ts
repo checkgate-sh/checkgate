@@ -1,6 +1,7 @@
 import type {
   AuditEntry,
   ConnectedClient,
+  EnvironmentHealth,
   EventKeyInfo,
   Experiment,
   ExperimentResults,
@@ -14,6 +15,7 @@ import type {
   IntegrationDelivery,
   IntegrationKind,
   IntegrationTestResult,
+  PlaygroundEvaluation,
   ScheduledChange,
   Segment,
   SegmentPatch,
@@ -98,11 +100,38 @@ export const api = {
     return request(`/api/environments/${envId}/flags/${encodeURIComponent(key)}`)
   },
 
-  createFlag(envId: string, flag: Flag): Promise<Flag> {
-    return request(`/api/environments/${envId}/flags`, {
+  /**
+   * Evaluates a flag for a hypothetical user on the server, with the SDK
+   * engine and the configuration revision SDKs are served. Changes nothing
+   * and stores nothing.
+   */
+  evaluateFlag(
+    envId: string,
+    key: string,
+    targetingKey: string,
+    attributes: Record<string, string | number | boolean>,
+  ): Promise<PlaygroundEvaluation> {
+    return request(`/api/environments/${envId}/flags/${encodeURIComponent(key)}/evaluate`, {
       method: 'POST',
-      body: JSON.stringify(flag),
+      body: JSON.stringify({ targeting_key: targetingKey, attributes }),
     })
+  },
+
+  // Returns { applied: true, flag } when the flag was created, or
+  // { applied: false, changeRequest } when the environment requires approval
+  // and the creation was queued instead (202 Accepted) — anything but a
+  // disabled flag serving the built-in `false` is, there.
+  async createFlag(
+    envId: string,
+    flag: Flag,
+  ): Promise<{ applied: true; flag: Flag } | { applied: false; changeRequest: ChangeRequest }> {
+    const { status, body } = await requestRaw<Flag | ChangeRequest>(
+      `/api/environments/${envId}/flags`,
+      { method: 'POST', body: JSON.stringify(flag) },
+    )
+    return status === 202
+      ? { applied: false, changeRequest: body as ChangeRequest }
+      : { applied: true, flag: body as Flag }
   },
 
   // Returns { applied: true, flag } when the patch took effect immediately,
@@ -352,6 +381,9 @@ export const healthApi = {
   connections(): Promise<ConnectedClient[]> {
     return request('/api/health/connections')
   },
+  environments(): Promise<EnvironmentHealth[]> {
+    return request('/api/health/environments')
+  },
 }
 
 export const userApi = {
@@ -407,7 +439,12 @@ export const keysApi = {
   },
 }
 
-export type TokenScope = 'read_only' | 'read_write'
+/**
+ * `propose` (for AI agents and other automation): reads, plus proposing flag
+ * changes that someone else must approve — it can never apply, approve or
+ * reject a change itself.
+ */
+export type TokenScope = 'read_only' | 'propose' | 'read_write'
 
 export interface TokenInfo {
   id: number
@@ -452,6 +489,8 @@ export interface ChangeRequest {
   id: number
   environment_id: string
   flag_key: string
+  /** `update`: `patch` is merged onto the flag. `create`: `patch` is the new flag. */
+  action: 'update' | 'create'
   patch: Record<string, unknown>
   requested_by: string
   status: ChangeRequestStatus

@@ -129,6 +129,7 @@ terraform import checkgate_segment.internal   <environment_id>/internal-employee
 ## Notes
 
 - If an environment has **require_approval** enabled, an update is captured as a pending change request (HTTP 202) rather than applied — the provider surfaces this as an error, because an apply can't complete synchronously behind a review gate. Use a non-gated environment (or approve out of band) for IaC-managed flags.
+- Since server 0.2.0 the same holds for **creating** a flag there unless it is disabled with no `disabled_value`: the create fails with the approval error and nothing is written to state. Once someone else approves the change request, `terraform import` the flag (re-applying the create would return `409`).
 - The provider is built on the shared `checkgate-go` API client.
 
 ## See also

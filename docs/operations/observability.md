@@ -72,6 +72,8 @@ to forward metrics to any OTel backend.
 | `checkgate_sse_active_connections` | gauge | Open streams on this instance. |
 | `checkgate_sse_bootstrap_duration_seconds` | histogram | Bootstrap read time, including waiting for a slot. |
 | `checkgate_snapshot_query_duration_seconds` | histogram | `/flags/snapshot` read time, including waiting for a slot. |
+| `checkgate_snapshot_requests_total` | counter | `/flags/snapshot` requests (SDK poll fallback), by `outcome` (`ok`, `busy`, `error`) and `format` (`v2`, `legacy`). |
+| `checkgate_playground_evaluations_total` | counter | [Evaluation playground](../guide/playground) requests, by `outcome` (`ok`, `not_found`, `invalid`, `error`). |
 | `checkgate_db_pool_connections` / `_idle_connections` / `_max_connections` | gauge | PostgreSQL pool. |
 | `checkgate_database_up` | gauge | `1` if the last database check (readiness or reconciliation) succeeded. |
 | `checkgate_ready` | gauge | `1` while ready (not draining). |
@@ -105,6 +107,7 @@ label: every label is from a fixed set (route templates, reasons, outcomes).
 | Growing SSE load | `sse_active_connections` rising toward `SSE_MAX_CONNECTIONS`; then `sse_rejections_total{reason="capacity"}`. |
 | Reconnect wave / slow database | `sse_bootstrap_duration_seconds` p95 rising; `sse_rejections_total{reason="bootstrap_busy"}`; `db_pool_idle_connections` at 0. |
 | Lagging clients | `sse_disconnects_total{reason="lagged"}` and `sse_lagged_messages_total` rising. |
+| SDKs falling back to polling | `snapshot_requests_total{outcome="ok"}` rising while `sse_active_connections` drops: something between SDKs and the server (a proxy, a firewall) keeps streams from being established. SDKs poll only after 3 consecutive failed stream attempts (`pollFallbackThreshold`); a stream that connects and later drops is reconnected instead. The Node.js and Python SDKs' `getHealth().polling` confirms it. |
 | Lost notifications repaired | `sync_divergences_total` and `resync_requests_total{trigger="reconciliation"}` increment, with a `WARN` log naming the environment. |
 | Analytics quota reached | `ingest_quota_rejections_total` rising and `analytics_rows_total{outcome="quota"}` growing; SDKs drop those batches (flags unaffected). Raise `RATE_LIMIT_INGEST_ROWS_PER_MINUTE` if the traffic is legitimate. |
 | Quota backend down | `ingest_quota_local_decisions_total` rising (with `redis_connected=0`): each instance enforces the quota alone until Redis answers. |

@@ -552,6 +552,10 @@ Content-Type: application/json
 
 Creates a flag. If the key already exists in this environment, replaces it entirely unless the environment requires approval. In that case replacement returns `409 Conflict`; use PATCH to submit a change request.
 
+In an environment that [requires approval](#set-approval-requirement) (since 0.2.0), only an **inert** flag is created at once: `is_enabled: false` with no `disabled_value` (or `disabled_value: false`), which serves the built-in `false` and nothing else. Any other creation — an enabled flag, or a disabled one with its own off value — returns `202 Accepted` with a pending [change request](#change-requests) whose `action` is `create`: nothing is stored or served to SDKs until someone other than the requester approves it. While one creation of a key is pending, another returns `409 Conflict`.
+
+A [`propose`-scoped token](#token-scopes) (since 0.2.0) gets `403 Forbidden`: a new flag is served to SDKs at once, and even a disabled one makes code that already reads the key get `false` instead of its own default, so creating flags is left to people.
+
 **Request Body**
 
 ```json
@@ -565,6 +569,12 @@ Creates a flag. If the key already exists in this environment, replaces it entir
 ```
 
 **Response** `200 OK` — returns the created flag.
+
+**Response** `202 Accepted` — the environment requires approval and the flag is not inert; returns the pending `create` change request, not a flag.
+
+**Response** `403 Forbidden` — the caller uses a `propose` or `read_only` token, or lacks write access to the project.
+
+**Response** `409 Conflict` — the environment requires approval and the key exists or already has a pending creation.
 
 **Response** `422 Unprocessable Entity` — invalid flag key or `rollout_percentage` out of range.
 
@@ -589,7 +599,7 @@ Applies a JSON merge patch. Only the provided fields are updated; omitted fields
 
 **Response** `200 OK` — returns the updated flag (applied immediately).
 
-**Response** `202 Accepted` — the environment has `require_approval` set; the patch was validated and queued as a pending [change request](#change-requests) instead of applied. Returns the created change request, not the flag (which is unchanged).
+**Response** `202 Accepted` — the environment has `require_approval` set, **or the caller uses a [`propose` token](#token-scopes)** (always, in any environment); the patch was validated and queued as a pending [change request](#change-requests) instead of applied. Returns the created change request, not the flag (which is unchanged).
 
 **Response** `404 Not Found` — flag does not exist.
 
@@ -650,6 +660,55 @@ the audit log (`ARCHIVE` / `UNARCHIVE`).
 while the flag is archived.
 
 **Response** `404 Not Found` — flag does not exist in this environment.
+
+---
+
+### Evaluate a Flag (Playground)
+
+```http
+POST /api/environments/{env_id}/flags/{key}/evaluate
+```
+
+Evaluates a flag for a hypothetical user and explains the result, with the SDK engine and the
+configuration SDKs are served (segments expanded). It changes nothing: no audit entry, no
+impression, and the request body is neither logged nor stored. Any project member may call it,
+`read_only` tokens included; SDK keys may not.
+
+```json
+{ "targeting_key": "user-123", "attributes": { "plan": "pro", "seats": 12, "beta": true } }
+```
+
+Attribute values must be strings, numbers or booleans (numbers and booleans are evaluated as
+their string form, as SDKs receive them). Limits: targeting key 512 bytes, 100 attributes,
+names 128 bytes, values 1024 bytes.
+
+**Response** `200 OK`
+
+```json
+{
+  "environment_id": "…", "flag_key": "new-checkout", "flag_type": "boolean",
+  "revision": 1042,
+  "enabled": true, "value": true, "reason": "TARGETING_MATCH",
+  "matched_rule": {
+    "rule": { "attribute": "plan", "operator": "equals", "values": ["pro"] },
+    "source_index": 1, "segment_key": "paying", "segment_rule_index": 0
+  },
+  "prerequisites": [],
+  "referenced_attributes": ["country", "plan"],
+  "missing_attributes": ["country"]
+}
+```
+
+`reason` is one of `DISABLED`, `PREREQUISITE_FAILED`, `TARGETING_MATCH`, `ROLLOUT_EXCLUDED`,
+`SPLIT`, `DEFAULT`, `STATIC`. `matched_rule.source_index` is the rule's index as stored (and shown
+in the dashboard); `segment_key`/`segment_rule_index` say which segment rule matched.
+`rollout` (`{ percentage, bucket }`) and `variant` (`{ index, weight, total_weight, value }`)
+appear when hashing was involved. `prerequisites` lists the flag's own prerequisites as checked
+(`outcome`: `satisfied`, `unsatisfied`, `not_found`, `limit_exceeded`), with each one's
+`result` and `revision`.
+
+**Response** `422 Unprocessable Entity` — invalid body; `{ "error": "…" }` says why.
+**Response** `404 Not Found` — no such flag in this environment.
 
 ---
 
@@ -763,9 +822,12 @@ Editor role or above. Flags referencing this segment are re-broadcast without th
 
 ## Change Requests
 
-Only relevant for environments with [`require_approval`](#set-approval-requirement) enabled. A change
-request captures a flag `PATCH` that hasn't been applied yet — see
-[Partially Update a Flag](#partially-update-a-flag) for how one gets created. Someone other than the
+Created by a flag `PATCH` in environments with [`require_approval`](#set-approval-requirement)
+enabled, by every `PATCH` made with a [`propose` token](#token-scopes), and (since 0.2.0) by
+creating a flag that is not inert in such an environment. A change request captures a flag
+`PATCH` (`action: "update"`) or a new flag (`action: "create"`, `patch` is the whole creation
+body) that hasn't been applied yet — see [Partially Update a Flag](#partially-update-a-flag) and
+[Create or Replace a Flag](#create-or-replace-a-flag) for how one gets created. Someone other than the
 requester must approve it (self-approval is rejected); admins may cancel anyone's pending request,
 mirroring how workspace admins bypass project membership elsewhere.
 
@@ -785,6 +847,7 @@ GET /api/environments/{env_id}/change-requests?status=pending
     "id": 1,
     "environment_id": "550e8400-e29b-41d4-a716-446655440000",
     "flag_key": "dark_mode",
+    "action": "update",
     "patch": { "is_enabled": true },
     "requested_by": "alice@acme.com",
     "status": "pending",
@@ -804,13 +867,13 @@ GET /api/environments/{env_id}/change-requests?status=pending
 POST /api/environments/{env_id}/change-requests/{id}/approve
 ```
 
-Applies the stored patch to the flag's *current* state (not a stale snapshot from when the request was filed) and marks the request approved.
+Applies the stored patch to the flag's *current* state (not a stale snapshot from when the request was filed) and marks the request approved. For a `create` request, inserts the new flag; the audit log records the reviewer as actor, with `change_request_id` and `requested_by` in its metadata.
 
-**Response** `200 OK` — returns the updated flag.
+**Response** `200 OK` — returns the updated (or created) flag.
 
-**Response** `403 Forbidden` — the caller is the original requester.
+**Response** `403 Forbidden` — the caller is the original requester, or uses a `propose` or `read_only` token (neither can ever approve or reject).
 
-**Response** `409 Conflict` — the request is no longer pending (already approved/rejected/cancelled).
+**Response** `409 Conflict` — the request is no longer pending (already approved/rejected/cancelled), or it is a `create` request and the key exists by now (the request stays pending; reject or cancel it).
 
 ---
 
@@ -837,7 +900,7 @@ Content-Type: application/json
 DELETE /api/environments/{env_id}/change-requests/{id}
 ```
 
-Only the original requester or a workspace admin may cancel, and only while still `pending`.
+Only the original requester or a workspace admin may cancel, and only while still `pending`. A `propose` token may cancel only its owner's own requests — the admin override does not apply to it.
 
 **Response** `204 No Content`
 
@@ -1401,6 +1464,21 @@ under `/api/tokens` and always operate on the caller's own tokens. There is
 no admin override; revoking a departing or compromised user's automation
 access is done by deleting the user, which cascades to their tokens.
 
+### Token scopes
+
+A token acts as its owning user — same workspace role, same project memberships — capped by its scope:
+
+| Scope | Reads | Writes |
+|---|---|---|
+| `read_only` | everything the owner can read | none |
+| `propose` | everything the owner can read | only: `PATCH` a flag → always a pending change request (`202`), in every environment; `DELETE` the owner's own pending change request; `POST /api/tokens` for a `propose` or `read_only` token (never `read_write`). Everything else (creating a flag, approve, reject, delete, promote, archive, segments, environments, keys, users, webhooks, revoking tokens, analytics ingest) is `403`. |
+| `read_write` | everything the owner can read | everything the owner can do |
+
+`propose` is meant for AI agents and other automation that should suggest changes but never apply,
+approve or reject one — the server enforces it on every request, whatever client sends it. Project
+roles still apply (a viewer's `propose` token cannot propose), and a change request can only be
+approved by someone other than its requester. See [AI agents (MCP)](/ecosystem/mcp).
+
 ### List Tokens
 
 ```http
@@ -1442,7 +1520,7 @@ Content-Type: application/json
 }
 ```
 
-- `scope` is `"read_only"` or `"read_write"`. A token authenticated request that is itself `read_only` cannot create a `read_write` token — this would let a leaked read-only credential mint itself a more privileged replacement.
+- `scope` is `"read_only"`, `"propose"` (since 0.2.0) or `"read_write"` — see [Token scopes](#token-scopes). A request authenticated by a token may only create tokens **at most as capable** as itself (`read_only` < `propose` < `read_write`): a leaked read-only or propose credential cannot mint itself a more privileged replacement.
 - `expires_in_days` is optional (1–365); omit for a token that never expires.
 
 **Response** `200 OK` — returns the token including the full value (shown once only).
@@ -1459,7 +1537,9 @@ Content-Type: application/json
 }
 ```
 
-**Response** `403 Forbidden` — a read-only-scoped caller tried to create a read-write token.
+**Response** `403 Forbidden` — a token-authenticated caller tried to create a token more capable than itself (or one that outlives it).
+
+**Response** `422 Unprocessable Entity` — unknown `scope`, empty or over-long `name`, or `expires_in_days` outside 1–365.
 
 ---
 
@@ -2232,7 +2312,34 @@ Visibility follows project membership:
     "environment_id": "a1b2c3d4-…",
     "sdk_key_name": "Production",
     "client_ip": "203.0.113.0/24",
-    "connected_at": 1767225600
+    "connected_at": 1767225600,
+    "last_delivered_revision": 1042
   }
 ]
 ```
+
+`last_delivered_revision` is the highest flag revision this instance has written to the
+stream (`null` until the bootstrap replay was sent). It shows delivery as the server sees it,
+not what the SDK applied; an SDK reports that itself with `getHealth()`.
+
+```http
+GET /api/health/environments
+```
+
+Per environment with open streams on this instance (same visibility rules, counts only):
+
+```json
+[
+  {
+    "environment_id": "a1b2c3d4-…",
+    "connections": 12,
+    "latest_revision": 1042,
+    "connections_behind": 0,
+    "oldest_connected_at": 1767225600
+  }
+]
+```
+
+`latest_revision` is the environment's highest committed flag revision (deletions included).
+`connections_behind` counts streams not yet sent it: briefly non-zero while a change is in
+flight; persistently non-zero means notifications are being lost (see `sync_divergences_total`).

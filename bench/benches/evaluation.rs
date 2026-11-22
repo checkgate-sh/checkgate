@@ -20,7 +20,7 @@
 //! evaluation, retained bytes per stored flag) is printed as JSON lines,
 //! measured with a counting global allocator.
 
-use checkgate_core::evaluator::{Flag, UserContext, evaluate, evaluate_variant};
+use checkgate_core::evaluator::{Flag, UserContext, evaluate, evaluate_variant, explain};
 use checkgate_core::store::FlagStore;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
 use serde_json::json;
@@ -284,6 +284,15 @@ fn rules(c: &mut Criterion) {
     g.bench_function("weighted_multivariate", |b| {
         b.iter(|| evaluate_variant(&store.get_flag(black_box("mv")).unwrap(), &ctx, &store))
     });
+    // The detailed path (OpenFeature details, the playground): same
+    // evaluator with a recorder, so its cost over the plain call is the
+    // price of the explanation alone.
+    g.bench_function("explain_targeting_10_rules", |b| {
+        b.iter(|| explain(&store.get_flag(black_box("t10")).unwrap(), &ctx, &store))
+    });
+    g.bench_function("explain_percentage_rollout", |b| {
+        b.iter(|| explain(&store.get_flag(black_box("rollout")).unwrap(), &ctx, &store))
+    });
     // Depth counts flags in the chain: 2 = a flag with one prerequisite.
     for depth in [2usize, 3, 5] {
         let s = store_with(1_000);
@@ -303,7 +312,15 @@ fn concurrency(c: &mut Criterion) {
     let threads_available = std::thread::available_parallelism().map_or(4, |n| n.get());
     let mut g = c.benchmark_group("concurrent_evaluation_1000_flags");
     g.throughput(Throughput::Elements(1));
-    for threads in [1usize, 2, 4, threads_available] {
+    // Each count once: on a host with 1, 2 or 4 CPUs (GitHub's runners have
+    // 4) `threads_available` repeats one of the fixed counts, and Criterion
+    // panics on a duplicate benchmark ID, which ended the whole run before
+    // `readers_with_writer` and `sdk_apply_upsert_event`. Hosts with other
+    // CPU counts keep the same IDs as before.
+    let mut reader_counts = vec![1usize, 2, 4, threads_available];
+    reader_counts.sort_unstable();
+    reader_counts.dedup();
+    for threads in reader_counts {
         let store = Arc::new(store_with(1_000));
         g.bench_with_input(
             BenchmarkId::new("readers", threads),

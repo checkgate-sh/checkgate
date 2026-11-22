@@ -202,11 +202,28 @@ fn disabled_result(flag: &Flag) -> EvalResult {
 /// weights. Salted independently from the rollout-percentage hash (`:variant` suffix)
 /// so variant assignment doesn't correlate with which users pass the rollout gate.
 /// Zero total weight (all-zero or empty) falls back to the first variant.
+#[cfg(test)]
 fn pick_weighted_variant(
     flag_key: &str,
     user_key: &str,
     variants: &[WeightedVariant],
 ) -> FlagValue {
+    weighted_variant_index(flag_key, user_key, variants)
+        .and_then(|i| variants.get(i))
+        .map(|v| v.value.clone())
+        .unwrap_or(FlagValue::Null)
+}
+
+/// The index of the variant [`pick_weighted_variant`] returns, or `None` when
+/// `variants` is empty.
+fn weighted_variant_index(
+    flag_key: &str,
+    user_key: &str,
+    variants: &[WeightedVariant],
+) -> Option<usize> {
+    if variants.is_empty() {
+        return None;
+    }
     let total: u64 = variants
         .iter()
         .map(|v| u64::from(v.weight))
@@ -216,10 +233,7 @@ fn pick_weighted_variant(
     // type-level guarantee: `u64 % NonZeroU64` cannot divide by zero, so the
     // remainder below has no panic path at all.
     let Some(total_weight) = NonZeroU64::new(total) else {
-        return variants
-            .first()
-            .map(|v| v.value.clone())
-            .unwrap_or(FlagValue::Null);
+        return Some(0);
     };
 
     // Hashes the bytes of `"{flag_key}:{user_key}:variant"` without building
@@ -237,17 +251,21 @@ fn pick_weighted_variant(
     };
 
     let mut cumulative = 0u64;
-    for variant in variants {
+    for (index, variant) in variants.iter().enumerate() {
         cumulative = cumulative.saturating_add(u64::from(variant.weight));
         if bucket < cumulative {
-            return variant.value.clone();
+            return Some(index);
         }
     }
     // Unreachable given bucket < total_weight == final cumulative, but guard anyway.
-    variants
-        .last()
-        .map(|v| v.value.clone())
-        .unwrap_or(FlagValue::Null)
+    Some(variants.len().saturating_sub(1))
+}
+
+/// The user's rollout bucket for `flag`, in `0..100`. A user is inside a
+/// rollout of `p` percent when their bucket is below `p`.
+fn rollout_bucket(flag_key: &str, user_key: &str) -> u32 {
+    // Hashes the bytes of `"{flag_key}:{user_key}"` without building that string.
+    murmurhash3_x86_32_concat(&[flag_key.as_bytes(), b":", user_key.as_bytes()], 0) % 100
 }
 
 /// Prerequisite chains deeper than this are treated as unsatisfied (fail closed).
@@ -268,33 +286,208 @@ const MAX_PREREQUISITE_DEPTH: usize = 10;
 /// saved before that check, or written by other means.
 const MAX_PREREQUISITE_EVALUATIONS: u32 = 1_000;
 
+/// Why an evaluation resolved the way it did. The vocabulary follows the
+/// [OpenFeature resolution reasons](https://openfeature.dev/specification/types#resolution-reason),
+/// plus the two outcomes OpenFeature has no standard word for.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
+pub enum Reason {
+    /// The flag is switched off (`is_enabled: false`).
+    Disabled,
+    /// A prerequisite was not satisfied, so the flag resolved as disabled.
+    PrerequisiteFailed,
+    /// A targeting rule matched (see [`Explanation::rule_index`]).
+    TargetingMatch,
+    /// The user's rollout bucket is outside the rollout percentage, so the
+    /// flag resolved as disabled (see [`Explanation::rollout_bucket`]).
+    RolloutExcluded,
+    /// The outcome was decided by hashing the user key: the user passed a
+    /// partial rollout, or was assigned a weighted variant.
+    Split,
+    /// The flag has targeting rules, none matched, and the user got the
+    /// flag's default value.
+    Default,
+    /// The flag has no rules, partial rollout or variants: every user gets
+    /// the same value.
+    Static,
+}
+
+/// How one prerequisite of the explained flag was judged.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PrerequisiteOutcome {
+    /// The prerequisite flag resolved as required.
+    Satisfied,
+    /// The prerequisite flag resolved, but not as required.
+    Unsatisfied,
+    /// No flag with that key exists (fails closed).
+    NotFound,
+    /// The depth or evaluation limit was reached before it could be
+    /// evaluated (fails closed).
+    LimitExceeded,
+}
+
+/// One prerequisite of the explained flag, in the order they were checked.
+/// Checking stops at the first prerequisite that is not satisfied, so later
+/// ones are absent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct PrerequisiteCheck {
+    pub flag_key: String,
+    pub outcome: PrerequisiteOutcome,
+    /// The value the prerequisite must resolve to; `None` means "enabled".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_value: Option<FlagValue>,
+    /// What the prerequisite resolved to; `None` when it was not evaluated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<EvalResult>,
+}
+
+/// An evaluation together with the path that produced it: the same result
+/// [`evaluate_variant`] returns, from the same code, plus why.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub struct Explanation {
+    pub enabled: bool,
+    pub value: FlagValue,
+    pub reason: Reason,
+    /// Index into `Flag::rules` of the rule that matched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_index: Option<usize>,
+    /// The user's rollout bucket (`0..100`) when a partial rollout
+    /// (`0 < rollout_percentage < 100`) was checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout_bucket: Option<u32>,
+    /// Index into `Flag::variants` of the weighted variant assigned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant_index: Option<usize>,
+    /// The flag's own prerequisites as they were checked (not those of
+    /// prerequisites further down the chain).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prerequisites: Vec<PrerequisiteCheck>,
+}
+
+impl Explanation {
+    /// The plain result, as [`evaluate_variant`] returns it.
+    #[must_use]
+    pub fn result(&self) -> EvalResult {
+        EvalResult {
+            enabled: self.enabled,
+            value: self.value.clone(),
+        }
+    }
+}
+
+/// Observes the decisions one evaluation makes. [`evaluate_variant`] runs with
+/// [`NoTrace`], whose empty methods compile away, so the hot path is the same
+/// machine code it was before explanations existed; [`explain`] runs the very
+/// same function with a recorder. One evaluator, two views of it.
+trait Trace {
+    fn reason(&mut self, _reason: Reason) {}
+    fn rule(&mut self, _index: usize) {}
+    fn rollout_bucket(&mut self, _bucket: u32) {}
+    fn variant(&mut self, _index: usize) {}
+    /// Only called for the top-level flag's own prerequisites.
+    fn prerequisite(&mut self, _check: PrerequisiteCheck) {}
+    /// Whether [`Trace::prerequisite`] does anything; lets the caller skip
+    /// building the check (it clones values) when nobody records it.
+    fn records_prerequisites(&self) -> bool {
+        false
+    }
+}
+
+struct NoTrace;
+impl Trace for NoTrace {}
+
+#[derive(Default)]
+struct Recorder {
+    reason: Option<Reason>,
+    rule_index: Option<usize>,
+    rollout_bucket: Option<u32>,
+    variant_index: Option<usize>,
+    prerequisites: Vec<PrerequisiteCheck>,
+}
+
+impl Trace for Recorder {
+    fn reason(&mut self, reason: Reason) {
+        self.reason = Some(reason);
+    }
+    fn rule(&mut self, index: usize) {
+        self.rule_index = Some(index);
+    }
+    fn rollout_bucket(&mut self, bucket: u32) {
+        self.rollout_bucket = Some(bucket);
+    }
+    fn variant(&mut self, index: usize) {
+        self.variant_index = Some(index);
+    }
+    fn prerequisite(&mut self, check: PrerequisiteCheck) {
+        self.prerequisites.push(check);
+    }
+    fn records_prerequisites(&self) -> bool {
+        true
+    }
+}
+
 /// Evaluate a flag and return both the on/off result and the resolved variant value.
 /// Use this for non-boolean flags (string / integer / JSON variants). `store` is
 /// used to resolve the flag's prerequisites (if any) — pass the same store the
 /// flag itself was looked up from.
 pub fn evaluate_variant(flag: &Flag, user_context: &UserContext, store: &FlagStore) -> EvalResult {
     let mut budget = MAX_PREREQUISITE_EVALUATIONS;
-    evaluate_variant_at_depth(flag, user_context, store, 0, &mut budget)
+    evaluate_variant_at_depth(flag, user_context, store, 0, &mut budget, &mut NoTrace)
 }
 
-fn evaluate_variant_at_depth(
+/// Evaluate a flag and report why it resolved as it did: the reason, the
+/// matched rule, the rollout bucket, the weighted variant and the outcome of
+/// each prerequisite. The result is the one [`evaluate_variant`] returns for
+/// the same inputs, computed by the same code. Costs more than
+/// `evaluate_variant` (it records the path), so use it for debugging and
+/// detailed SDK APIs, not as the default evaluation.
+#[must_use]
+pub fn explain(flag: &Flag, user_context: &UserContext, store: &FlagStore) -> Explanation {
+    let mut budget = MAX_PREREQUISITE_EVALUATIONS;
+    let mut recorder = Recorder::default();
+    let result =
+        evaluate_variant_at_depth(flag, user_context, store, 0, &mut budget, &mut recorder);
+    Explanation {
+        enabled: result.enabled,
+        value: result.value,
+        // Every return path of the evaluator reports a reason; `Disabled` is
+        // the fail-closed answer should one ever be added without it.
+        reason: recorder.reason.unwrap_or(Reason::Disabled),
+        rule_index: recorder.rule_index,
+        rollout_bucket: recorder.rollout_bucket,
+        variant_index: recorder.variant_index,
+        prerequisites: recorder.prerequisites,
+    }
+}
+
+fn evaluate_variant_at_depth<T: Trace>(
     flag: &Flag,
     user_context: &UserContext,
     store: &FlagStore,
     depth: usize,
     budget: &mut u32,
+    trace: &mut T,
 ) -> EvalResult {
     if !flag.is_enabled {
+        trace.reason(Reason::Disabled);
         return disabled_result(flag);
     }
 
-    if !prerequisites_satisfied(flag, user_context, store, depth, budget) {
+    if !prerequisites_satisfied(flag, user_context, store, depth, budget, trace) {
+        trace.reason(Reason::PrerequisiteFailed);
         return disabled_result(flag);
     }
 
     // Targeting rules — first match wins; per-rule variant overrides the flag default.
-    for rule in &flag.rules {
+    for (index, rule) in flag.rules.iter().enumerate() {
         if rule_matches(rule, user_context) {
+            trace.reason(Reason::TargetingMatch);
+            trace.rule(index);
             let value = rule
                 .variant
                 .clone()
@@ -308,30 +501,43 @@ fn evaluate_variant_at_depth(
     }
 
     // Rollout bucket check
+    let mut hashed = false;
     if let Some(percentage) = flag.rollout_percentage {
         if percentage == 0 {
+            trace.reason(Reason::RolloutExcluded);
             return disabled_result(flag);
         }
         if percentage < 100 {
-            // Hashes the bytes of `"{flag.key}:{user_context.key}"` without
-            // building that string.
-            let hash_val = murmurhash3_x86_32_concat(
-                &[flag.key.as_bytes(), b":", user_context.key.as_bytes()],
-                0,
-            );
-            if hash_val % 100 >= percentage {
+            let bucket = rollout_bucket(&flag.key, &user_context.key);
+            trace.rollout_bucket(bucket);
+            if bucket >= percentage {
+                trace.reason(Reason::RolloutExcluded);
                 return disabled_result(flag);
             }
+            hashed = true;
         }
     }
 
-    let value = if !flag.variants.is_empty() {
-        pick_weighted_variant(&flag.key, &user_context.key, &flag.variants)
+    let value =
+        if let Some(index) = weighted_variant_index(&flag.key, &user_context.key, &flag.variants) {
+            trace.variant(index);
+            hashed = true;
+            flag.variants
+                .get(index)
+                .map(|v| v.value.clone())
+                .unwrap_or(FlagValue::Null)
+        } else {
+            flag.default_value
+                .clone()
+                .unwrap_or_else(|| enabled_default(flag))
+        };
+    trace.reason(if hashed {
+        Reason::Split
+    } else if flag.rules.is_empty() {
+        Reason::Static
     } else {
-        flag.default_value
-            .clone()
-            .unwrap_or_else(|| enabled_default(flag))
-    };
+        Reason::Default
+    });
 
     EvalResult {
         enabled: true,
@@ -345,26 +551,49 @@ fn evaluate_variant_at_depth(
 /// cycles, e.g. A requires B, B requires A), or a prerequisite reached after the
 /// evaluation's `MAX_PREREQUISITE_EVALUATIONS` budget is spent, is treated as
 /// unsatisfied. Stops at the first unsatisfied prerequisite.
-fn prerequisites_satisfied(
+///
+/// `trace` sees only this flag's own prerequisites; flags further down the
+/// chain are evaluated untraced.
+fn prerequisites_satisfied<T: Trace>(
     flag: &Flag,
     user_context: &UserContext,
     store: &FlagStore,
     depth: usize,
     budget: &mut u32,
+    trace: &mut T,
 ) -> bool {
     if flag.prerequisites.is_empty() {
         return true;
     }
+    let record = trace.records_prerequisites();
+    let report = |trace: &mut T,
+                  prereq: &Prerequisite,
+                  outcome: PrerequisiteOutcome,
+                  result: Option<&EvalResult>| {
+        if record {
+            trace.prerequisite(PrerequisiteCheck {
+                flag_key: prereq.flag_key.clone(),
+                outcome,
+                required_value: prereq.required_value.clone(),
+                result: result.cloned(),
+            });
+        }
+    };
     if depth >= MAX_PREREQUISITE_DEPTH {
+        if let Some(first) = flag.prerequisites.first() {
+            report(trace, first, PrerequisiteOutcome::LimitExceeded, None);
+        }
         return false;
     }
 
     for prereq in &flag.prerequisites {
         let Some(remaining) = budget.checked_sub(1) else {
+            report(trace, prereq, PrerequisiteOutcome::LimitExceeded, None);
             return false;
         };
         *budget = remaining;
         let Some(prereq_flag) = store.get_flag(&prereq.flag_key) else {
+            report(trace, prereq, PrerequisiteOutcome::NotFound, None);
             return false;
         };
         let result = evaluate_variant_at_depth(
@@ -373,11 +602,18 @@ fn prerequisites_satisfied(
             store,
             depth.saturating_add(1),
             budget,
+            &mut NoTrace,
         );
         let satisfied = match &prereq.required_value {
             Some(required) => result.enabled && &result.value == required,
             None => result.enabled,
         };
+        let outcome = if satisfied {
+            PrerequisiteOutcome::Satisfied
+        } else {
+            PrerequisiteOutcome::Unsatisfied
+        };
+        report(trace, prereq, outcome, Some(&result));
         if !satisfied {
             return false;
         }
@@ -1559,5 +1795,281 @@ mod tests {
             evaluate_variant(&json_flag, &ctx, &store).value,
             FlagValue::Json(json)
         );
+    }
+
+    // -----------------------------------------------------------------
+    // explain(): same result as evaluate_variant, plus the path taken
+    // -----------------------------------------------------------------
+
+    fn ctx(key: &str, attrs: &[(&str, &str)]) -> UserContext {
+        UserContext {
+            key: key.into(),
+            attributes: attrs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+        }
+    }
+
+    fn rule(attribute: &str, operator: Operator, values: &[&str]) -> TargetingRule {
+        TargetingRule {
+            attribute: attribute.into(),
+            operator,
+            values: values.iter().map(|v| (*v).to_owned()).collect(),
+            segment_key: None,
+            variant: None,
+        }
+    }
+
+    #[test]
+    fn explain_reports_matched_rule_index() {
+        let flag = bool_flag(
+            "f",
+            true,
+            Some(0),
+            vec![
+                rule("plan", Operator::Equals, &["pro"]),
+                rule("country", Operator::Equals, &["PH"]),
+            ],
+        );
+        let e = explain(&flag, &ctx("u", &[("country", "PH")]), &FlagStore::new());
+        assert_eq!(e.reason, Reason::TargetingMatch);
+        assert_eq!(e.rule_index, Some(1));
+        assert!(e.enabled);
+        let e = explain(&flag, &ctx("u", &[]), &FlagStore::new());
+        assert_eq!(e.reason, Reason::RolloutExcluded);
+        assert_eq!(e.rule_index, None);
+        assert_eq!(e.rollout_bucket, None, "0% is decided without hashing");
+    }
+
+    #[test]
+    fn explain_reports_rollout_bucket_consistently_with_the_gate() {
+        let flag = bool_flag("gate", true, Some(40), vec![]);
+        for i in 0..500 {
+            let e = explain(&flag, &ctx(&format!("user{i}"), &[]), &FlagStore::new());
+            let bucket = e.rollout_bucket.expect("partial rollout is hashed");
+            assert!(bucket < 100);
+            assert_eq!(e.enabled, bucket < 40);
+            assert_eq!(
+                e.reason,
+                if e.enabled {
+                    Reason::Split
+                } else {
+                    Reason::RolloutExcluded
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn explain_reports_static_default_and_variant() {
+        let store = FlagStore::new();
+        let plain = bool_flag("plain", true, None, vec![]);
+        assert_eq!(
+            explain(&plain, &ctx("u", &[]), &store).reason,
+            Reason::Static
+        );
+        let full = bool_flag("full", true, Some(100), vec![]);
+        assert_eq!(
+            explain(&full, &ctx("u", &[]), &store).reason,
+            Reason::Static
+        );
+        let ruled = bool_flag(
+            "ruled",
+            true,
+            None,
+            vec![rule("a", Operator::Equals, &["b"])],
+        );
+        assert_eq!(
+            explain(&ruled, &ctx("u", &[]), &store).reason,
+            Reason::Default
+        );
+
+        let mut weighted = bool_flag("w", true, None, vec![]);
+        weighted.flag_type = FlagType::String;
+        weighted.variants = vec![
+            WeightedVariant {
+                weight: 1,
+                value: FlagValue::Str("x".into()),
+            },
+            WeightedVariant {
+                weight: 1,
+                value: FlagValue::Str("y".into()),
+            },
+        ];
+        let e = explain(&weighted, &ctx("u", &[]), &store);
+        assert_eq!(e.reason, Reason::Split);
+        let index = e.variant_index.unwrap();
+        assert_eq!(e.value, weighted.variants[index].value);
+    }
+
+    #[test]
+    fn explain_reports_prerequisites_and_stops_at_the_first_failure() {
+        let store = FlagStore::new();
+        store.upsert_flag(bool_flag("on", true, None, vec![]));
+        store.upsert_flag(bool_flag("off", false, None, vec![]));
+        let mut flag = bool_flag("child", true, None, vec![]);
+        flag.prerequisites = vec![
+            Prerequisite {
+                flag_key: "on".into(),
+                required_value: None,
+            },
+            Prerequisite {
+                flag_key: "off".into(),
+                required_value: None,
+            },
+            Prerequisite {
+                flag_key: "never-checked".into(),
+                required_value: None,
+            },
+        ];
+        let e = explain(&flag, &ctx("u", &[]), &store);
+        assert_eq!(e.reason, Reason::PrerequisiteFailed);
+        assert!(!e.enabled);
+        let outcomes: Vec<_> = e
+            .prerequisites
+            .iter()
+            .map(|p| (p.flag_key.as_str(), p.outcome))
+            .collect();
+        assert_eq!(
+            outcomes,
+            vec![
+                ("on", PrerequisiteOutcome::Satisfied),
+                ("off", PrerequisiteOutcome::Unsatisfied)
+            ]
+        );
+        assert_eq!(
+            e.prerequisites[1].result,
+            Some(EvalResult {
+                enabled: false,
+                value: FlagValue::Bool(false)
+            })
+        );
+
+        flag.prerequisites = vec![Prerequisite {
+            flag_key: "ghost".into(),
+            required_value: None,
+        }];
+        let e = explain(&flag, &ctx("u", &[]), &store);
+        assert_eq!(e.prerequisites[0].outcome, PrerequisiteOutcome::NotFound);
+        assert_eq!(e.prerequisites[0].result, None);
+    }
+
+    #[test]
+    fn explain_reports_a_cycle_as_a_failed_prerequisite() {
+        let store = FlagStore::new();
+        let mut a = bool_flag("a", true, None, vec![]);
+        a.prerequisites = vec![Prerequisite {
+            flag_key: "b".into(),
+            required_value: None,
+        }];
+        let mut b = bool_flag("b", true, None, vec![]);
+        b.prerequisites = vec![Prerequisite {
+            flag_key: "a".into(),
+            required_value: None,
+        }];
+        store.upsert_flag(a.clone());
+        store.upsert_flag(b);
+        let e = explain(&a, &ctx("u", &[]), &store);
+        assert_eq!(e.reason, Reason::PrerequisiteFailed);
+        // The direct prerequisite was evaluated (and failed further down).
+        assert_eq!(e.prerequisites[0].outcome, PrerequisiteOutcome::Unsatisfied);
+    }
+
+    #[test]
+    fn explanation_serializes_with_the_documented_wire_names() {
+        let flag = bool_flag("f", true, Some(50), vec![]);
+        let e = explain(&flag, &ctx("u", &[]), &FlagStore::new());
+        let v = serde_json::to_value(&e).unwrap();
+        assert!(v["reason"] == "SPLIT" || v["reason"] == "ROLLOUT_EXCLUDED");
+        assert!(v["rollout_bucket"].is_u64());
+        assert!(v.get("rule_index").is_none(), "absent fields are omitted");
+        assert!(v.get("prerequisites").is_none());
+    }
+
+    /// A deterministic stream of pseudo-random numbers (no new dependency).
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self, bound: u64) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 33) % bound
+        }
+    }
+
+    #[test]
+    fn explain_agrees_with_evaluate_variant_on_random_configurations() {
+        let ops = [
+            Operator::Equals,
+            Operator::NotEquals,
+            Operator::Contains,
+            Operator::StartsWith,
+            Operator::EndsWith,
+            Operator::GreaterThan,
+            Operator::GreaterThanOrEqual,
+            Operator::LessThan,
+            Operator::LessThanOrEqual,
+        ];
+        let words = ["1", "5", "10", "pro", "free", "ph", "x"];
+        let mut rng = Lcg(0x5eed);
+        for round in 0..300 {
+            let store = FlagStore::new();
+            let count = 6;
+            for i in 0..count {
+                let mut f = bool_flag(&format!("f{i}"), rng.next(5) != 0, None, vec![]);
+                f.rollout_percentage = match rng.next(4) {
+                    0 => None,
+                    1 => Some(0),
+                    2 => Some(100),
+                    _ => Some(u32::try_from(rng.next(100)).unwrap()),
+                };
+                for _ in 0..rng.next(3) {
+                    let mut r = rule(
+                        ["a", "b", "c"][usize::try_from(rng.next(3)).unwrap()],
+                        ops[usize::try_from(rng.next(9)).unwrap()].clone(),
+                        &[words[usize::try_from(rng.next(7)).unwrap()]],
+                    );
+                    if rng.next(2) == 0 {
+                        r.variant = Some(FlagValue::Str("rule".into()));
+                    }
+                    f.rules.push(r);
+                }
+                if rng.next(3) == 0 {
+                    f.flag_type = FlagType::String;
+                    f.variants = (0..rng.next(4))
+                        .map(|w| WeightedVariant {
+                            weight: u32::try_from(rng.next(5)).unwrap(),
+                            value: FlagValue::Str(format!("v{w}")),
+                        })
+                        .collect();
+                }
+                for _ in 0..rng.next(3) {
+                    f.prerequisites.push(Prerequisite {
+                        flag_key: format!("f{}", rng.next(count + 1)),
+                        required_value: None,
+                    });
+                }
+                store.upsert_flag(f);
+            }
+            for u in 0..20 {
+                let c = ctx(
+                    &format!("r{round}u{u}"),
+                    &[
+                        ("a", words[usize::try_from(rng.next(7)).unwrap()]),
+                        ("b", words[usize::try_from(rng.next(7)).unwrap()]),
+                    ],
+                );
+                for f in store.list_flags() {
+                    let e = explain(&f, &c, &store);
+                    assert_eq!(e.result(), evaluate_variant(&f, &c, &store));
+                    assert_eq!(e.rule_index.is_some(), e.reason == Reason::TargetingMatch);
+                    if let Some(i) = e.rule_index {
+                        assert!(rule_matches(&f.rules[i], &c));
+                    }
+                }
+            }
+        }
     }
 }

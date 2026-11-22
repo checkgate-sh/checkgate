@@ -31,6 +31,12 @@ if [ "$WHICH" = all ] || [ "$WHICH" = flutter ]; then
   lib="$ROOT/target/debug/libflutter.so"; [ -f "$lib" ] || lib="$ROOT/target/debug/libflutter.dylib"
   export CHECKGATE_FLUTTER_LIB="$lib"
 fi
+if [ "$WHICH" = all ] || [ "$WHICH" = python ]; then
+  # The adapter uses $PYTHON, else sdks/python/.venv; the package must be installed there.
+  py="${PYTHON:-$ROOT/sdks/python/.venv/bin/python}"
+  "$py" -c "import checkgate" 2>/dev/null || {
+    echo "Python SDK not installed in $py: (cd sdks/python && maturin develop --release)" >&2; exit 1; }
+fi
 
 LOG="$(mktemp)"
 SESSION_SECRET=live-e2e-0123456789-0123456789-0123456789-0123456789 \
@@ -50,7 +56,7 @@ if [ "$rc" -ne 0 ]; then echo "=== server log (tail) ==="; tail -50 "$LOG"; fi
 
 # Server restart (SIGKILL) with each SDK connected: a second instance on the
 # same database, started and killed by the check itself.
-if [ "$WHICH" = all ]; then SDKS="node web react-native flutter"; else SDKS="$WHICH"; fi
+if [ "$WHICH" = all ]; then SDKS="node web react-native flutter python"; else SDKS="$WHICH"; fi
 for sdk in $SDKS; do
   CHECKGATE_SERVER_BIN="$ROOT/target/debug/server" CHECKGATE_E2E_SESSION="$SESSION" \
     RESTART_PORT=$((PORT + 1)) DATABASE_URL="$DATABASE_URL" REDIS_URL="$REDIS_URL" \

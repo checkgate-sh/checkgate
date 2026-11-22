@@ -20,7 +20,7 @@ Requires Node 18+ (it uses the built-in `fetch`) and has zero runtime dependenci
 ## Usage
 
 ```bash
-checkgate typegen --lang <langs> [source] [output]
+checkgate typegen --lang <langs> [source options] [output options]
 ```
 
 ### Read from a running server
@@ -39,7 +39,7 @@ Connection details can also come from the environment: `CHECKGATE_URL`, `CHECKGA
 
 ### Read from a local JSON file
 
-A local `/flags` API export needs no network — ideal for CI:
+A local `/flags` API export needs no network, which suits CI:
 
 ```bash
 checkgate typegen --lang ts,dart,rust --input flags.json --out-dir ./generated
@@ -116,7 +116,7 @@ jobs:
           CHECKGATE_ENV: ${{ vars.CHECKGATE_ENV }}
           CHECKGATE_TOKEN: ${{ secrets.CHECKGATE_TOKEN }}
         run: >
-          npx --yes @checkgate/cli@0.1.31 typegen --lang ts -o src/flags.ts
+          npx --yes @checkgate/cli@0.2.0 typegen --lang ts -o src/flags.ts
           --check --json > checkgate-typegen.json
       - name: Keep the report
         if: always()
@@ -133,7 +133,7 @@ jobs:
   ("Missing access token"). If you take fork PRs, commit a flags export and check against it
   with `--input flags.json` instead of `--url`.
 - The step's log names the stale files (stderr); the JSON report is the artifact.
-- Pin the CLI version (`@0.1.31` above) so generated output only changes when you bump it.
+- Pin the CLI version (`@0.2.0` above) so generated output only changes when you bump it.
 
 ## JSON result (`--json`)
 
@@ -144,7 +144,7 @@ cannot share stdout.
 ```json
 {
   "schema_version": 1,
-  "tool": { "name": "@checkgate/cli", "version": "0.1.31" },
+  "tool": { "name": "@checkgate/cli", "version": "0.2.0" },
   "command": "typegen",
   "mode": "check",
   "status": "out_of_date",
@@ -230,7 +230,7 @@ import { typedFlags } from './flags'
 const flags = typedFlags(new CheckgateClient({ /* … */ }))
 
 const color = flags.getValue('checkout-color', userId) // typed as string
-flags.getValue('chekout-color', userId)                // ❌ compile error — typo caught
+flags.getValue('chekout-color', userId)                // compile error: typo caught
 ```
 
 ### Dart
