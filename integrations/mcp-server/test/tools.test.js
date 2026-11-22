@@ -30,7 +30,7 @@ test('read-only by default: write tools are not registered at all', async () => 
   } finally { await s.close() }
 })
 
-test('CHECKGATE_MCP_WRITE=1 adds exactly the four proposal tools — no approve/reject/delete/raw HTTP', async () => {
+test('CHECKGATE_MCP_WRITE=1 adds exactly the three proposal tools — no approve/reject/delete/raw HTTP', async () => {
   const s = await connect({ write: true })
   try {
     const names = (await s.client.listTools()).tools.map((t) => t.name)
